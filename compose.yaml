@@ -1,0 +1,16 @@
+services:
+  ssdd-mcp:
+    build: .
+    image: ssdd-mcp:local
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    stdin_open: true
+    tty: false
+    volumes:
+      - ssdd-data:/data
+    command: ["stdio", "--workspace", "/data"]
+
+volumes:
+  ssdd-data:

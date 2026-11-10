@@ -1,0 +1,61 @@
+{
+  "name": "ssdd-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Servidor MCP para desenvolvimento guiado por especificações.",
+  "type": "module",
+  "bin": {
+    "ssdd-mcp": "./dist/src/cli.js"
+  },
+  "files": [
+    "dist/src/",
+    "docs/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": "^24.0.0 || ^26.0.0",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json && node scripts/copy-dashboard-assets.mjs",
+    "check": "npm run lint && npm run typecheck && npm test",
+    "demo": "npm run build && node examples/workflow-demo.mjs",
+    "demo:release": "npm run build && node --test --test-reporter=spec dist/tests/release/release-e2e.test.js",
+    "benchmark:metrics": "npm run build && node scripts/benchmark-metrics.mjs",
+    "lint": "eslint .",
+    "start": "node dist/src/cli.js stdio",
+    "test": "npm run build && node --test \"dist/tests/**/*.test.js\"",
+    "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "better-sqlite3": "12.11.1",
+    "jose": "6.2.16",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@cucumber/gherkin": "42.0.1",
+    "@eslint/js": "10.0.1",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "24.19.2",
+    "eslint": "10.14.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2"
+  },
+  "overrides": {
+    "eslint": {
+      "minimatch": "11.0.1"
+    },
+    "@eslint/config-array": {
+      "minimatch": "11.0.1"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.1"
+    }
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
+  }
+}

@@ -1,0 +1,80 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Node ${{ matrix.node }} · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [24, 26]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Audit locked dependencies
+        run: npm audit --audit-level=moderate
+
+      - name: Lint, typecheck and test
+        run: npm run check
+
+  package-and-container:
+    name: Package install and persistent container volume
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies and build
+        run: npm ci && npm run build
+
+      - name: Install generated tarball in a clean prefix
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          npm install --global --prefix "$RUNNER_TEMP/npm-prefix" "$RUNNER_TEMP/ssdd-mcp-0.1.0.tgz"
+          "$RUNNER_TEMP/npm-prefix/bin/ssdd-mcp" --version
+          "$RUNNER_TEMP/npm-prefix/bin/ssdd-mcp" init --workspace "$RUNNER_TEMP/package-workspace" --key CI --name "CI package smoke test" --goal "Verify installed package" --timezone UTC
+          "$RUNNER_TEMP/npm-prefix/bin/ssdd-mcp" doctor --workspace "$RUNNER_TEMP/package-workspace" | jq -e '.status == "ok" and .projectCount == 1'
+
+      - name: Build image and verify data across fresh containers
+        run: |
+          docker compose config --quiet
+          docker compose config --format json | jq -e '
+            .services["ssdd-mcp"].read_only == true
+            and .services["ssdd-mcp"].init == true
+            and ((.services["ssdd-mcp"].ports // []) | length) == 0
+            and any(.services["ssdd-mcp"].volumes[]; .type == "volume" and .source == "ssdd-data" and .target == "/data")
+          '
+          docker build --tag ssdd-mcp:ci .
+          docker image inspect --format '{{json .Config}}' ssdd-mcp:ci | jq -e '.User == "node" and (.Volumes | has("/data")) and (.Env | any(. == "NODE_ENV=production"))'
+          docker volume create ssdd-ci-data
+          trap 'docker volume rm --force ssdd-ci-data' EXIT
+          docker run --rm --volume ssdd-ci-data:/data ssdd-mcp:ci init --workspace /data --key CI --name "CI container smoke test" --goal "Verify persistent volume" --timezone UTC
+          docker run --rm --volume ssdd-ci-data:/data ssdd-mcp:ci doctor --workspace /data | jq -e '.status == "ok" and .projectCount == 1'

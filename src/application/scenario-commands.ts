@@ -1,0 +1,556 @@
+import { randomUUID } from "node:crypto";
+import type {
+  ScenarioCoverageTarget,
+  ScenarioKind,
+  ScenarioRevision,
+  ScenarioSnapshot,
+  ScenarioStep,
+  TestRun,
+  TestRunResult,
+} from "../domain/scenarios.js";
+import type { SqliteDatabase } from "../storage-sqlite/database.js";
+import { ApplicationError } from "./errors.js";
+import { executeIdempotentCommand, type CommandReceipt } from "./idempotent-command.js";
+import { assertProjectAuthorization } from "./local-identity.js";
+import { findScenario, resolveCriterion, toRevision } from "./scenario-queries.js";
+
+export interface ScenarioContentInput {
+  readonly title: string;
+  readonly preconditions?: readonly string[];
+  readonly steps: readonly ScenarioStep[];
+  readonly coverage?: readonly { readonly targetType: "criterion" | "specification"; readonly reference: string }[];
+}
+
+export interface CreateScenarioInput extends ScenarioContentInput {
+  readonly projectId: string;
+  readonly principalId: string;
+  readonly requestId: string;
+  readonly key: string;
+  readonly kind: ScenarioKind;
+}
+
+export interface ReviseScenarioInput extends ScenarioContentInput {
+  readonly projectId: string;
+  readonly principalId: string;
+  readonly requestId: string;
+  readonly scenarioIdOrKey: string;
+  readonly expectedVersion: number;
+}
+
+export interface PublishScenarioRevisionInput {
+  readonly projectId: string;
+  readonly principalId: string;
+  readonly requestId: string;
+  readonly scenarioIdOrKey: string;
+  readonly revisionNumber: number;
+  readonly expectedVersion: number;
+}
+
+export interface RecordTestRunInput {
+  readonly projectId: string;
+  readonly principalId: string;
+  readonly requestId: string;
+  readonly scenarioIdOrKey: string;
+  readonly revisionNumber: number;
+  readonly buildId: string;
+  readonly result: TestRunResult;
+  readonly notes?: string;
+  readonly evidenceUri?: string;
+}
+
+interface ScenarioRevisionRow {
+  readonly revision_id: string;
+  readonly project_id: string;
+  readonly scenario_id: string;
+  readonly scenario_key: string;
+  readonly kind: ScenarioKind;
+  readonly revision_number: number;
+  readonly status: "draft" | "published" | "superseded";
+  readonly snapshot_json: string;
+  readonly created_by_principal_id: string;
+  readonly created_at: string;
+  readonly published_by_principal_id: string | null;
+  readonly published_at: string | null;
+}
+
+export function createScenario(
+  database: SqliteDatabase,
+  input: CreateScenarioInput,
+): CommandReceipt<ScenarioRevision> {
+  const key = input.key.trim().toUpperCase();
+  const kind = input.kind;
+  const content = normalizeContent(input);
+  const payloadContent = toJsonContent(content);
+  if (!/^[A-Z][A-Z0-9._-]{0,31}$/.test(key)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Scenario keys must use 1-32 letters, digits, dots, underscores or dashes.");
+  }
+  const coverageReferences = normalizeCoverageReferences(input.coverage ?? []);
+
+  return executeIdempotentCommand(database, {
+    projectId: input.projectId,
+    principalId: input.principalId,
+    action: "scenario.create",
+    requestId: input.requestId,
+    payload: {
+      projectId: input.projectId,
+      key,
+      kind,
+      content: payloadContent,
+      coverage: coverageReferences.map((entry) => ({ ...entry })),
+    },
+    requiredRoles: ["qa"],
+    auditEvent: (revision) => ({
+      projectId: input.projectId,
+      principalId: input.principalId,
+      eventType: "scenario.created",
+      entityType: "scenario",
+      entityId: revision.scenarioId,
+      payload: { key, kind, revisionNumber: 1 },
+    }),
+    execute: () => {
+      const duplicate = database
+        .prepare("SELECT scenario_id FROM scenarios WHERE project_id = ? AND scenario_key = ? COLLATE NOCASE")
+        .get(input.projectId, key);
+      if (duplicate !== undefined) {
+        throw new ApplicationError("SCENARIO_KEY_CONFLICT", `Scenario key '${key}' already exists in this project.`);
+      }
+      const id = randomUUID();
+      const revisionId = randomUUID();
+      const now = new Date().toISOString();
+      const snapshot = resolveCoverage(database, input.projectId, content, coverageReferences);
+      database.prepare(
+        `INSERT INTO scenarios
+          (scenario_id, project_id, scenario_key, kind, title, version, created_by_principal_id, created_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+      ).run(id, input.projectId, key, kind, content.title, input.principalId, now);
+      database.prepare(
+        `INSERT INTO scenario_revisions
+          (revision_id, project_id, scenario_id, revision_number, status, snapshot_json,
+           created_by_principal_id, created_at)
+         VALUES (?, ?, ?, 1, 'draft', ?, ?, ?)`,
+      ).run(revisionId, input.projectId, id, JSON.stringify(snapshot), input.principalId, now);
+      insertCoverage(database, input.projectId, id, 1, snapshot.coverage);
+      return {
+        id: revisionId,
+        projectId: input.projectId,
+        scenarioId: id,
+        key,
+        kind,
+        revisionNumber: 1,
+        status: "draft",
+        snapshot,
+        createdByPrincipalId: input.principalId,
+        createdAt: now,
+        publishedByPrincipalId: null,
+        publishedAt: null,
+      };
+    },
+  });
+}
+
+export function proposeScenarioRevision(
+  database: SqliteDatabase,
+  input: ReviseScenarioInput,
+): CommandReceipt<ScenarioRevision> {
+  const reference = input.scenarioIdOrKey.trim();
+  assertProjectAuthorization(database, input.projectId, input.principalId);
+  const scenario = findScenario(database, input.projectId, reference);
+  if (scenario === undefined) {
+    throw new ApplicationError("NOT_FOUND", "Scenario was not found.");
+  }
+  const content = normalizeContent(input);
+  const payloadContent = toJsonContent(content);
+  const coverageReferences = normalizeCoverageReferences(input.coverage ?? []);
+  return executeIdempotentCommand(database, {
+    projectId: input.projectId,
+    principalId: input.principalId,
+    action: "scenario.revision.propose",
+    requestId: input.requestId,
+    payload: {
+      projectId: input.projectId,
+      scenarioId: scenario.scenario_id,
+      expectedVersion: input.expectedVersion,
+      content: payloadContent,
+      coverage: coverageReferences.map((entry) => ({ ...entry })),
+    },
+    requiredRoles: ["qa"],
+    auditEvent: (revision) => ({
+      projectId: input.projectId,
+      principalId: input.principalId,
+      eventType: "scenario.revision_proposed",
+      entityType: "scenario",
+      entityId: scenario.scenario_id,
+      payload: { key: scenario.scenario_key, revisionNumber: revision.revisionNumber },
+    }),
+    execute: () => {
+      assertVersion(scenario.version, input.expectedVersion);
+      const draft = database.prepare(
+        "SELECT revision_number FROM scenario_revisions WHERE project_id = ? AND scenario_id = ? AND status = 'draft'",
+      ).get(input.projectId, scenario.scenario_id);
+      if (draft !== undefined) {
+        throw new ApplicationError("VALIDATION_FAILED", "Publish the open scenario revision before proposing another one.");
+      }
+      const published = database.prepare(
+        `SELECT snapshot_json FROM scenario_revisions
+         WHERE project_id = ? AND scenario_id = ? AND status = 'published'`,
+      ).get(input.projectId, scenario.scenario_id) as { snapshot_json: string } | undefined;
+      if (published === undefined) {
+        throw new ApplicationError("VALIDATION_FAILED", "Publish the initial scenario revision before revising it.");
+      }
+      const snapshot = resolveCoverage(database, input.projectId, content, coverageReferences);
+      const previousSnapshot = JSON.parse(published.snapshot_json) as ScenarioSnapshot;
+      if (JSON.stringify(snapshot) === JSON.stringify(previousSnapshot)) {
+        throw new ApplicationError("VALIDATION_FAILED", "The proposed revision does not change the published scenario.");
+      }
+      const latest = database.prepare(
+        "SELECT MAX(revision_number) AS revision FROM scenario_revisions WHERE project_id = ? AND scenario_id = ?",
+      ).get(input.projectId, scenario.scenario_id) as { revision: number };
+      const revisionNumber = latest.revision + 1;
+      const revisionId = randomUUID();
+      const now = new Date().toISOString();
+      database.prepare(
+        `INSERT INTO scenario_revisions
+          (revision_id, project_id, scenario_id, revision_number, status, snapshot_json,
+           created_by_principal_id, created_at)
+         VALUES (?, ?, ?, ?, 'draft', ?, ?, ?)`,
+      ).run(revisionId, input.projectId, scenario.scenario_id, revisionNumber, JSON.stringify(snapshot), input.principalId, now);
+      insertCoverage(database, input.projectId, scenario.scenario_id, revisionNumber, snapshot.coverage);
+      incrementScenarioVersion(database, input.projectId, scenario.scenario_id, input.expectedVersion);
+      return {
+        id: revisionId,
+        projectId: input.projectId,
+        scenarioId: scenario.scenario_id,
+        key: scenario.scenario_key,
+        kind: scenario.kind,
+        revisionNumber,
+        status: "draft",
+        snapshot,
+        createdByPrincipalId: input.principalId,
+        createdAt: now,
+        publishedByPrincipalId: null,
+        publishedAt: null,
+      };
+    },
+  });
+}
+
+export function publishScenarioRevision(
+  database: SqliteDatabase,
+  input: PublishScenarioRevisionInput,
+): CommandReceipt<ScenarioRevision> {
+  const reference = input.scenarioIdOrKey.trim();
+  assertProjectAuthorization(database, input.projectId, input.principalId);
+  const scenario = findScenario(database, input.projectId, reference);
+  if (scenario === undefined) {
+    throw new ApplicationError("NOT_FOUND", "Scenario was not found.");
+  }
+  return executeIdempotentCommand(database, {
+    projectId: input.projectId,
+    principalId: input.principalId,
+    action: "scenario.revision.publish",
+    requestId: input.requestId,
+    payload: {
+      projectId: input.projectId,
+      scenarioId: scenario.scenario_id,
+      revisionNumber: input.revisionNumber,
+      expectedVersion: input.expectedVersion,
+    },
+    requiredRoles: ["qa"],
+    auditEvent: (revision) => ({
+      projectId: input.projectId,
+      principalId: input.principalId,
+      eventType: "scenario.revision_published",
+      entityType: "scenario",
+      entityId: scenario.scenario_id,
+      payload: { key: scenario.scenario_key, revisionNumber: revision.revisionNumber },
+    }),
+    execute: () => {
+      assertVersion(scenario.version, input.expectedVersion);
+      const row = database.prepare(
+        `SELECT r.revision_id, r.project_id, r.scenario_id, s.scenario_key, s.kind,
+                r.revision_number, r.status, r.snapshot_json,
+                r.created_by_principal_id, r.created_at,
+                r.published_by_principal_id, r.published_at
+         FROM scenario_revisions r INNER JOIN scenarios s
+           ON s.project_id = r.project_id AND s.scenario_id = r.scenario_id
+         WHERE r.project_id = ? AND r.scenario_id = ? AND r.revision_number = ?`,
+      ).get(input.projectId, scenario.scenario_id, input.revisionNumber) as ScenarioRevisionRow | undefined;
+      if (row === undefined) {
+        throw new ApplicationError("NOT_FOUND", "Scenario revision was not found.");
+      }
+      if (row.status !== "draft") {
+        throw new ApplicationError("VALIDATION_FAILED", "Only a draft scenario revision can be published.");
+      }
+      const latest = database.prepare(
+        "SELECT MAX(revision_number) AS revision FROM scenario_revisions WHERE project_id = ? AND scenario_id = ?",
+      ).get(input.projectId, scenario.scenario_id) as { revision: number };
+      if (latest.revision !== row.revision_number) {
+        throw new ApplicationError("VALIDATION_FAILED", "Only the latest scenario revision can be published.");
+      }
+      const principal = database.prepare("SELECT principal_type FROM principals WHERE principal_id = ?")
+        .get(input.principalId) as { principal_type: string } | undefined;
+      if (principal?.principal_type !== "human") {
+        throw new ApplicationError("FORBIDDEN", "Only a human QA principal may publish a scenario revision.");
+      }
+
+      const oldPublished = database.prepare(
+        `UPDATE scenario_revisions SET status = 'superseded'
+         WHERE project_id = ? AND scenario_id = ? AND status = 'published'`,
+      ).run(input.projectId, scenario.scenario_id);
+      if (oldPublished.changes > 1) {
+        throw new ApplicationError("VALIDATION_FAILED", "The scenario has more than one published revision.");
+      }
+      const now = new Date().toISOString();
+      const publication = database.prepare(
+        `UPDATE scenario_revisions
+         SET status = 'published', published_by_principal_id = ?, published_at = ?
+         WHERE project_id = ? AND scenario_id = ? AND revision_number = ? AND status = 'draft'`,
+      ).run(input.principalId, now, input.projectId, scenario.scenario_id, input.revisionNumber);
+      if (publication.changes !== 1) {
+        throw new ApplicationError("VALIDATION_FAILED", "The scenario revision is no longer a draft.");
+      }
+      const snapshot = JSON.parse(row.snapshot_json) as ScenarioSnapshot;
+      const versionUpdate = database.prepare(
+        `UPDATE scenarios SET title = ?, version = version + 1
+         WHERE project_id = ? AND scenario_id = ? AND version = ?`,
+      ).run(snapshot.title, input.projectId, scenario.scenario_id, input.expectedVersion);
+      if (versionUpdate.changes !== 1) {
+        const current = database.prepare(
+          "SELECT version FROM scenarios WHERE project_id = ? AND scenario_id = ?",
+        ).get(input.projectId, scenario.scenario_id) as { version: number } | undefined;
+        if (current === undefined) {
+          throw new ApplicationError("NOT_FOUND", "Scenario was not found.");
+        }
+        assertVersion(current.version, input.expectedVersion);
+      }
+      return {
+        ...toRevision(row),
+        status: "published",
+        snapshot,
+        publishedByPrincipalId: input.principalId,
+        publishedAt: now,
+      };
+    },
+  });
+}
+
+export function recordTestRun(
+  database: SqliteDatabase,
+  input: RecordTestRunInput,
+): CommandReceipt<TestRun> {
+  const scenarioReference = input.scenarioIdOrKey.trim();
+  const buildId = input.buildId.trim();
+  const notes = input.notes?.trim() || null;
+  const evidenceUri = input.evidenceUri?.trim() || null;
+  if (buildId.length === 0 || buildId.length > 128) {
+    throw new ApplicationError("VALIDATION_FAILED", "Build ID must contain between 1 and 128 characters.");
+  }
+  if ((notes?.length ?? 0) > 2_000 || (evidenceUri?.length ?? 0) > 2_048) {
+    throw new ApplicationError("VALIDATION_FAILED", "Run notes or evidence URI exceed their allowed length.");
+  }
+  return executeIdempotentCommand(database, {
+    projectId: input.projectId,
+    principalId: input.principalId,
+    action: "test_run.record",
+    requestId: input.requestId,
+    payload: {
+      projectId: input.projectId,
+      scenarioIdOrKey: scenarioReference,
+      revisionNumber: input.revisionNumber,
+      buildId,
+      result: input.result,
+      notes,
+      evidenceUri,
+    },
+    requiredRoles: ["developer", "qa"],
+    auditEvent: (run) => ({
+      projectId: input.projectId,
+      principalId: input.principalId,
+      eventType: "test_run.recorded",
+      entityType: "test_run",
+      entityId: run.id,
+      payload: {
+        scenarioId: run.scenarioId,
+        scenarioKey: run.scenarioKey,
+        revisionNumber: run.revisionNumber,
+        buildId: run.buildId,
+        result: run.result,
+      },
+    }),
+    execute: () => {
+      const scenario = findScenario(database, input.projectId, scenarioReference);
+      if (scenario === undefined) {
+        throw new ApplicationError("NOT_FOUND", "Scenario was not found.");
+      }
+      if (!Number.isSafeInteger(input.revisionNumber) || input.revisionNumber < 1) {
+        throw new ApplicationError("VALIDATION_FAILED", "Revision number must be a positive integer.");
+      }
+      const revision = database.prepare(
+        `SELECT status FROM scenario_revisions
+         WHERE project_id = ? AND scenario_id = ? AND revision_number = ?`,
+      ).get(input.projectId, scenario.scenario_id, input.revisionNumber) as { status: string } | undefined;
+      if (revision === undefined) {
+        throw new ApplicationError("NOT_FOUND", "Scenario revision was not found.");
+      }
+      if (revision.status !== "published" && revision.status !== "superseded") {
+        throw new ApplicationError("VALIDATION_FAILED", "A run must reference a published scenario revision.");
+      }
+      const run: TestRun = {
+        id: randomUUID(),
+        projectId: input.projectId,
+        scenarioId: scenario.scenario_id,
+        scenarioKey: scenario.scenario_key,
+        revisionNumber: input.revisionNumber,
+        buildId,
+        result: input.result,
+        notes,
+        evidenceUri,
+        executedByPrincipalId: input.principalId,
+        executedAt: new Date().toISOString(),
+      };
+      database.prepare(
+        `INSERT INTO test_runs
+          (run_id, project_id, scenario_id, revision_number, build_id, result, notes, evidence_uri,
+           executed_by_principal_id, executed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        run.id,
+        run.projectId,
+        run.scenarioId,
+        run.revisionNumber,
+        run.buildId,
+        run.result,
+        run.notes,
+        run.evidenceUri,
+        run.executedByPrincipalId,
+        run.executedAt,
+      );
+      return run;
+    },
+  });
+}
+
+function normalizeContent(input: ScenarioContentInput): Omit<ScenarioSnapshot, "coverage"> {
+  const title = input.title.trim();
+  const preconditions = (input.preconditions ?? []).map((condition) => condition.trim());
+  const steps = input.steps.map((step) => ({ action: step.action.trim(), expected: step.expected.trim() }));
+  if (title.length === 0 || title.length > 200) {
+    throw new ApplicationError("VALIDATION_FAILED", "Scenario title must contain 1-200 characters.");
+  }
+  if (preconditions.length > 20 || preconditions.some((condition) => condition.length === 0 || condition.length > 1000)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Scenarios allow up to 20 preconditions of 1-1000 characters.");
+  }
+  if (steps.length === 0 || steps.length > 100 || steps.some((step) =>
+    step.action.length === 0 || step.action.length > 2000 || step.expected.length === 0 || step.expected.length > 2000,
+  )) {
+    throw new ApplicationError("VALIDATION_FAILED", "Scenarios require 1-100 steps with action and expected text up to 2000 characters.");
+  }
+  return { title, preconditions, steps };
+}
+
+function toJsonContent(content: Omit<ScenarioSnapshot, "coverage">): {
+  readonly title: string;
+  readonly preconditions: string[];
+  readonly steps: Array<{ action: string; expected: string }>;
+} {
+  return {
+    title: content.title,
+    preconditions: [...content.preconditions],
+    steps: content.steps.map((step) => ({ action: step.action, expected: step.expected })),
+  };
+}
+
+function normalizeCoverageReferences(
+  coverage: readonly { readonly targetType: "criterion" | "specification"; readonly reference: string }[],
+): readonly { readonly targetType: "criterion" | "specification"; readonly reference: string }[] {
+  if (coverage.length > 100) {
+    throw new ApplicationError("VALIDATION_FAILED", "A scenario can cover up to 100 criteria or specifications.");
+  }
+  const seen = new Set<string>();
+  return coverage.map((entry) => {
+    const reference = entry.reference.trim();
+    if (reference.length === 0 || reference.length > 120) {
+      throw new ApplicationError("VALIDATION_FAILED", "Coverage references must contain 1-120 characters.");
+    }
+    const identity = `${entry.targetType}:${reference.toLowerCase()}`;
+    if (seen.has(identity)) {
+      throw new ApplicationError("VALIDATION_FAILED", "Coverage targets must be unique within a revision.");
+    }
+    seen.add(identity);
+    return { targetType: entry.targetType, reference };
+  });
+}
+
+function resolveCoverage(
+  database: SqliteDatabase,
+  projectId: string,
+  content: Omit<ScenarioSnapshot, "coverage">,
+  references: readonly { readonly targetType: "criterion" | "specification"; readonly reference: string }[],
+): ScenarioSnapshot {
+  const coverage = references.map((entry): ScenarioCoverageTarget => ({
+    targetType: entry.targetType,
+    targetId: entry.targetType === "criterion"
+      ? resolveCriterion(database, projectId, entry.reference)
+      : resolveSpecification(database, projectId, entry.reference),
+  }));
+  return { ...content, coverage };
+}
+
+function resolveSpecification(database: SqliteDatabase, projectId: string, reference: string): string {
+  const row = database.prepare(
+    `SELECT spec_id FROM specifications
+     WHERE project_id = ? AND (spec_id = ? OR spec_key = ? COLLATE NOCASE)`,
+  ).get(projectId, reference, reference) as { spec_id: string } | undefined;
+  if (row === undefined) {
+    throw new ApplicationError("NOT_FOUND", "Coverage specification was not found in this project.");
+  }
+  return row.spec_id;
+}
+
+function insertCoverage(
+  database: SqliteDatabase,
+  projectId: string,
+  scenarioId: string,
+  revisionNumber: number,
+  coverage: readonly ScenarioCoverageTarget[],
+): void {
+  const insert = database.prepare(
+    `INSERT INTO scenario_revision_coverage
+      (project_id, scenario_id, revision_number, target_type, target_id)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+  for (const target of coverage) {
+    insert.run(projectId, scenarioId, revisionNumber, target.targetType, target.targetId);
+  }
+}
+
+function assertVersion(actual: number, expected: number): void {
+  if (!Number.isSafeInteger(expected) || expected < 1) {
+    throw new ApplicationError("VALIDATION_FAILED", "Expected version must be a positive integer.");
+  }
+  if (actual !== expected) {
+    throw new ApplicationError("VERSION_CONFLICT", "The scenario changed since it was read.", {
+      details: { expectedVersion: expected, actualVersion: actual },
+    });
+  }
+}
+
+function incrementScenarioVersion(
+  database: SqliteDatabase,
+  projectId: string,
+  scenarioId: string,
+  expectedVersion: number,
+): void {
+  const result = database.prepare(
+    "UPDATE scenarios SET version = version + 1 WHERE project_id = ? AND scenario_id = ? AND version = ?",
+  ).run(projectId, scenarioId, expectedVersion);
+  if (result.changes !== 1) {
+    const current = database.prepare(
+      "SELECT version FROM scenarios WHERE project_id = ? AND scenario_id = ?",
+    ).get(projectId, scenarioId) as { version: number } | undefined;
+    if (current === undefined) {
+      throw new ApplicationError("NOT_FOUND", "Scenario was not found.");
+    }
+    assertVersion(current.version, expectedVersion);
+  }
+}

@@ -1,0 +1,10 @@
+.git
+.github
+.ssdd
+coverage
+dist
+node_modules
+npm-debug.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

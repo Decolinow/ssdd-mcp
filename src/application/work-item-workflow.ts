@@ -1,0 +1,801 @@
+import { randomUUID } from "node:crypto";
+import type { WorkItemState } from "../domain/work-items.js";
+import { workItemStates } from "../domain/work-items.js";
+import type {
+  EvidenceKind,
+  TestRunCertification,
+  WorkItemEvidence,
+  WorkItemGateReport,
+  WorkItemTransition,
+  WorkflowGate,
+} from "../domain/workflow.js";
+import { evidenceKinds } from "../domain/workflow.js";
+import type { SqliteDatabase } from "../storage-sqlite/database.js";
+import { createBaselineForReadyTransition } from "./baseline-commands.js";
+import { ApplicationError } from "./errors.js";
+import { executeIdempotentCommand, type CommandReceipt } from "./idempotent-command.js";
+import { assertProjectAuthorization, type ProjectRole } from "./local-identity.js";
+import { getWorkItem } from "./work-item-queries.js";
+
+export interface TransitionWorkItemInput {
+  readonly projectId: string;
+  readonly principalId: string;
+  readonly requestId: string;
+  readonly itemIdOrKey: string;
+  readonly targetState: WorkItemState;
+  readonly expectedVersion: number;
+  readonly reason: string;
+  readonly buildId?: string;
+}
+
+export interface AddWorkItemEvidenceInput {
+  readonly projectId: string;
+  readonly principalId: string;
+  readonly requestId: string;
+  readonly itemIdOrKey: string;
+  readonly kind: EvidenceKind;
+  readonly uri: string;
+  readonly buildId?: string;
+  readonly description: string;
+}
+
+export interface ListWorkItemEvidenceInput {
+  readonly projectId: string;
+  readonly principalId: string;
+  readonly itemIdOrKey: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface CertifyTestRunInput {
+  readonly projectId: string;
+  readonly principalId: string;
+  readonly requestId: string;
+  readonly itemIdOrKey: string;
+  readonly runId: string;
+  readonly expectedVersion: number;
+  readonly reason: string;
+}
+
+interface EvidenceCursor {
+  readonly version: 1;
+  readonly projectId: string;
+  readonly principalId: string;
+  readonly itemId: string;
+  readonly watermark: number;
+  readonly afterSequence: number;
+}
+
+interface EvidenceRow {
+  readonly evidence_id: string;
+  readonly project_id: string;
+  readonly item_id: string;
+  readonly item_key: string;
+  readonly baseline_id: string | null;
+  readonly kind: EvidenceKind;
+  readonly uri: string;
+  readonly build_id: string | null;
+  readonly description: string;
+  readonly added_by_principal_id: string;
+  readonly created_at: string;
+}
+
+const allowedTransitions: Readonly<Record<WorkItemState, readonly WorkItemState[]>> = {
+  draft: ["ready", "cancelled"],
+  ready: ["in_progress", "cancelled"],
+  in_progress: ["in_review", "cancelled"],
+  in_review: ["in_validation", "in_progress", "cancelled"],
+  in_validation: ["done", "in_progress", "cancelled"],
+  done: ["in_progress"],
+  cancelled: [],
+};
+
+const transitionRoles: Readonly<Record<WorkItemState, readonly ProjectRole[]>> = {
+  draft: [],
+  ready: ["po"],
+  in_progress: ["developer", "qa", "po"],
+  in_review: ["developer"],
+  in_validation: ["developer"],
+  done: ["developer"],
+  cancelled: ["po"],
+};
+
+export function getWorkItemGateReport(
+  database: SqliteDatabase,
+  input: {
+    readonly projectId: string;
+    readonly principalId: string;
+    readonly itemIdOrKey: string;
+    readonly targetState: "ready" | "done";
+    readonly buildId?: string;
+  },
+): WorkItemGateReport {
+  const item = getWorkItem(database, input.projectId, input.principalId, input.itemIdOrKey.trim());
+  return evaluateGates(database, item, input.principalId, input.targetState, input.buildId?.trim() || null);
+}
+
+export function transitionWorkItem(
+  database: SqliteDatabase,
+  input: TransitionWorkItemInput,
+): CommandReceipt<{
+  readonly transition: WorkItemTransition;
+  readonly baseline: { readonly id: string; readonly sequence: number } | null;
+}> {
+  const reference = input.itemIdOrKey.trim();
+  const reason = normalizeText(input.reason, 1_000, "A transition reason must contain 1-1000 characters.");
+  const buildId = normalizeOptionalText(input.buildId, 128, "Build ID must contain 1-128 characters.");
+  if (!workItemStates.includes(input.targetState)) {
+    throw new ApplicationError("VALIDATION_FAILED", "The target work item state is invalid.");
+  }
+  const initialItem = getWorkItem(database, input.projectId, input.principalId, reference);
+  const roles = input.targetState === "ready" && initialItem.type === "task"
+    ? ["developer", "qa"] as const
+    : transitionRoles[input.targetState];
+  if (roles.length === 0) {
+    throw new ApplicationError("INVALID_TRANSITION", "The requested state has no incoming workflow transition.");
+  }
+
+  return executeIdempotentCommand(database, {
+    projectId: input.projectId,
+    principalId: input.principalId,
+    action: "work_item.transition",
+    requestId: input.requestId,
+    payload: {
+      projectId: input.projectId,
+      itemId: initialItem.id,
+      targetState: input.targetState,
+      expectedVersion: input.expectedVersion,
+      reason,
+      buildId,
+    },
+    requiredRoles: roles,
+    auditEvent: (result) => ({
+      projectId: input.projectId,
+      principalId: input.principalId,
+      eventType: "work_item.state_transitioned",
+      entityType: "work_item",
+      entityId: result.transition.itemId,
+      reason,
+      payload: {
+        transitionId: result.transition.id,
+        fromState: result.transition.fromState,
+        toState: result.transition.toState,
+        itemVersion: result.transition.itemVersion,
+        baselineId: result.transition.baselineId,
+        buildId,
+      },
+    }),
+    execute: () => {
+      const item = getWorkItem(database, input.projectId, input.principalId, initialItem.id);
+      assertExpectedVersion(item.version, input.expectedVersion);
+      const fromState = item.state as WorkItemState;
+      if (!allowedTransitions[fromState]?.includes(input.targetState)) {
+        throw new ApplicationError("INVALID_TRANSITION", `Transition from '${fromState}' to '${input.targetState}' is not allowed.`, {
+          details: { fromState, targetState: input.targetState, allowed: allowedTransitions[fromState] ?? [] },
+        });
+      }
+      if (input.targetState === "in_progress" && fromState === "done") {
+        assertProjectAuthorization(database, input.projectId, input.principalId, ["po", "qa"]);
+      }
+      if (["ready", "done", "cancelled"].includes(input.targetState) || fromState === "done") {
+        assertHumanPrincipal(database, input.principalId, "Only a human principal may approve this workflow transition.");
+      }
+      if (input.targetState === "ready" || input.targetState === "done") {
+        const report = evaluateGates(database, item, input.principalId, input.targetState, buildId);
+        if (!report.canProceed) {
+          throw new ApplicationError("GATE_BLOCKED", `The work item cannot transition to '${input.targetState}'.`, { details: report });
+        }
+      }
+      if (input.targetState === "in_progress") {
+        assertDependenciesComplete(database, input.projectId, item.id);
+      }
+
+      const now = new Date().toISOString();
+      const update = database.prepare(
+        `UPDATE work_items SET state = ?, version = version + 1, updated_at = ?
+         WHERE project_id = ? AND item_id = ? AND version = ?`,
+      ).run(input.targetState, now, input.projectId, item.id, input.expectedVersion);
+      if (update.changes !== 1) {
+        throw new ApplicationError("VERSION_CONFLICT", "The work item changed during the transition.");
+      }
+
+      let createdBaseline: ReturnType<typeof createBaselineForReadyTransition> | undefined;
+      if (input.targetState === "ready" && (item.type === "story" || item.type === "bug")) {
+        createdBaseline = createBaselineForReadyTransition(database, {
+          projectId: input.projectId,
+          principalId: input.principalId,
+          itemId: item.id,
+          reason,
+        });
+      }
+      const baselineId = createdBaseline?.id ?? baselineIdForItem(database, input.projectId, item.id);
+      const transition: WorkItemTransition = {
+        id: randomUUID(),
+        projectId: input.projectId,
+        itemId: item.id,
+        itemKey: item.key,
+        fromState,
+        toState: input.targetState,
+        itemVersion: input.expectedVersion + 1,
+        baselineId,
+        buildId,
+        reason,
+        transitionedByPrincipalId: input.principalId,
+        transitionedAt: now,
+      };
+      database.prepare(
+        `INSERT INTO work_item_state_transitions
+          (transition_id, project_id, item_id, from_state, to_state, item_version, baseline_id,
+           build_id, reason, transitioned_by_principal_id, transitioned_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        transition.id, transition.projectId, transition.itemId, transition.fromState, transition.toState,
+        transition.itemVersion, transition.baselineId, transition.buildId, transition.reason,
+        transition.transitionedByPrincipalId, transition.transitionedAt,
+      );
+      return {
+        transition,
+        baseline: createdBaseline === undefined ? null : { id: createdBaseline.id, sequence: createdBaseline.sequence },
+      };
+    },
+  });
+}
+
+export function addWorkItemEvidence(
+  database: SqliteDatabase,
+  input: AddWorkItemEvidenceInput,
+): CommandReceipt<WorkItemEvidence> {
+  const item = getWorkItem(database, input.projectId, input.principalId, input.itemIdOrKey.trim());
+  if (!evidenceKinds.includes(input.kind)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Evidence kind is invalid.");
+  }
+  const uri = normalizeText(input.uri, 2_048, "Evidence URI must contain 1-2048 characters.");
+  if (!/^[A-Za-z][A-Za-z0-9+.-]*:[^\s]+$/.test(uri)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Evidence URI must be an absolute URI with a scheme.");
+  }
+  const description = normalizeText(input.description, 2_000, "Evidence description must contain 1-2000 characters.");
+  const buildId = normalizeOptionalText(input.buildId, 128, "Build ID must contain 1-128 characters.");
+  const baselineId = baselineIdForItem(database, input.projectId, item.id);
+
+  return executeIdempotentCommand(database, {
+    projectId: input.projectId,
+    principalId: input.principalId,
+    action: "work_item.evidence.add",
+    requestId: input.requestId,
+    payload: {
+      projectId: input.projectId,
+      itemId: item.id,
+      kind: input.kind,
+      uri,
+      buildId,
+      description,
+      baselineId,
+    },
+    requiredRoles: ["po", "developer", "qa", "tech_lead"],
+    auditEvent: (evidence) => ({
+      projectId: input.projectId,
+      principalId: input.principalId,
+      eventType: "work_item.evidence_added",
+      entityType: "work_item",
+      entityId: evidence.itemId,
+      reason: description,
+      payload: { evidenceId: evidence.id, kind: evidence.kind, buildId: evidence.buildId, baselineId: evidence.baselineId },
+    }),
+    execute: () => {
+      const currentItem = getWorkItem(database, input.projectId, input.principalId, item.id);
+      if (currentItem.state === "cancelled") {
+        throw new ApplicationError("INVALID_TRANSITION", "Evidence cannot be added to a cancelled work item.");
+      }
+      const currentBaselineId = baselineIdForItem(database, input.projectId, item.id);
+      if (currentBaselineId !== baselineId) {
+        throw new ApplicationError("VERSION_CONFLICT", "The work item baseline changed before evidence was recorded.");
+      }
+      const evidence: WorkItemEvidence = {
+        id: randomUUID(),
+        projectId: input.projectId,
+        itemId: item.id,
+        itemKey: item.key,
+        baselineId,
+        kind: input.kind,
+        uri,
+        buildId,
+        description,
+        addedByPrincipalId: input.principalId,
+        createdAt: new Date().toISOString(),
+      };
+      database.prepare(
+        `INSERT INTO evidence
+          (evidence_id, project_id, item_id, baseline_id, kind, uri, build_id, description,
+           added_by_principal_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        evidence.id, evidence.projectId, evidence.itemId, evidence.baselineId, evidence.kind,
+        evidence.uri, evidence.buildId, evidence.description, evidence.addedByPrincipalId, evidence.createdAt,
+      );
+      return evidence;
+    },
+  });
+}
+
+export function listWorkItemEvidence(
+  database: SqliteDatabase,
+  input: ListWorkItemEvidenceInput,
+): { readonly evidence: readonly WorkItemEvidence[]; readonly nextCursor: string | null } {
+  assertProjectAuthorization(database, input.projectId, input.principalId);
+  const item = getWorkItem(database, input.projectId, input.principalId, input.itemIdOrKey.trim());
+  const limit = input.limit ?? 25;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new ApplicationError("VALIDATION_FAILED", "Evidence page size must be an integer between 1 and 100.");
+  }
+  const watermarkRow = database.prepare(
+    "SELECT COALESCE(MAX(sequence), 0) AS watermark FROM evidence WHERE project_id = ? AND item_id = ?",
+  ).get(input.projectId, item.id) as { watermark: number };
+  const cursor = input.cursor === undefined ? undefined : decodeEvidenceCursor(input.cursor);
+  if (cursor !== undefined) {
+    if (cursor.projectId !== input.projectId || cursor.principalId !== input.principalId || cursor.itemId !== item.id) {
+      throw new ApplicationError("VALIDATION_FAILED", "The evidence cursor belongs to another query.");
+    }
+    if (cursor.watermark !== watermarkRow.watermark) {
+      throw new ApplicationError("STALE_CURSOR", "Project data changed after this evidence page was read.");
+    }
+  }
+  const rows = database.prepare(
+    `SELECT e.evidence_id, e.project_id, e.item_id, wi.item_key, e.baseline_id, e.kind, e.uri,
+            e.build_id, e.description, e.added_by_principal_id, e.created_at, e.sequence
+     FROM evidence e INNER JOIN work_items wi ON wi.project_id = e.project_id AND wi.item_id = e.item_id
+     WHERE e.project_id = ? AND e.item_id = ? AND e.sequence > ? AND e.sequence <= ?
+     ORDER BY e.sequence LIMIT ?`,
+  ).all(input.projectId, item.id, cursor?.afterSequence ?? 0, watermarkRow.watermark, limit + 1) as Array<EvidenceRow & { sequence: number }>;
+  const hasMore = rows.length > limit;
+  const page = rows.slice(0, limit);
+  const evidence = page.map(toEvidence);
+  const last = page.at(-1);
+  return {
+    evidence,
+    nextCursor: hasMore && last !== undefined
+      ? encodeEvidenceCursor({
+        version: 1,
+        projectId: input.projectId,
+        principalId: input.principalId,
+        itemId: item.id,
+        watermark: watermarkRow.watermark,
+        afterSequence: last.sequence,
+      })
+      : null,
+  };
+}
+
+export function certifyTestRun(
+  database: SqliteDatabase,
+  input: CertifyTestRunInput,
+): CommandReceipt<TestRunCertification & { readonly version: number }> {
+  const item = getWorkItem(database, input.projectId, input.principalId, input.itemIdOrKey.trim());
+  const reason = normalizeText(input.reason, 1_000, "Certification reason must contain 1-1000 characters.");
+  if (item.type !== "story" && item.type !== "bug") {
+    throw new ApplicationError("VALIDATION_FAILED", "QA certification is attached to a story or bug baseline.");
+  }
+  const runId = input.runId.trim();
+  return executeIdempotentCommand(database, {
+    projectId: input.projectId,
+    principalId: input.principalId,
+    action: "test_run.certify",
+    requestId: input.requestId,
+    payload: {
+      projectId: input.projectId,
+      itemId: item.id,
+      runId,
+      expectedVersion: input.expectedVersion,
+      reason,
+    },
+    requiredRoles: ["qa"],
+    auditEvent: (certification) => ({
+      projectId: input.projectId,
+      principalId: input.principalId,
+      eventType: "test_run.certified",
+      entityType: "test_run",
+      entityId: certification.runId,
+      reason,
+      payload: { itemId: certification.itemId, baselineId: certification.baselineId, certificationId: certification.id },
+    }),
+    execute: () => {
+      const current = getWorkItem(database, input.projectId, input.principalId, item.id);
+      assertExpectedVersion(current.version, input.expectedVersion);
+      if (current.state !== "in_validation") {
+        throw new ApplicationError("INVALID_TRANSITION", "A test run can only be certified while its PBI is in validation.");
+      }
+      assertHumanPrincipal(database, input.principalId, "Only a human QA principal may certify a test run.");
+      const baselineId = baselineIdForItem(database, input.projectId, item.id);
+      if (baselineId === null) {
+        throw new ApplicationError("GATE_BLOCKED", "A PBI must have a Ready baseline before test runs can be certified.");
+      }
+      const run = database.prepare(
+        `SELECT run_id, scenario_id, revision_number, build_id, result, sequence
+         FROM test_runs WHERE project_id = ? AND run_id = ?`,
+      ).get(input.projectId, runId) as {
+        run_id: string; scenario_id: string; revision_number: number; build_id: string; result: string; sequence: number;
+      } | undefined;
+      if (run === undefined) throw new ApplicationError("NOT_FOUND", "Test run was not found in this project.");
+      if (run.result !== "passed") {
+        throw new ApplicationError("GATE_BLOCKED", "Only a passing test run can be certified.", {
+          details: { runId, result: run.result },
+        });
+      }
+      const baselineCoverage = database.prepare(
+        `SELECT 1 FROM baseline_refs
+         WHERE project_id = ? AND baseline_id = ? AND entity_type = 'scenario_revision'
+           AND entity_id = ? AND revision_number = ?`,
+      ).get(input.projectId, baselineId, run.scenario_id, run.revision_number);
+      if (baselineCoverage === undefined) {
+        throw new ApplicationError("GATE_BLOCKED", "The test run does not belong to a scenario revision in the current baseline.");
+      }
+      const latestRun = database.prepare(
+        `SELECT MAX(sequence) AS sequence FROM test_runs
+         WHERE project_id = ? AND scenario_id = ? AND revision_number = ? AND build_id = ?`,
+      ).get(input.projectId, run.scenario_id, run.revision_number, run.build_id) as { sequence: number };
+      if (latestRun.sequence !== run.sequence) {
+        throw new ApplicationError("VERSION_CONFLICT", "A newer run exists for this scenario revision and build; certify the latest run.");
+      }
+      const existing = database.prepare(
+        `SELECT certification_id FROM test_run_certifications
+         WHERE project_id = ? AND item_id = ? AND baseline_id = ? AND run_id = ?`,
+      ).get(input.projectId, item.id, baselineId, runId);
+      if (existing !== undefined) {
+        throw new ApplicationError("VALIDATION_FAILED", "This run is already certified for the current baseline.");
+      }
+      const certification: TestRunCertification = {
+        id: randomUUID(),
+        projectId: input.projectId,
+        itemId: item.id,
+        itemKey: item.key,
+        baselineId,
+        runId,
+        certifiedByPrincipalId: input.principalId,
+        reason,
+        certifiedAt: new Date().toISOString(),
+      };
+      database.prepare(
+        `INSERT INTO test_run_certifications
+          (certification_id, project_id, item_id, baseline_id, run_id, certified_by_principal_id, reason, certified_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        certification.id, certification.projectId, certification.itemId, certification.baselineId,
+        certification.runId, certification.certifiedByPrincipalId, certification.reason, certification.certifiedAt,
+      );
+      const updated = database.prepare(
+        `UPDATE work_items SET version = version + 1, updated_at = ?
+         WHERE project_id = ? AND item_id = ? AND version = ?`,
+      ).run(certification.certifiedAt, input.projectId, item.id, input.expectedVersion);
+      if (updated.changes !== 1) throw new ApplicationError("VERSION_CONFLICT", "The PBI changed while the run was being certified.");
+      return { ...certification, version: input.expectedVersion + 1 };
+    },
+  });
+}
+
+function evaluateGates(
+  database: SqliteDatabase,
+  item: ReturnType<typeof getWorkItem>,
+  principalId: string,
+  targetState: "ready" | "done",
+  buildId: string | null,
+): WorkItemGateReport {
+  const gates: WorkflowGate[] = [];
+  if (targetState === "ready") {
+    evaluateReadyGates(database, item, principalId, gates);
+  } else {
+    evaluateDoneGates(database, item, buildId, gates);
+  }
+  if (targetState === "done") {
+    evaluateDependencies(database, item.projectId, item.id, gates);
+  }
+  return {
+    itemId: item.id,
+    itemKey: item.key,
+    itemType: item.type,
+    currentState: item.state,
+    targetState,
+    buildId,
+    gates,
+    canProceed: gates.every((gate) => gate.passed),
+  };
+}
+
+function evaluateReadyGates(
+  database: SqliteDatabase,
+  item: ReturnType<typeof getWorkItem>,
+  principalId: string,
+  gates: WorkflowGate[],
+): void {
+  if (item.type === "story" || item.type === "bug") {
+    const published = database.prepare(
+      `SELECT 1 FROM work_item_revisions
+       WHERE project_id = ? AND item_id = ? AND status = 'published'`,
+    ).get(item.projectId, item.id) !== undefined;
+    addGate(gates, "published-content", published, published ? "A published PBI revision is available." : "Publish PBI content before Ready.");
+
+    addGate(gates, "acceptance-criteria", item.criteria.length > 0, item.criteria.length > 0
+      ? "The PBI has acceptance criteria."
+      : "Add acceptance criteria before Ready.");
+    const missingCoverage = item.criteria
+      .filter((criterion) => criterion.required)
+      .filter((criterion) => !hasPublishedCriterionScenario(database, item.projectId, criterion.id))
+      .map((criterion) => criterion.key);
+    addGate(gates, "required-criterion-coverage", missingCoverage.length === 0,
+      missingCoverage.length === 0 ? "Every required criterion has a published scenario." : "Required criteria need a published scenario.",
+      { uncoveredCriteria: missingCoverage });
+    const confirmedPoints = item.estimates.some((estimate) => estimate.unit === "points");
+    addGate(gates, "confirmed-estimate", confirmedPoints, confirmedPoints
+      ? "The PBI has a confirmed point estimate."
+      : "Confirm a point estimate before Ready.");
+    const unpublishedSpecs = database.prepare(
+      `SELECT s.spec_key FROM trace_links l
+       INNER JOIN specifications s ON s.project_id = l.project_id AND s.spec_id = l.target_id
+       WHERE l.project_id = ? AND l.source_id = ? AND l.link_type = 'implements' AND l.removed_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM specification_revisions r
+           WHERE r.project_id = s.project_id AND r.spec_id = s.spec_id AND r.status = 'published'
+         ) ORDER BY s.spec_key COLLATE NOCASE`,
+    ).all(item.projectId, item.id) as Array<{ spec_key: string }>;
+    addGate(gates, "published-specifications", unpublishedSpecs.length === 0,
+      unpublishedSpecs.length === 0 ? "All linked specifications have a published revision." : "Publish linked specifications before Ready.",
+      { unpublishedSpecifications: unpublishedSpecs.map((row) => row.spec_key) });
+    addGate(gates, "first-baseline", baselineIdForItem(database, item.projectId, item.id) === null,
+      "A first Ready transition creates the baseline automatically.");
+    return;
+  }
+
+  if (item.type === "task") {
+    const parent = item.parentId === null ? undefined : getWorkItem(database, item.projectId, principalId, item.parentId);
+    const parentReady = parent !== undefined && (parent.state === "ready" || parent.state === "in_progress");
+    addGate(gates, "parent-pbi-ready", parentReady, parentReady
+      ? "The parent PBI is Ready or in progress."
+      : "The parent PBI must be Ready before the task can be prepared.");
+    const taskBaseline = parent === undefined ? null : baselineIdForItem(database, item.projectId, parent.id);
+    addGate(gates, "parent-baseline", taskBaseline !== null, taskBaseline !== null
+      ? "The task inherits its PBI baseline."
+      : "The parent PBI must have a fixed baseline.");
+    addGate(gates, "task-assignee", item.assigneeId !== null, item.assigneeId !== null
+      ? "The task has an eligible assignee."
+      : "Assign a Developer or QA before Ready.");
+    const hasDescription = item.description !== null && item.description.trim().length > 0;
+    addGate(gates, "task-output", hasDescription, hasDescription
+      ? "The task describes its expected output."
+      : "Describe the task's expected output before Ready.");
+    return;
+  }
+  addGate(gates, "aggregate-item", true, "Aggregate work items do not require PBI or task preparation gates.");
+}
+
+function evaluateDoneGates(
+  database: SqliteDatabase,
+  item: ReturnType<typeof getWorkItem>,
+  buildId: string | null,
+  gates: WorkflowGate[],
+): void {
+  if (item.type === "story" || item.type === "bug") {
+    const baselineId = baselineIdForItem(database, item.projectId, item.id);
+    addGate(gates, "ready-baseline", baselineId !== null, baselineId === null
+      ? "A PBI baseline is required before Done."
+      : "The PBI has a fixed baseline.");
+    if (baselineId === null) return;
+    const openImpacts = database.prepare(
+      "SELECT impact_id, specification_id, published_revision FROM impact_flags WHERE project_id = ? AND item_id = ? AND status = 'open' ORDER BY created_at",
+    ).all(item.projectId, item.id) as Array<{ impact_id: string; specification_id: string; published_revision: number }>;
+    addGate(gates, "baseline-impacts", openImpacts.length === 0,
+      openImpacts.length === 0 ? "The baseline has no open specification impacts." : "Revalidate open specification impacts before Done.",
+      { impacts: openImpacts });
+
+    const incompleteTasks = database.prepare(
+      `SELECT item_key, state FROM work_items
+       WHERE project_id = ? AND parent_id = ? AND type = 'task' AND state NOT IN ('done', 'cancelled')
+       ORDER BY item_key COLLATE NOCASE`,
+    ).all(item.projectId, item.id) as Array<{ item_key: string; state: string }>;
+    addGate(gates, "required-tasks", incompleteTasks.length === 0,
+      incompleteTasks.length === 0 ? "All non-cancelled child tasks are done." : "Complete every active child task before Done.",
+      { incompleteTasks });
+
+    if (buildId === null) {
+      addGate(gates, "candidate-build", false, "Supply the candidate build ID for the final QA gate.");
+    }
+    const evidenceCount = buildId === null ? 0 : (database.prepare(
+      `SELECT COUNT(*) AS count FROM evidence
+       WHERE project_id = ? AND item_id = ? AND baseline_id = ? AND build_id = ?`,
+    ).get(item.projectId, item.id, baselineId, buildId) as { count: number }).count;
+    addGate(gates, "candidate-build-evidence", evidenceCount > 0,
+      evidenceCount > 0 ? "Evidence is attached to the pinned baseline and candidate build." : "Add evidence for this baseline and candidate build.",
+      { evidenceCount, buildId });
+
+    const baselineScenarios = database.prepare(
+      `SELECT br.entity_id AS scenario_id, br.revision_number, s.scenario_key
+       FROM baseline_refs br INNER JOIN scenarios s
+         ON s.project_id = br.project_id AND s.scenario_id = br.entity_id
+       WHERE br.project_id = ? AND br.baseline_id = ? AND br.entity_type = 'scenario_revision'
+       ORDER BY s.scenario_key COLLATE NOCASE`,
+    ).all(item.projectId, baselineId) as Array<{ scenario_id: string; revision_number: number; scenario_key: string }>;
+    if (baselineScenarios.length === 0) {
+      addGate(gates, "qa-coverage", false, "The baseline has no covered scenarios; add published coverage and revalidate.");
+    }
+    for (const scenario of baselineScenarios) {
+      if (buildId === null) continue;
+      const latest = database.prepare(
+        `SELECT tr.run_id, tr.result, tr.sequence, tr.build_id
+         FROM test_runs tr
+         WHERE tr.project_id = ? AND tr.scenario_id = ? AND tr.revision_number = ? AND tr.build_id = ?
+         ORDER BY tr.sequence DESC LIMIT 1`,
+      ).get(item.projectId, scenario.scenario_id, scenario.revision_number, buildId) as {
+        run_id: string; result: string; sequence: number; build_id: string;
+      } | undefined;
+      if (latest === undefined) {
+        const otherBuilds = database.prepare(
+          `SELECT build_id AS buildId, result FROM test_runs
+           WHERE project_id = ? AND scenario_id = ? AND revision_number = ?
+           GROUP BY build_id ORDER BY MAX(sequence) DESC LIMIT 5`,
+        ).all(item.projectId, scenario.scenario_id, scenario.revision_number) as Array<{ buildId: string; result: string }>;
+        addGate(gates, `scenario:${scenario.scenario_key}:build`, false,
+          otherBuilds.length > 0 ? "Scenario results exist for a different build." : "Run this scenario against the candidate build.",
+          { scenarioKey: scenario.scenario_key, candidateBuildId: buildId, availableBuilds: otherBuilds });
+        continue;
+      }
+      if (latest.result !== "passed") {
+        addGate(gates, `scenario:${scenario.scenario_key}:result`, false, "The latest scenario result for the candidate build did not pass.", {
+          scenarioKey: scenario.scenario_key, runId: latest.run_id, result: latest.result, buildId,
+        });
+        continue;
+      }
+      const certification = database.prepare(
+        `SELECT certification_id FROM test_run_certifications
+         WHERE project_id = ? AND item_id = ? AND baseline_id = ? AND run_id = ?`,
+      ).get(item.projectId, item.id, baselineId, latest.run_id) as { certification_id: string } | undefined;
+      addGate(gates, `scenario:${scenario.scenario_key}:certification`, certification !== undefined,
+        certification === undefined ? "A human QA member must certify the latest passing run." : "The latest passing run is certified by QA.",
+        { scenarioKey: scenario.scenario_key, runId: latest.run_id, buildId, certificationId: certification?.certification_id ?? null });
+    }
+    return;
+  }
+
+  if (item.type === "task") {
+    const baselineId = item.parentId === null ? null : baselineIdForItem(database, item.projectId, item.parentId);
+    const evidence = baselineId === null ? undefined : database.prepare(
+      `SELECT evidence_id, build_id FROM evidence
+       WHERE project_id = ? AND item_id = ? AND baseline_id = ?
+         AND (? IS NULL OR build_id = ?) ORDER BY sequence LIMIT 1`,
+    ).get(item.projectId, item.id, baselineId, buildId, buildId) as { evidence_id: string; build_id: string | null } | undefined;
+    addGate(gates, "task-evidence", evidence !== undefined,
+      evidence === undefined ? "Attach evidence to the task under its current PBI baseline." : "The task has evidence under its current PBI baseline.",
+      { baselineId, evidenceId: evidence?.evidence_id ?? null, buildId });
+    return;
+  }
+
+  const incompleteChildren = database.prepare(
+    `SELECT item_key, state FROM work_items
+     WHERE project_id = ? AND parent_id = ? AND state NOT IN ('done', 'cancelled')
+     ORDER BY item_key COLLATE NOCASE`,
+  ).all(item.projectId, item.id) as Array<{ item_key: string; state: string }>;
+  addGate(gates, "child-items", incompleteChildren.length === 0,
+    incompleteChildren.length === 0 ? "All active child work items are done." : "Complete active child work items before closing the aggregate.",
+    { incompleteChildren });
+}
+
+function evaluateDependencies(database: SqliteDatabase, projectId: string, itemId: string, gates: WorkflowGate[]): void {
+  const dependencies = database.prepare(
+    `SELECT target.item_key, target.state FROM trace_links l
+     INNER JOIN work_items target ON target.project_id = l.project_id AND target.item_id = l.target_id
+     WHERE l.project_id = ? AND l.source_id = ? AND l.link_type = 'depends_on' AND l.removed_at IS NULL
+     ORDER BY target.item_key COLLATE NOCASE`,
+  ).all(projectId, itemId) as Array<{ item_key: string; state: string }>;
+  const incomplete = dependencies.filter((dependency) => dependency.state !== "done");
+  addGate(gates, "dependencies", incomplete.length === 0,
+    incomplete.length === 0 ? "All prerequisites are done." : "Complete prerequisites before advancing this work item.",
+    { incompleteDependencies: incomplete });
+}
+
+function hasPublishedCriterionScenario(database: SqliteDatabase, projectId: string, criterionId: string): boolean {
+  return database.prepare(
+    `SELECT 1 FROM scenario_revision_coverage c
+     INNER JOIN scenario_revisions r ON r.project_id = c.project_id AND r.scenario_id = c.scenario_id
+       AND r.revision_number = c.revision_number AND r.status = 'published'
+     WHERE c.project_id = ? AND c.target_type = 'criterion' AND c.target_id = ? LIMIT 1`,
+  ).get(projectId, criterionId) !== undefined;
+}
+
+function assertDependenciesComplete(database: SqliteDatabase, projectId: string, itemId: string): void {
+  const gates: WorkflowGate[] = [];
+  evaluateDependencies(database, projectId, itemId, gates);
+  const failed = gates.filter((gate) => !gate.passed);
+  if (failed.length > 0) {
+    throw new ApplicationError("GATE_BLOCKED", "The work item cannot start while dependencies are incomplete.", { details: failed });
+  }
+}
+
+function baselineIdForItem(database: SqliteDatabase, projectId: string, itemId: string): string | null {
+  const row = database.prepare(
+    `SELECT baseline_id FROM work_baselines
+     WHERE project_id = ? AND item_id = ? ORDER BY sequence DESC LIMIT 1`,
+  ).get(projectId, itemId) as { baseline_id: string } | undefined;
+  if (row !== undefined) return row.baseline_id;
+  const item = database.prepare(
+    "SELECT parent_id, type FROM work_items WHERE project_id = ? AND item_id = ?",
+  ).get(projectId, itemId) as { parent_id: string | null; type: string } | undefined;
+  if (item?.type !== "task" || item.parent_id === null) return null;
+  const parent = database.prepare(
+    `SELECT baseline_id FROM work_baselines
+     WHERE project_id = ? AND item_id = ? ORDER BY sequence DESC LIMIT 1`,
+  ).get(projectId, item.parent_id) as { baseline_id: string } | undefined;
+  return parent?.baseline_id ?? null;
+}
+
+function addGate(
+  gates: WorkflowGate[],
+  id: string,
+  passed: boolean,
+  message: string,
+  details?: unknown,
+): void {
+  gates.push({ id, passed, message, ...(details === undefined ? {} : { details }) });
+}
+
+function assertHumanPrincipal(database: SqliteDatabase, principalId: string, message: string): void {
+  const row = database.prepare("SELECT principal_type FROM principals WHERE principal_id = ?")
+    .get(principalId) as { principal_type: string } | undefined;
+  if (row?.principal_type !== "human") throw new ApplicationError("FORBIDDEN", message);
+}
+
+function assertExpectedVersion(actual: number, expected: number): void {
+  if (!Number.isSafeInteger(expected) || expected < 1) {
+    throw new ApplicationError("VALIDATION_FAILED", "Expected version must be a positive integer.");
+  }
+  if (actual !== expected) {
+    throw new ApplicationError("VERSION_CONFLICT", "The work item changed since it was read.", {
+      details: { expectedVersion: expected, actualVersion: actual },
+    });
+  }
+}
+
+function normalizeText(value: string, maxLength: number, message: string): string {
+  const normalized = value.trim();
+  if (normalized.length === 0 || normalized.length > maxLength) throw new ApplicationError("VALIDATION_FAILED", message);
+  return normalized;
+}
+
+function normalizeOptionalText(value: string | undefined, maxLength: number, message: string): string | null {
+  if (value === undefined) return null;
+  return normalizeText(value, maxLength, message);
+}
+
+function decodeEvidenceCursor(value: string): EvidenceCursor {
+  if (value.length > 2_048 || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new ApplicationError("VALIDATION_FAILED", "The evidence cursor is invalid.");
+  }
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (parsed === null || typeof parsed !== "object") throw new Error("Invalid cursor");
+    const cursor = parsed as Record<string, unknown>;
+    if (
+      cursor.version !== 1 || typeof cursor.projectId !== "string" || typeof cursor.principalId !== "string" ||
+      typeof cursor.itemId !== "string" || typeof cursor.watermark !== "number" || !Number.isSafeInteger(cursor.watermark) ||
+      typeof cursor.afterSequence !== "number" || !Number.isSafeInteger(cursor.afterSequence) || cursor.afterSequence < 0
+    ) throw new Error("Invalid cursor shape");
+    return cursor as unknown as EvidenceCursor;
+  } catch {
+    throw new ApplicationError("VALIDATION_FAILED", "The evidence cursor is invalid.");
+  }
+}
+
+function encodeEvidenceCursor(cursor: EvidenceCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function toEvidence(row: EvidenceRow): WorkItemEvidence {
+  return {
+    id: row.evidence_id,
+    projectId: row.project_id,
+    itemId: row.item_id,
+    itemKey: row.item_key,
+    baselineId: row.baseline_id,
+    kind: row.kind,
+    uri: row.uri,
+    buildId: row.build_id,
+    description: row.description,
+    addedByPrincipalId: row.added_by_principal_id,
+    createdAt: row.created_at,
+  };
+}

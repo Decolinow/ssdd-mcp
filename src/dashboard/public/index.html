@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>SSDD · Visão do projeto</title>
+    <link rel="stylesheet" href="/dashboard.css">
+    <script src="/dashboard.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="SSDD início">
+          <span class="brand-mark" aria-hidden="true">S</span>
+          <span><strong>SSDD</strong><small>Spec driven development</small></span>
+        </a>
+        <div class="topbar-actions">
+          <label class="project-label" for="project-select">Projeto</label>
+          <select id="project-select" aria-label="Selecionar projeto"></select>
+          <label class="team-label" for="team-select">Time</label>
+          <select id="team-select" aria-label="Selecionar time"></select>
+          <button id="refresh-button" class="icon-button" type="button" title="Atualizar" aria-label="Atualizar dados">↻</button>
+          <span id="principal-name" class="principal-chip"></span>
+        </div>
+      </header>
+
+      <main>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">SPEC DRIVEN DELIVERY</p>
+            <h1>Visão do projeto</h1>
+            <p class="intro">Acompanhe entrega, qualidade e fluxo de trabalho com métricas ligadas ao histórico auditado.</p>
+          </div>
+          <p id="last-updated" class="last-updated" aria-live="polite">Carregando…</p>
+        </div>
+
+        <section id="sprint-summary" class="sprint-summary" aria-label="Sprint ativa" hidden></section>
+
+        <section class="workspace-panel" aria-label="Backlog e board do projeto">
+          <div class="list-toolbar">
+            <div class="tabs" role="tablist" aria-label="Visão de trabalho">
+              <button id="metrics-tab" class="tab is-active" role="tab" aria-selected="true" aria-controls="metrics-view" type="button">Métricas</button>
+              <button id="backlog-tab" class="tab" role="tab" aria-selected="false" aria-controls="backlog-view" type="button">Product Backlog</button>
+              <button id="board-tab" class="tab" role="tab" aria-selected="false" aria-controls="board-view" type="button">Board <span id="board-tab-count" class="tab-count">0</span></button>
+              <button id="quality-tab" class="tab" role="tab" aria-selected="false" aria-controls="quality-view" type="button">Qualidade</button>
+              <button id="activity-tab" class="tab" role="tab" aria-selected="false" aria-controls="activity-view" type="button">Atividade</button>
+              <button id="retrospective-tab" class="tab" role="tab" aria-selected="false" aria-controls="retrospective-view" type="button">Retrospectiva</button>
+            </div>
+            <div class="filters">
+              <label class="search-field">
+                <span class="sr-only">Buscar itens</span>
+                <span aria-hidden="true">⌕</span>
+                <input id="search-input" type="search" placeholder="Buscar por chave ou título" autocomplete="off">
+              </label>
+              <label>
+                <span class="sr-only">Filtrar tipo</span>
+                <select id="type-filter">
+                  <option value="all">Todos os tipos</option>
+                  <option value="story">Histórias</option>
+                  <option value="bug">Bugs</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div id="loading-state" class="empty-state">
+            <span class="loading-dot" aria-hidden="true"></span>
+            <p>Carregando o projeto…</p>
+          </div>
+          <div id="error-state" class="empty-state error-state" hidden>
+            <strong>Não foi possível carregar o projeto.</strong>
+            <p id="error-message"></p>
+            <button id="retry-button" class="button button-secondary" type="button">Tentar novamente</button>
+          </div>
+
+          <section id="metrics-view" class="view" role="tabpanel" aria-labelledby="metrics-tab">
+            <div class="metrics-controls">
+              <label for="metrics-milestone">Marco
+                <select id="metrics-milestone"><option value="none">Sem marco</option></select>
+              </label>
+              <label for="metrics-sprint">Sprint
+                <select id="metrics-sprint"><option value="none">Sem sprint</option></select>
+              </label>
+              <label for="metrics-date">Data de corte
+                <input id="metrics-date" type="date">
+              </label>
+              <button id="metrics-today" class="button button-secondary" type="button">Corte atual</button>
+            </div>
+            <p id="metrics-meta" class="metrics-meta" aria-live="polite">Carregando métricas…</p>
+            <div id="metrics-error" class="metrics-error" role="alert" hidden></div>
+            <div id="metrics-content" class="metrics-content"></div>
+          </section>
+
+          <section id="backlog-view" class="view" role="tabpanel" aria-labelledby="backlog-tab">
+            <div class="view-heading">
+              <div><h2>Itens fora da sprint ativa</h2><p>Itens ordenados pela prioridade do backlog. Abra um item para consultar critérios, estimativas e versão.</p></div>
+              <span id="backlog-count" class="count-label">0 itens</span>
+            </div>
+            <div id="backlog-list" class="backlog-list"></div>
+          </section>
+
+          <section id="board-view" class="view" role="tabpanel" aria-labelledby="board-tab" hidden>
+            <div class="view-heading board-heading">
+              <div><h2 id="board-title">Fluxo de trabalho</h2><p id="board-description">Arraste um card ou use “Mover item” pelo teclado. Toda mudança exige motivo e passa pelas regras do projeto.</p></div>
+              <span id="board-count" class="count-label">0 itens</span>
+            </div>
+            <div id="board" class="board" aria-label="Colunas do fluxo de trabalho"></div>
+          </section>
+
+          <section id="quality-view" class="view" role="tabpanel" aria-labelledby="quality-tab" hidden>
+            <div class="view-heading">
+              <div><h2>Qualidade por PBI</h2><p>Cobertura de critérios conforme a baseline fixada. Abra um item para ver cenários, execuções por build, certificações e evidências.</p></div>
+              <span id="quality-count" class="count-label">0 itens</span>
+            </div>
+            <div id="quality-list" class="quality-list"></div>
+          </section>
+
+          <section id="activity-view" class="view" role="tabpanel" aria-labelledby="activity-tab" hidden>
+            <div class="view-heading">
+              <div><h2>Atividade do projeto</h2><p>Eventos auditados em ordem decrescente. A timeline de cada PBI também aparece nos detalhes do item.</p></div>
+              <span id="activity-watermark" class="count-label">Watermark —</span>
+            </div>
+            <div class="activity-filters">
+              <label for="activity-entity-type">Tipo de entidade
+                <select id="activity-entity-type"><option value="">Todas</option><option value="work_item">PBI</option><option value="test_run">Execução de teste</option><option value="sprint">Sprint</option><option value="specification">Especificação</option><option value="scenario">Cenário</option></select>
+              </label>
+              <label for="activity-entity-id">ID da entidade
+                <input id="activity-entity-id" type="search" maxlength="200" placeholder="UUID ou identificador">
+              </label>
+              <button id="apply-activity-filter" class="button button-secondary" type="button">Filtrar atividade</button>
+            </div>
+            <div id="activity-list" class="activity-list"></div>
+            <div class="load-more-wrap"><button id="load-more-activity" class="button button-secondary" type="button" hidden>Carregar mais eventos</button></div>
+          </section>
+
+          <section id="retrospective-view" class="view" role="tabpanel" aria-labelledby="retrospective-tab" hidden>
+            <div class="view-heading">
+              <div><h2>Retrospectiva de sprint</h2><p>Aprendizados e ações acordadas para cada sprint fechada. A gravação e as revisões são feitas pelo MCP.</p></div>
+            </div>
+            <label class="retrospective-sprint-select" for="retrospective-sprint">Sprint fechada
+              <select id="retrospective-sprint"></select>
+            </label>
+            <div id="retrospective-content" class="retrospective-content"></div>
+          </section>
+        </section>
+      </main>
+      <footer><span>Dados locais do workspace SSDD</span><span>Atualização automática a cada 30 segundos</span></footer>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <dialog id="item-dialog" class="modal item-modal" aria-labelledby="item-title">
+      <div class="modal-header">
+        <div><p id="item-kicker" class="eyebrow"></p><h2 id="item-title"></h2></div>
+        <button class="icon-button close-dialog" type="button" aria-label="Fechar detalhes">×</button>
+      </div>
+      <div id="item-details" class="item-details"></div>
+      <div class="modal-actions"><button id="detail-move-button" class="button button-primary" type="button">Mover item</button><button class="button button-secondary close-dialog" type="button">Fechar</button></div>
+    </dialog>
+
+    <dialog id="transition-dialog" class="modal transition-modal" aria-labelledby="transition-title">
+      <form id="transition-form">
+        <div class="modal-header">
+          <div><p class="eyebrow">ATUALIZAÇÃO DE ESTADO</p><h2 id="transition-title">Mover item</h2></div>
+          <button class="icon-button close-dialog" type="button" aria-label="Fechar">×</button>
+        </div>
+        <p id="transition-item-label" class="transition-item-label"></p>
+        <label class="form-field" for="target-state">Novo estado
+          <select id="target-state" required></select>
+        </label>
+        <label class="form-field" for="transition-reason">Motivo
+          <textarea id="transition-reason" rows="3" maxlength="1000" required placeholder="Explique o que motivou a mudança"></textarea>
+        </label>
+        <label id="build-id-field" class="form-field" for="build-id" hidden>Build candidata para conclusão
+          <input id="build-id" type="text" maxlength="128" placeholder="Ex.: build-2026.11.09.1">
+          <small>A conclusão só será registrada se os gates de qualidade e a certificação desse build forem válidos.</small>
+        </label>
+        <div class="modal-actions"><button class="button button-secondary close-dialog" type="button">Cancelar</button><button id="submit-transition" class="button button-primary" type="submit">Confirmar mudança</button></div>
+      </form>
+    </dialog>
+  </body>
+</html>
