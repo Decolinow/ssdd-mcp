@@ -20,12 +20,75 @@ function parseRoadmap(markdown) {
   const lines = markdown.split(/\r?\n/);
   const sprints = [];
   const backlogTasks = [];
+  const installerFeatures = [];
   let sprint;
   let backlogActive = false;
+  let installerBacklogActive = false;
+  let installerFeature;
+  let installerStory;
+  let parsingStoryCriteria = false;
   for (const line of lines) {
     if (line.startsWith("## ")) {
       sprint = undefined;
       backlogActive = line.trim() === "## Backlog de habilitação de agentes";
+      installerBacklogActive = line.trim() === "## Backlog de instalação para Claude Code, Codex e OpenCode";
+      installerFeature = undefined;
+      installerStory = undefined;
+      parsingStoryCriteria = false;
+    }
+    if (installerBacklogActive) {
+      const featureHeading = line.match(/^### (SSDD-\d+) · (.+)$/);
+      if (featureHeading) {
+        installerFeature = { id: featureHeading[1], title: featureHeading[2].trim(), description: "", stories: [] };
+        installerFeatures.push(installerFeature);
+        installerStory = undefined;
+        parsingStoryCriteria = false;
+        continue;
+      }
+      const storyHeading = line.match(/^#### (SSDD-\d+) · (.+?) \((\d+) pontos\)$/);
+      if (storyHeading && installerFeature) {
+        installerStory = {
+          id: storyHeading[1],
+          title: storyHeading[2].trim(),
+          points: Number(storyHeading[3]),
+          description: "",
+          criteria: [],
+          tasks: [],
+        };
+        installerFeature.stories.push(installerStory);
+        parsingStoryCriteria = false;
+        continue;
+      }
+      if (installerStory && line.startsWith("**História:**")) {
+        installerStory.description = line.replace(/^\*\*História:\*\*\s*/, "").trim();
+        continue;
+      }
+      if (installerStory && line.startsWith("**Critérios de aceite:**")) {
+        parsingStoryCriteria = true;
+        continue;
+      }
+      if (line.startsWith("| ID | Tarefa | Horas |")) {
+        parsingStoryCriteria = false;
+        continue;
+      }
+      if (parsingStoryCriteria) {
+        const criterion = line.match(/^- (.+)$/);
+        if (criterion) installerStory.criteria.push(criterion[1].trim());
+      }
+      const installerTask = line.match(/^\|\s*(SSDD-\d+)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|\s*([^|]*?)\s*\|\s*([^|]+?)\s*\|$/);
+      if (installerTask && installerStory) {
+        const dependencyCell = installerTask[4].trim();
+        installerStory.tasks.push({
+          id: installerTask[1],
+          title: installerTask[2].trim(),
+          hours: Number(installerTask[3]),
+          dependencies: dependencyCell === "—"
+            ? []
+            : dependencyCell.split(",").map((value) => value.trim()),
+          acceptance: installerTask[5].trim(),
+          storyId: installerStory.id,
+        });
+      }
     }
     const heading = line.match(/^## Sprint (\d+) · (.*?) \((?:v\d+\.\d+ · )?(\d+) pontos\)$/);
     if (heading) {
@@ -63,12 +126,16 @@ function parseRoadmap(markdown) {
   assert.equal(sprints.length, 8, "Expected eight roadmap sprints");
   assert.equal(sprints.reduce((count, entry) => count + entry.tasks.length, 0), 40, "Expected forty roadmap tasks");
   assert.equal(backlogTasks.length, 1, "Expected one agent enablement backlog task");
+  assert.equal(installerFeatures.length, 3, "Expected three local agent installer features");
+  assert.equal(installerFeatures.reduce((count, feature) => count + feature.stories.length, 0), 4, "Expected four local agent installer stories");
+  assert.equal(installerFeatures.reduce((count, feature) => count + feature.stories.reduce((storyCount, story) => storyCount + story.tasks.length, 0), 0), 11,
+    "Expected eleven local agent installer tasks");
   for (const entry of sprints) {
     if (!entry.goal) {
       entry.goal = `Executar as tarefas refinadas para ${entry.name}: ${entry.tasks.map((task) => task.title).join("; ")}.`;
     }
   }
-  return { epics, sprints, backlogTasks };
+  return { epics, sprints, backlogTasks, installerFeatures };
 }
 
 function parseStatuses(markdown) {
@@ -87,7 +154,7 @@ function requireSuccess(result, name) {
   return result.structuredContent;
 }
 
-function managedItemKey(item) {
+function managedItemKey(item, titleKeys) {
   if (item.type === "epic") return item.title.match(/^(E\d+) · /)?.[1];
   if (item.type === "feature") {
     const sprintNumber = item.title.match(/^Sprint (\d+) · /)?.[1];
@@ -99,8 +166,8 @@ function managedItemKey(item) {
     if (sprintNumber) return `S${sprintNumber.padStart(2, "0")}-GOAL`;
     if (item.title === "Fluxos guiados por papel de agente") return "agent-enablement-goal";
   }
-  if (item.type === "task") return item.title.match(/^(SSDD-\d{3}) · /)?.[1];
-  return undefined;
+  if (item.type === "task") return item.title.match(/^(SSDD-\d{3}) · /)?.[1] ?? titleKeys.get(`task:${item.title}`);
+  return titleKeys.get(`${item.type}:${item.title}`);
 }
 
 async function listAllWorkItems(client, projectId) {
@@ -133,8 +200,58 @@ async function createOrReuseWorkItem(client, arguments_, name, key, managedItems
   return result;
 }
 
-const { epics, sprints, backlogTasks } = parseRoadmap(roadmap);
+async function ensureConfirmedEstimate(client, projectId, itemId, unit, value, requestId, rationale) {
+  let workItem = requireSuccess(await client.callTool({
+    name: "work_item_get",
+    arguments: { projectId, itemIdOrKey: itemId },
+  }), `read ${itemId} estimate` ).workItem;
+  let estimate = workItem.estimates.find((entry) => entry.unit === unit);
+  if (estimate) {
+    assert.equal(estimate.value, value, `${itemId} ${unit} estimate drifted from ROADMAP.md`);
+    return estimate;
+  }
+  const proposed = requireSuccess(await client.callTool({
+    name: "work_item_estimate",
+    arguments: {
+      projectId,
+      requestId: `${requestId}-propose`,
+      itemIdOrKey: workItem.id,
+      unit,
+      value,
+      rationale,
+      expectedVersion: workItem.version,
+    },
+  }), `propose ${itemId} ${unit} estimate`);
+  requireSuccess(await client.callTool({
+    name: "work_item_estimate_confirm",
+    arguments: {
+      projectId,
+      requestId: `${requestId}-confirm`,
+      itemIdOrKey: workItem.id,
+      proposalId: proposed.proposal.id,
+      expectedVersion: workItem.version + 1,
+    },
+  }), `confirm ${itemId} ${unit} estimate`);
+  workItem = requireSuccess(await client.callTool({
+    name: "work_item_get",
+    arguments: { projectId, itemIdOrKey: itemId },
+  }), `verify ${itemId} estimate`).workItem;
+  estimate = workItem.estimates.find((entry) => entry.unit === unit);
+  assert.equal(estimate?.value, value, `${itemId} ${unit} estimate was not confirmed`);
+  return estimate;
+}
+
+const { epics, sprints, backlogTasks, installerFeatures } = parseRoadmap(roadmap);
 const statuses = parseStatuses(statusDocument);
+const installerTitleKeys = new Map();
+const installerTasks = installerFeatures.flatMap((feature) => feature.stories.flatMap((story) => story.tasks));
+for (const feature of installerFeatures) {
+  installerTitleKeys.set(`feature:${feature.title}`, feature.id);
+  for (const story of feature.stories) {
+    installerTitleKeys.set(`story:${story.title}`, story.id);
+    for (const task of story.tasks) installerTitleKeys.set(`task:${task.title}`, task.id);
+  }
+}
 const client = new Client({ name: "ssdd-roadmap-sync", version: "1.0.0" });
 const transport = new StdioClientTransport({
   command: process.execPath,
@@ -160,7 +277,7 @@ try {
 
   const managedItems = new Map();
   for (const item of await listAllWorkItems(client, projectId)) {
-    const key = managedItemKey(item);
+    const key = managedItemKey(item, installerTitleKeys);
     if (key) {
       assert.ok(!managedItems.has(key), `Multiple roadmap items map to ${key}`);
       managedItems.set(key, item);
@@ -276,6 +393,74 @@ try {
     }
   }
 
+  for (const featureSpec of installerFeatures) {
+    const feature = await createOrReuseWorkItem(client, {
+      projectId,
+      requestId: `roadmap-import-${featureSpec.id}`,
+      type: "feature",
+      parentId: epicIds.get("E4"),
+      title: featureSpec.title,
+      description: `[roadmap:${featureSpec.id}] ${featureSpec.description || "Feature de instalação local para clientes de codificação; veja o detalhamento e aceite em ROADMAP.md."}`,
+    }, `create ${featureSpec.id}`, featureSpec.id, managedItems);
+    itemIds.set(featureSpec.id, feature.workItem.id);
+
+    for (const storySpec of featureSpec.stories) {
+      const story = await createOrReuseWorkItem(client, {
+        projectId,
+        requestId: `roadmap-import-${storySpec.id}`,
+        type: "story",
+        parentId: feature.workItem.id,
+        title: storySpec.title,
+        description: `[roadmap:${storySpec.id}] ${storySpec.description}`,
+        criteria: storySpec.criteria.map((description) => ({ description, required: true })),
+      }, `create ${storySpec.id}`, storySpec.id, managedItems);
+      itemIds.set(storySpec.id, story.workItem.id);
+    await ensureConfirmedEstimate(
+      client,
+      projectId,
+      story.workItem.id,
+      "points",
+      storySpec.points,
+      `roadmap-import-${storySpec.id}-points`,
+      "Estimativa Fibonacci da história conforme ROADMAP.md; pontos não são horas.",
+    );
+
+      for (const task of storySpec.tasks) {
+        const dependencyText = task.dependencies.length ? task.dependencies.join(", ") : "Nenhuma";
+        const statusText = statuses.get(task.id) ?? "Sem registro individual em docs/status.md";
+        const description = [
+          `[roadmap:${task.id}]`,
+          `Origem: ROADMAP.md, história ${storySpec.id}.`,
+          `Horas estimadas da tarefa: ${task.hours}.`,
+          `Critério de aceite planejado: ${task.acceptance}`,
+          `Dependências no roadmap: ${dependencyText}.`,
+          `Registro factual em docs/status.md (2026-11-10): ${statusText}`,
+          "Estado de workflow SSDD: Draft na importação. A descrição registra planejamento; aceite formal exige os gates, baseline e evidências do projeto.",
+        ].join("\n");
+        const result = await createOrReuseWorkItem(client, {
+          projectId,
+          requestId: `roadmap-import-${task.id}`,
+          type: "task",
+          parentId: story.workItem.id,
+          title: task.title,
+          description,
+        }, `create ${task.id}`, task.id, managedItems);
+        itemIds.set(task.id, result.workItem.id);
+        await ensureConfirmedEstimate(
+          client,
+          projectId,
+          result.workItem.id,
+          "hours",
+          task.hours,
+          `roadmap-import-${task.id}-hours`,
+          "Horas de foco estimadas para a tarefa conforme ROADMAP.md.",
+        );
+        importedTasks.push(task);
+        log(`${task.id} → ${result.workItem.key}`);
+      }
+    }
+  }
+
   let dependencyCount = 0;
   for (const task of importedTasks) {
     for (const dependency of task.dependencies) {
@@ -302,7 +487,7 @@ try {
   ]));
   assert.ok(counts.epic >= 4 && counts.feature >= 8 && counts.story >= 8 && counts.task >= 40,
     `Imported counts are incomplete: ${JSON.stringify(counts)}`);
-  assert.equal(allItems.filter((item) => item.type === "task" && /^SSDD-\d{3} · /.test(item.title)).length, importedTasks.length,
+  assert.equal(allItems.filter((item) => item.type === "task" && (/^SSDD-\d{3} · /.test(item.title) || installerTitleKeys.has(`task:${item.title}`))).length, importedTasks.length,
     "Imported SSDD task titles do not reconcile with the roadmap");
   const agentTask = backlogTasks.find((task) => task.id === "SSDD-901");
   assert.ok(agentTask, "Agent enablement task is missing from the roadmap");
@@ -319,7 +504,17 @@ try {
   const observedDependencies = graph.links.map((link) => link.target.id).sort();
   const expectedDependencies = agentTask.dependencies.map((id) => itemIds.get(id)).sort();
   assert.deepEqual(observedDependencies, expectedDependencies, "MCP dependency graph does not match the roadmap");
-  log(JSON.stringify({ projectId, counts, roadmapTasks: importedTasks.length, dependencyLinksAdded: dependencyCount, sprints: sprints.length }, null, 2));
+  const installerDocsTask = installerTasks.find((task) => task.id === "SSDD-84");
+  assert.ok(installerDocsTask, "The installer documentation task is missing from the roadmap");
+  const installerGraph = requireSuccess(await client.callTool({
+    name: "trace_query",
+    arguments: { projectId, nodeIdOrKey: itemIds.get(installerDocsTask.id), direction: "outbound", linkTypes: ["depends_on"], depth: 1 },
+  }), "verify agent installer dependencies");
+  assert.deepEqual(installerGraph.links.map((link) => link.target.id).sort(), installerDocsTask.dependencies.map((id) => itemIds.get(id)).sort(),
+    "Agent installer dependencies do not match the roadmap");
+  const installerStoryPoints = installerFeatures.flatMap((feature) => feature.stories).reduce((total, story) => total + story.points, 0);
+  const installerTaskHours = installerTasks.reduce((total, task) => total + task.hours, 0);
+  log(JSON.stringify({ projectId, counts, roadmapTasks: importedTasks.length, installerTasks: installerTasks.length, installerStoryPoints, installerTaskHours, dependencyLinksAdded: dependencyCount, sprints: sprints.length }, null, 2));
 } finally {
   await client.close();
 }

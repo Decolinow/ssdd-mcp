@@ -32,6 +32,16 @@ O Azure Boards também pode ser importado por `azure_work_item_import_preview/ap
 
 O MCP publica prompts operacionais para PO, Developer, QA e Release e serve quatro skills com instruções por papel. Os prompts guiam o agente sem executar mutações ao serem carregados; clients compatíveis podem listar e validar os arquivos da extensão MCP Skills. Consulte [prompts e skills](docs/mcp.md#prompts-e-skills-para-agentes) e o [backlog de habilitação de agentes](ROADMAP.md#backlog-de-habilitação-de-agentes).
 
+Para preparar outro repositório Git com runtime local, skills e agentes para Claude Code, Codex e OpenCode, rode o instalador deste projeto. O padrão mostra apenas o plano; `--apply` instala e `--check` valida depois:
+
+```powershell
+npm run agents:install -- --target ..\meu-projeto
+npm run agents:install -- --target ..\meu-projeto --apply
+npm run agents:install -- --target ..\meu-projeto --check
+```
+
+O pacote privado é instalado por tarball local em `.ssdd/agent-runtime`; configurações existentes são preservadas e conflitos com arquivos não gerenciados interrompem a aplicação. Consulte o [guia do instalador](docs/agent-installer.md) e os [itens SSDD-67–84](ROADMAP.md#backlog-de-instala%C3%A7%C3%A3o-para-claude-code-codex-e-opencode).
+
 Comandos de operação: `ssdd-mcp doctor [--workspace <diretório>]` verifica a saúde do banco sem alterá-lo; `ssdd-mcp backup [--workspace <diretório>] [--output <arquivo.sqlite>]` cria um backup online e manifesto `.manifest.json`; `ssdd-mcp restore --backup <arquivo.sqlite> [--workspace <workspace limpo>]` valida e restaura em um diretório com `.ssdd` ausente ou vazio; e `ssdd-mcp export [--workspace <diretório>] --format json|markdown|gherkin [--output <arquivo>]` exporta dados do projeto ou revisões publicadas de cenários sem credenciais. O formato Gherkin pode ser salvo como `.feature`; exportação não substitui backup. O fluxo, os limites e a recuperação estão em [ADR 0005](docs/adr/0005-workspace-backup-restore-export.md).
 
 ## Distribuição local e container
@@ -58,8 +68,10 @@ Configure o cliente MCP para executar `docker compose run --rm -i ssdd-mcp`. Cad
 | [Arquitetura e operação](docs/architecture.md) | Runtime, módulos, persistência, auditoria, concorrência e segurança |
 | [Contrato MCP](docs/mcp.md) | Ferramentas, filtros, contexto por tarefa, formatos e erros |
 | [Prompts e skills de agente](docs/mcp.md#prompts-e-skills-para-agentes) | Fluxos por papel, ferramentas recomendadas e gates humanos |
+| [Instalador de agentes](docs/agent-installer.md) | Runtime local, skills e perfis nativos para Claude Code, Codex e OpenCode |
 | [Dashboard e projeções](docs/dashboard.md) | Board, capacidade, burndown, velocidade e previsão |
 | [Roadmap](ROADMAP.md) | Épicos, sprints, tarefas estimadas, dependências e entregas verificáveis |
+| [Simulação de projeto solo](docs/solo-simulation.md) | Definition of Done, capacidade, fluxo MCP completo e próximos passos |
 | [Demo local](docs/demo.md) | Trilha PO → Dev → QA, configuração de cliente stdio e validação do pacote |
 | [Notas de release v0.2.0 (rascunho)](docs/release-v0.2.md) | Compatibilidade, upgrade, instalação e gate de publicação |
 | [Status](docs/status.md) | Sprint atual, tarefas iniciadas, evidências e próximo passo |
@@ -74,6 +86,7 @@ Configure o cliente MCP para executar `docker compose run --rm -i ssdd-mcp`. Cad
 | [Decisão de importação Azure Boards](docs/adr/0010-importacao-azure-boards.md) | WIQL/batch read-only, tipos mapeados e aplicação humana idempotente |
 | [Decisão de isolamento de times](docs/adr/0012-isolamento-de-times-por-projeto.md) | Seleção explícita, composição independente, reservas de PBI e snapshots por time |
 | [Decisão de recuperação do workspace](docs/adr/0005-workspace-backup-restore-export.md) | Backup online, manifesto, restauração atômica, diagnóstico e exportação |
+| [Decisão do instalador local](docs/adr/0014-instalador-local-de-agentes.md) | Runtime ignorado pelo Git, merge seguro de configuração e atualização por manifesto |
 
 ## Status
 

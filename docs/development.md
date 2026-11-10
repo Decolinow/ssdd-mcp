@@ -69,6 +69,18 @@ node dist/src/cli.js serve --workspace . --port 4319
 
 `azure_work_item_import_preview` permite conferir tipo remoto, Feature destino, itens ignorados e `planHash`; `azure_work_item_import_apply` exige PO humano e revalida a leitura. WIQL e batch são POSTs de consulta sem efeitos no Azure. Mantenha credenciais em um gerenciador de segredos e prefira Microsoft Entra ID para um serviço de longa duração, conforme a [orientação oficial de PAT](https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops). Veja [contrato MCP](mcp.md#importação-unidirecional-do-azure-boards) e [ADR 0010](adr/0010-importacao-azure-boards.md).
 
+## Instalar agentes em outro repositório
+
+O comando roda na raiz do checkout SSDD e aceita como alvo um diretório dentro de um repositório Git. O padrão é dry-run; a aplicação empacota e instala o build local somente depois da revisão do plano:
+
+```powershell
+npm run agents:install -- --target ..\meu-projeto --dry-run
+npm run agents:install -- --target ..\meu-projeto --apply
+npm run agents:install -- --target ..\meu-projeto --check
+```
+
+O runtime vai para `.ssdd/agent-runtime`, com manifesto de hashes e instalação em staging. Entradas nativas são mescladas em `.mcp.json`, `.codex/config.toml` e `opencode.json/jsonc`; skills e agentes são gerados nos diretórios de cada cliente. O instalador falha diante de colisões ou arquivos gerenciados editados e preserva as configurações fora dos caminhos SSDD. Veja formatos, confiança, recuperação e testes em [docs/agent-installer.md](agent-installer.md) e a decisão em [ADR 0014](adr/0014-instalador-local-de-agentes.md).
+
 O `npm audit --audit-level=moderate` verifica dependências diretas e transitivas e é gate obrigatório da CI. `package.json` fixa `minimatch` em 11.0.1 por overrides restritos às dependências de ESLint e TypeScript-ESLint, cujas versões atuais ainda declaram a linha 10, afetada pelo [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249). A versão corrigida foi validada com lint, typecheck e testes em Node 24 e 26. `allowScripts` aprova somente o script nativo do `better-sqlite3@12.11.1`, que tenta instalar o binário pré-compilado e recorre ao `node-gyp`; a versão e o script foram revisados para o [npm approve-scripts](https://docs.npmjs.com/cli/v11/commands/npm-approve-scripts/). Remova os overrides quando as dependências upstream aceitarem a versão corrigida sem eles.
 
 ## Operação do workspace
@@ -110,6 +122,7 @@ O pacote é validado como tarball local; `private: true` impede publicação aci
 - Testes usam `node:test` e ficam em `tests/`, próximos ao módulo que cobrem.
 - Testes de SQLite devem usar diretórios temporários e fechar conexões ao terminar.
 - `tests/scripts/sync-roadmap-to-mcp.test.ts` exercita o importador com workspace temporário e cliente MCP real, incluindo reexecução após mudança do status descritivo sem criar itens duplicados.
+- `tests/scripts/install-agent-stack.test.ts` cobre preview read-only, conflitos, instalação/atualização por manifesto, preservação de JSONC/TOML e handshake do runtime instalado com cliente MCP stdio real.
 - `npm run demo:release` compila e executa a trilha integrada OIDC PO/Developer/QA → MCP Streamable HTTP → dashboard; usa fixture local sem tenant externo.
 - Backup/restore usa bancos temporários com WAL e manifesto; cubra corrupção/hash inválido, alvo não vazio, histórico após restauração e consultas read-only de projeções. Exportações devem ter fixture com credenciais em colunas e JSON aninhado e provar que nenhum segredo aparece.
 - Testes de transporte devem usar um workspace temporário e um cliente MCP real. Stdio reserva stdout ao protocolo e envia diagnósticos a stderr; Streamable HTTP testa a era legacy com handshake e a era moderna `2026-07-28`, ferramentas, sessões, negociação de versão, validação de Host/Origin e limites de payload. A fixture OIDC assina tokens localmente e cobre descoberta, JWKS, claims obrigatórios, scope, provisionamento e isolamento de sessão. Aprovações usam cliente MCP real para verificar metadata, consumo concorrente, replay, revogação e rollback da mutação junto da aprovação.

@@ -1,6 +1,6 @@
 # Roadmap de implementação
 
-Planejamento inicial em sprints de duas semanas. Pontos Fibonacci representam complexidade relativa do trabalho técnico, não compromisso de prazo. São propostas para refinamento, com referência de 3 pontos para uma operação vertical simples com validação e teste. A capacidade do time ainda não foi medida; as seis sprints são uma ordem de trabalho, sem datas de calendário. IDs são estáveis para issues e referências de implementação. Cada linha é uma unidade implementável com verificação específica. A execução atual fica registrada em [docs/status.md](docs/status.md); aceite e status precisam ser atualizados junto com cada entrega.
+Planejamento inicial em sprints de duas semanas. Pontos Fibonacci representam complexidade relativa do trabalho técnico, não compromisso de prazo. São propostas para refinamento, com referência de 3 pontos para uma operação vertical simples com validação e teste. As oito sprints formam uma ordem de trabalho, sem datas de calendário. Uma sprint piloto solo já calculou 60 horas configuradas em dez dias úteis, mas não existe ainda uma amostra de produção para estimar velocidade; consulte [docs/solo-simulation.md](docs/solo-simulation.md). IDs são estáveis para issues e referências de implementação. Cada linha é uma unidade implementável com verificação específica. A execução atual fica registrada em [docs/status.md](docs/status.md); aceite e status precisam ser atualizados junto com cada entrega.
 
 | Épico | Features | Marco |
 |---|---|---|
@@ -112,11 +112,96 @@ Planejamento inicial em sprints de duas semanas. Pontos Fibonacci representam co
 
 ## Backlog de habilitação de agentes
 
-Entrega transversal ao roadmap; não está comprometida com uma sprint até haver capacidade medida. A hierarquia de trabalho no MCP fica Épico E4 → Feature de habilitação → história de fluxo guiado → tasks.
+Entrega transversal ao roadmap. A hierarquia histórica fica Épico E4 → Feature de habilitação → história de fluxo guiado → task. A extensão local para os clientes de codificação está refinada no backlog seguinte.
 
 | ID | Tarefa | Pontos | Depende de | Aceite |
 |---|---|---:|---|---|
 | SSDD-901 | Publicar prompts MCP e skills de agente por papel | 5 | 105, 303, 304 | Clientes stdio e Streamable HTTP listam e obtêm prompts PO, Developer, QA e Release; a extensão MCP Skills lista e lê as quatro skills com verificação de digest; prompts e skills seguem contexto, gates humanos e proibição de fabricar evidências; testes e documentação cobrem os dois transports e o pacote npm inclui as skills |
+
+## Backlog de instalação para Claude Code, Codex e OpenCode
+
+Entrega local e reversível em repositório Git. Estimativa conjunta: **26 pontos de história, 49 horas de tarefa**. A referência de capacidade do time solo é 60 h em dez dias úteis (23/11–04/12/2026), deixando 11 h para revisão e imprevistos; nenhuma sprint foi iniciada. Itens permanecem Draft no MCP até que critérios, dependências, estimativas e baseline passem pelos gates formais.
+
+Fluxo proposto: resolver e inspecionar o repositório → gerar plano sem escrita → preparar runtime local e arquivos nativos → validar o MCP por stdio → atualizar a documentação. A implementação usa mudanças idempotentes, manifesto com hashes, detecção de colisões, staging do pacote e rollback das gravações em caso de falha. O detalhamento operacional está em [docs/agent-installer.md](docs/agent-installer.md).
+
+### SSDD-67 · Instalador local e reversível por repositório
+
+Instala o runtime privado em `.ssdd/agent-runtime`, apresenta dry-run por padrão e aplica alterações somente sob a raiz Git selecionada.
+
+#### SSDD-68 · Planejar e aplicar instalação repetível do SSDD MCP (5 pontos)
+
+**História:** Como mantenedor de repositório, quero instalar e atualizar o runtime SSDD MCP com prévia, rastreamento de arquivos gerenciados e detecção de conflitos para habilitar agentes sem perder configuração existente.
+
+**Critérios de aceite:**
+
+- A CLI aceita alvo de repositório e modos dry-run, apply e check; alvo inválido ou fora de uma raiz Git falha antes de escrever.
+- Dry-run lista arquivos e configurações a criar/atualizar e conflitos, sem gravar nem executar instalação npm.
+- Apply instala o pacote no runtime local, registra versão e hashes, e uma segunda execução idêntica não cria diff.
+- Atualização substitui somente conteúdo comprovadamente gerenciado; edição local ou colisão não gerenciada falha sem sobrescrever dados.
+
+| ID | Tarefa | Horas | Depende de | Aceite |
+|---|---|---:|---|---|
+| SSDD-69 | Implementar CLI, resolução do repositório e plano dry-run | 3 | — | Argumentos são validados; a raiz Git é resolvida; o plano inclui os três clientes, skills, agentes, runtime e conflitos; dry-run não altera o alvo. |
+| SSDD-70 | Instalar runtime local e aplicar mudanças com rollback | 5 | SSDD-69 | O pacote local é construído e instalado em staging sob `.ssdd/agent-runtime`; hashes protegem arquivos gerenciados; falhas restauram configurações e runtime anteriores. |
+
+### SSDD-71 · Adaptadores nativos para Claude Code, Codex e OpenCode
+
+Registra o servidor stdio e publica skills e agentes nos caminhos nativos dos três clientes, preservando configurações já existentes.
+
+#### SSDD-72 · Registrar o servidor MCP nos três clientes de codificação (8 pontos)
+
+**História:** Como equipe, quero que Claude Code, Codex e OpenCode iniciem o MCP instalado no repositório e usem o workspace correto, sem substituir configurações locais de outros servidores.
+
+**Critérios de aceite:**
+
+- Claude Code recebe entrada stdio em `.mcp.json`, usa `CLAUDE_PROJECT_DIR` com fallback documentado e conserva os outros servidores.
+- Codex recebe `[mcp_servers.ssdd_mcp]` em `.codex/config.toml` com comando, args e cwd do projeto; a documentação explica a exigência de confiança.
+- OpenCode recebe `mcp.servers.ssdd_mcp` local com comando em array e cwd do workspace em `opencode.json` ou `opencode.jsonc` válido.
+- JSON/JSONC e TOML preexistentes mantêm comentários, chaves desconhecidas e outros servidores; nome ocupado por definição não gerenciada é conflito legível.
+
+| ID | Tarefa | Horas | Depende de | Aceite |
+|---|---|---:|---|---|
+| SSDD-73 | Adicionar servidor Claude Code em `.mcp.json` | 4 | SSDD-69, SSDD-70 | Configuração project-scope stdio resolve o workspace e preserva servidores existentes; conflito do nome `ssdd_mcp` não é sobrescrito. |
+| SSDD-74 | Adicionar servidor Codex em `.codex/config.toml` | 4 | SSDD-69, SSDD-70 | Bloco TOML aponta para runtime local, define `cwd` do projeto e preserva comentário/configuração fora do bloco gerenciado. |
+| SSDD-75 | Adicionar servidor OpenCode em `opencode.json/jsonc` | 5 | SSDD-69, SSDD-70 | Merge da estrutura V2 preserva comentários e outras chaves e configura tipo local, comando em array e cwd explícito. |
+
+#### SSDD-76 · Instalar skills e agentes nativos para cada cliente (8 pontos)
+
+**História:** Como agente de engenharia, quero receber skills SSDD e perfis nativos de agente por papel, com instruções alinhadas e sem fixar um modelo que o usuário não escolheu.
+
+**Critérios de aceite:**
+
+- As quatro skills canônicas são copiadas com conteúdo e digest íntegros para `.claude/skills/<id>/SKILL.md` e `.agents/skills/<id>/SKILL.md`; OpenCode descobre a cópia compatível sem uma terceira duplicação.
+- Claude recebe quatro arquivos `.claude/agents/*.md`, Codex recebe quatro `.codex/agents/*.toml` e OpenCode recebe quatro `.opencode/agents/*.md`.
+- Cada perfil orienta a skill da mesma função e preserva os gates humanos, sem impor modelo, segredo ou permissão excessiva.
+- Colisões de caminho, IDs duplicados, frontmatter inválido e arquivos locais modificados são relatados antes da escrita.
+
+| ID | Tarefa | Horas | Depende de | Aceite |
+|---|---|---:|---|---|
+| SSDD-77 | Copiar skills canônicas para os diretórios descobertos | 5 | SSDD-69 | Frontmatter e IDs são validados; cópias Claude/Codex/OpenCode correspondem à origem e obedecem ao manifesto de hashes. |
+| SSDD-78 | Gerar agentes nativos de Claude Code e Codex | 5 | SSDD-77 | Quatro agentes de cada cliente usam formato nativo, instruções do papel e referência à skill correspondente, sem modelo fixo. |
+| SSDD-79 | Gerar agentes nativos de OpenCode | 4 | SSDD-77 | Quatro perfis Markdown têm frontmatter V2 válido, descrição e modo de subagente, sem modelo fixo. |
+
+### SSDD-80 · Conformidade, validação e documentação do instalador
+
+Valida instalação em repositórios vazios e preexistentes e documenta operação apoiada pelas versões atuais dos formatos oficiais.
+
+#### SSDD-81 · Validar instalação integrada e documentar operação (5 pontos)
+
+**História:** Como mantenedor e agente de IA, quero verificar uma instalação completa, entender conflitos e atualizações e reproduzir o setup nos três clientes com documentação apoiada em fontes oficiais.
+
+**Critérios de aceite:**
+
+- Teste em diretório temporário instala runtime e três formatos; cliente stdio inicia o servidor gerado e conclui handshake e `tools/list` sem apontar para fora do alvo.
+- Testes cobrem reexecução sem diff, dry-run sem mutação, conflitos, edição local, falha de preparação e preservação de caminhos e configurações.
+- Guia descreve pré-requisitos, instalação, check, atualização, recuperação e compatibilidade nativa com links oficiais.
+- `npm run check` passa; CI remota e testes de GUI só são registrados quando executados.
+
+| ID | Tarefa | Horas | Depende de | Aceite |
+|---|---|---:|---|---|
+| SSDD-82 | Criar testes E2E de instalação e preservação | 6 | SSDD-70, SSDD-73, SSDD-74, SSDD-75, SSDD-77, SSDD-78, SSDD-79 | Fixtures demonstram dry-run, apply, check idempotente, preservação, conflito, alteração gerenciada e ausência de escrita antes do staging. |
+| SSDD-83 | Validar configurações com processo MCP real | 4 | SSDD-70, SSDD-73, SSDD-74, SSDD-75 | Runtime instalado completa handshake stdio, lista ferramentas/skills e executa consulta read-only de projeto. |
+| SSDD-84 | Documentar instalação, atualização e compatibilidade oficial | 4 | SSDD-82, SSDD-83 | README, guia, status e ADR explicam uso, recuperação, limites e fontes oficiais verificadas em 10/11/2026. |
 
 ## Refinamento para a Sprint 7
 

@@ -36,6 +36,7 @@ Monólito modular em Node.js 24 ou 26 e TypeScript estrito. O runtime recomendad
 | `dashboard` | API HTTP da interface, telas e componentes |
 | `metrics` | Redução do histórico, séries e projeções |
 | `cli` | Inicialização, execução, exportação, backup, restore e diagnóstico |
+| `scripts/install-agent-stack.mjs` | Ferramenta de desenvolvimento para empacotar o runtime local e mesclar configurações, skills e agentes nos escopos de projeto de Claude Code, Codex e OpenCode |
 
 O MCP e o dashboard chamam os mesmos serviços de aplicação. O núcleo recebe ator e contexto de projeto já autenticados. Ele valida permissões e invariantes para cada comando. O navegador recebe dados via API da aplicação; a qualidade é reconstruída dos snapshots da baseline e a timeline lê o log append-only com watermark. Arquivos locais e SQL ficam atrás da camada de persistência.
 
@@ -60,6 +61,8 @@ Migração v23 limita o índice de sprint ativa a `(project_id, team_id)` e adic
 ### Distribuição e container
 
 `npm pack` gera um tarball instalável localmente; o pacote permanece `private` enquanto não houver aceite de publicação/versionamento. A imagem usa Node 24 Debian slim, compila o addon nativo do SQLite no mesmo ABI base, mantém somente dependências de produção, roda como `node` e grava em `/data`. Compose usa volume nomeado, filesystem raiz read-only e sem porta exposta. A imagem inicia o mesmo CLI em stdio, portanto cada cliente executa `docker compose run --rm -i ssdd-mcp`; comandos administrativos podem executar em containers curtos com o mesmo volume. CI instala o tarball em prefixo limpo, executa `init`/`doctor`, constrói a imagem e valida a base por uma nova instância do container. Para acesso compartilhado, o transporte MCP continua atrás de OIDC e proxy TLS conforme a arquitetura de rede, fora do exemplo local de stdio.
+
+O instalador de agentes é tooling do checkout e não altera o servidor MCP nem o schema. Ele constrói o tarball local, instala dependências em staging sob `.ssdd/agent-runtime` do repositório alvo e grava configurações project-scope. JSONC é editado mantendo comentários e campos desconhecidos; TOML recebe um bloco delimitado por marcadores. Um manifesto de hashes autoriza atualizações de arquivos SSDD e recusa colisões ou edições locais. Detalhes de formatos e do fluxo de rollback estão no [guia do instalador](agent-installer.md) e no [ADR 0014](adr/0014-instalador-local-de-agentes.md).
 
 ## Modos de execução
 

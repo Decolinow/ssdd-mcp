@@ -12,6 +12,9 @@ interface RoadmapSyncSummary {
   readonly roadmapTasks: number;
   readonly dependencyLinksAdded: number;
   readonly sprints: number;
+  readonly installerTasks: number;
+  readonly installerStoryPoints: number;
+  readonly installerTaskHours: number;
 }
 
 it("reuses imported roadmap items when the documented status changes", { timeout: 60_000 }, () => {
@@ -43,9 +46,12 @@ it("reuses imported roadmap items when the documented status changes", { timeout
 
     const firstRun = runSync(syncScriptPath, cliPath, workspace, repositoryRoot);
     const initialSummary = readSummary(firstRun.stdout);
-    assert.equal(initialSummary.roadmapTasks, 41);
-    assert.equal(initialSummary.dependencyLinksAdded, 71);
-    assert.deepEqual(initialSummary.counts, { epic: 4, feature: 9, story: 9, task: 41 });
+    assert.equal(initialSummary.roadmapTasks, 52);
+    assert.equal(initialSummary.installerTasks, 11);
+    assert.equal(initialSummary.installerStoryPoints, 26);
+    assert.equal(initialSummary.installerTaskHours, 49);
+    assert.equal(initialSummary.dependencyLinksAdded, 94);
+    assert.deepEqual(initialSummary.counts, { epic: 4, feature: 12, story: 13, task: 52 });
 
     const statusPath = join(workspace, "docs", "status.md");
     const originalStatus = readFileSync(statusPath, "utf8");

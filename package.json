@@ -11,6 +11,7 @@
     "dist/src/",
     "docs/",
     "skills/",
+    "scripts/install-agent-stack.mjs",
     "README.md",
     "LICENSE"
   ],
@@ -23,6 +24,7 @@
     "check": "npm run lint && npm run typecheck && npm test",
     "demo": "npm run build && node examples/workflow-demo.mjs",
     "demo:release": "npm run build && node --test --test-reporter=spec dist/tests/release/release-e2e.test.js",
+    "agents:install": "node scripts/install-agent-stack.mjs",
     "benchmark:metrics": "npm run build && node scripts/benchmark-metrics.mjs",
     "lint": "eslint .",
     "start": "node dist/src/cli.js stdio",
@@ -33,6 +35,8 @@
     "@modelcontextprotocol/server": "2.4.0",
     "better-sqlite3": "12.11.1",
     "jose": "6.2.16",
+    "jsonc-parser": "3.3.1",
+    "smol-toml": "1.9.1",
     "zod": "4.6.7"
   },
   "devDependencies": {
