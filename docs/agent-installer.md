@@ -30,6 +30,7 @@ node .ssdd/agent-runtime/node_modules/ssdd-mcp/dist/src/cli.js init --workspace 
 | `opencode.json` ou `opencode.jsonc` | Servidor local em `mcp.servers.ssdd_mcp` na configuração V2 do OpenCode |
 | `.agents/skills/<id>/SKILL.md` | Quatro skills canônicas, descobertas pelo Codex e pelo OpenCode |
 | `.claude/skills/<id>/SKILL.md` | Cópias para a descoberta nativa de skills do Claude Code |
+| `.opencode/skills/<id>/SKILL.md` | Cópias para a descoberta nativa de skills do OpenCode |
 | `.claude/agents/*.md` | Quatro agentes nativos de Claude Code |
 | `.codex/agents/*.toml` | Quatro agentes nativos de Codex |
 | `.opencode/agents/*.md` | Quatro agentes nativos de OpenCode |
@@ -46,7 +47,7 @@ As configurações seguem a documentação oficial verificada em **10/11/2026**:
 |---|---|---|---|
 | Claude Code | `.mcp.json`, `type: "stdio"`; caminho e workspace usam `${CLAUDE_PROJECT_DIR:-.}` | `.claude/skills/<id>/SKILL.md` | `.claude/agents/<id>.md`, com skill carregada pelo agente |
 | Codex | `.codex/config.toml`, tabela `[mcp_servers.ssdd_mcp]` | `.agents/skills/<id>/SKILL.md` | `.codex/agents/<id>.toml`, com `name`, `description` e `developer_instructions` |
-| OpenCode V2 | `opencode.json`/`.jsonc`, `mcp.servers.<id>`, `type: "local"` | `.agents/skills/<id>/SKILL.md` | `.opencode/agents/<id>.md`, `mode: subagent` |
+| OpenCode V2 | `opencode.json`/`.jsonc`, `mcp.servers.<id>`, `type: "local"` | `.opencode/skills/<id>/SKILL.md` (e `.agents/skills` como compatibilidade compartilhada) | `.opencode/agents/<id>.md`, `mode: subagent` |
 
 O Claude Code pede aprovação para o servidor MCP configurado no projeto. O Codex carrega configuração de projeto depois que o repositório é confiável. O instalador prepara os arquivos, mas não concede essa confiança nem aprova o servidor em nome da pessoa. Nenhum perfil fixa um modelo ou armazena segredos.
 

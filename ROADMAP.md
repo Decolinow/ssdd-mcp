@@ -171,14 +171,14 @@ Registra o servidor stdio e publica skills e agentes nos caminhos nativos dos tr
 
 **Critérios de aceite:**
 
-- As quatro skills canônicas são copiadas com conteúdo e digest íntegros para `.claude/skills/<id>/SKILL.md` e `.agents/skills/<id>/SKILL.md`; OpenCode descobre a cópia compatível sem uma terceira duplicação.
+- As quatro skills canônicas são copiadas com conteúdo e digest íntegros para `.claude/skills/<id>/SKILL.md`, `.agents/skills/<id>/SKILL.md` e `.opencode/skills/<id>/SKILL.md`, usando os caminhos nativos e compartilhados documentados pelos clientes.
 - Claude recebe quatro arquivos `.claude/agents/*.md`, Codex recebe quatro `.codex/agents/*.toml` e OpenCode recebe quatro `.opencode/agents/*.md`.
 - Cada perfil orienta a skill da mesma função e preserva os gates humanos, sem impor modelo, segredo ou permissão excessiva.
 - Colisões de caminho, IDs duplicados, frontmatter inválido e arquivos locais modificados são relatados antes da escrita.
 
 | ID | Tarefa | Horas | Depende de | Aceite |
 |---|---|---:|---|---|
-| SSDD-77 | Copiar skills canônicas para os diretórios descobertos | 5 | SSDD-69 | Frontmatter e IDs são validados; cópias Claude/Codex/OpenCode correspondem à origem e obedecem ao manifesto de hashes. |
+| SSDD-77 | Copiar skills canônicas para os diretórios nativos | 5 | SSDD-69 | Frontmatter e IDs são validados; cópias em `.claude/skills`, `.agents/skills` e `.opencode/skills` correspondem à origem e obedecem ao manifesto de hashes. |
 | SSDD-78 | Gerar agentes nativos de Claude Code e Codex | 5 | SSDD-77 | Quatro agentes de cada cliente usam formato nativo, instruções do papel e referência à skill correspondente, sem modelo fixo. |
 | SSDD-79 | Gerar agentes nativos de OpenCode | 4 | SSDD-77 | Quatro perfis Markdown têm frontmatter V2 válido, descrição e modo de subagente, sem modelo fixo. |
 

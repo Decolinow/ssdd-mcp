@@ -187,8 +187,8 @@ function yamlQuoted(value) {
   return JSON.stringify(value);
 }
 
-function agentInstructions(skill) {
-  return `Antes de executar trabalho desta função, leia e siga a skill do projeto em .agents/skills/${skill.id}/SKILL.md.\n\nUse as ferramentas SSDD disponíveis para conferir o contexto, os critérios, as dependências e os gates antes de agir. Preserve os controles humanos descritos na skill. Não invente aprovação, teste, evidência ou estado de workflow.`;
+function agentInstructions(skill, skillDirectory) {
+  return `Antes de executar trabalho desta função, leia e siga a skill do projeto em ${skillDirectory}/${skill.id}/SKILL.md.\n\nUse as ferramentas SSDD disponíveis para conferir o contexto, os critérios, as dependências e os gates antes de agir. Preserve os controles humanos descritos na skill. Não invente aprovação, teste, evidência ou estado de workflow.`;
 }
 
 function renderClaudeAgent(skill) {
@@ -200,7 +200,7 @@ function renderClaudeAgent(skill) {
     `  - ${skill.id}`,
     "---",
     "",
-    agentInstructions(skill),
+    agentInstructions(skill, ".claude/skills"),
     "",
   ].join("\n");
 }
@@ -209,7 +209,7 @@ function renderCodexAgent(skill) {
   const fields = {
     name: skill.id,
     description: skill.description,
-    developer_instructions: agentInstructions(skill),
+    developer_instructions: agentInstructions(skill, ".agents/skills"),
   };
   return `${Object.entries(fields).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join("\n")}\n`;
 }
@@ -221,7 +221,7 @@ function renderOpenCodeAgent(skill) {
     "mode: subagent",
     "---",
     "",
-    agentInstructions(skill),
+    agentInstructions(skill, ".opencode/skills"),
     "",
   ].join("\n");
 }
@@ -232,6 +232,7 @@ function collectGeneratedFiles(skills) {
     const text = skill.text.endsWith("\n") ? skill.text : `${skill.text}\n`;
     files.set(`.agents/skills/${skill.id}/SKILL.md`, text);
     files.set(`.claude/skills/${skill.id}/SKILL.md`, text);
+    files.set(`.opencode/skills/${skill.id}/SKILL.md`, text);
     files.set(`.claude/agents/${skill.id}.md`, renderClaudeAgent(skill));
     files.set(`.codex/agents/${skill.id}.toml`, renderCodexAgent(skill));
     files.set(`.opencode/agents/${skill.id}.md`, renderOpenCodeAgent(skill));

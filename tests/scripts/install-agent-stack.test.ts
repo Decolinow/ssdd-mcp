@@ -31,6 +31,7 @@ it("dry-run and check do not create files in the target repository", () => {
     assert.equal(plan.target, target);
     assert.equal(plan.conflicts.length, 0);
     assert.equal(plan.actions.filter((action) => action.path.startsWith(".agents/skills/") && action.action === "create").length, 4);
+    assert.equal(plan.actions.filter((action) => action.path.startsWith(".opencode/skills/") && action.action === "create").length, 4);
     assert.ok(plan.actions.some((action) => action.path === ".ssdd/agent-runtime/node_modules" && action.action === "install"));
     assert.equal(existsSync(join(target, ".ssdd")), false);
     assert.equal(existsSync(join(target, ".mcp.json")), false);
@@ -134,9 +135,13 @@ it("installs the local MCP runtime and native Claude, Codex, and OpenCode files"
     assert.equal(codexAgent.name, id);
     assert.ok(codexAgent.description);
     assert.match(codexAgent.developer_instructions, new RegExp(`.agents/skills/${id}/SKILL.md`));
-    assert.match(readFileSync(join(target, ".opencode", "agents", `${id}.md`), "utf8"), /mode: subagent/);
+    const openCodeAgent = readFileSync(join(target, ".opencode", "agents", `${id}.md`), "utf8");
+    assert.match(openCodeAgent, /mode: subagent/);
+    assert.match(openCodeAgent, new RegExp(`.opencode/skills/${id}/SKILL.md`));
+    assert.equal(readFileSync(join(target, ".opencode", "skills", id, "SKILL.md"), "utf8"), installedSkill);
   }
   assert.equal(readdirSync(join(target, ".agents", "skills")).length, 4);
+  assert.equal(readdirSync(join(target, ".opencode", "skills")).length, 4);
   const gitignore = readFileSync(join(target, ".gitignore"), "utf8");
   assert.ok(gitignore.includes("# Preserve this project ignore note."));
   assert.ok(gitignore.includes("/.ssdd/agent-runtime/"));

@@ -118,7 +118,7 @@
 | SSDD-73 | Implementada localmente; permanece Draft | `.mcp.json` recebe servidor stdio project-scope e preserva outras entradas. |
 | SSDD-74 | Implementada localmente; permanece Draft | `.codex/config.toml` recebe bloco gerenciado e mantém os demais servidores/configuração TOML. |
 | SSDD-75 | Implementada localmente; permanece Draft | Configuração JSON/JSONC do OpenCode V2 recebe merge sem remover comentários ou chaves existentes. |
-| SSDD-77 | Implementada localmente; permanece Draft | Quatro skills canônicas são copiadas para `.agents/skills` e `.claude/skills` com hashes. |
+| SSDD-77 | Implementada localmente; permanece Draft | Quatro skills canônicas são copiadas para `.agents/skills`, `.claude/skills` e `.opencode/skills` com hashes e os agentes OpenCode apontam para a cópia nativa. |
 | SSDD-78 | Implementada localmente; permanece Draft | Quatro agentes são gerados para Claude Code e Codex nos formatos nativos. |
 | SSDD-79 | Implementada localmente; permanece Draft | Quatro agentes Markdown V2 são gerados para OpenCode. |
 | SSDD-82 | Implementada localmente; permanece Draft | Fixtures validam dry-run, colisões, preservação, check idempotente, arquivo editado e rollback de falha. |

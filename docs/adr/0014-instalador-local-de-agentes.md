@@ -12,7 +12,7 @@ O runtime do SSDD MCP e suas quatro skills já funcionam por MCP stdio, mas Clau
 - O checkout SSDD fornece `npm run agents:install`; o alvo precisa ser um diretório dentro de um repositório Git.
 - O comando padrão é read-only e apresenta o plano. `--check` verifica drift/conflitos; `--apply` constrói o pacote quando necessário, empacota a versão local e instala dependências em staging sob `.ssdd` no alvo.
 - O runtime fica em `.ssdd/agent-runtime`, separado do banco `.ssdd/ssdd.sqlite`. O manifesto registra versão, hash dos arquivos gerados e valores de configuração gerenciados.
-- Skills canônicas residem em `skills/`; o instalador gera `.agents/skills` para Codex/OpenCode e `.claude/skills` para Claude. Os agentes são renderizados em `.claude/agents`, `.codex/agents` e `.opencode/agents`, sem modelo fixado.
+- Skills canônicas residem em `skills/`; o instalador gera `.agents/skills` para Codex e compatibilidade OpenCode, `.claude/skills` para Claude e `.opencode/skills` no caminho nativo do OpenCode. Os agentes são renderizados em `.claude/agents`, `.codex/agents` e `.opencode/agents`, sem modelo fixado e referenciando a skill do cliente.
 - Claude usa `.mcp.json` com `CLAUDE_PROJECT_DIR`; Codex recebe bloco marcado em `.codex/config.toml`; OpenCode V2 recebe merge do JSON/JSONC em `mcp.servers.ssdd_mcp`.
 - Configurações e arquivos fora das entradas gerenciadas são preservados. O instalador recusa nome ocupado sem manifesto, link simbólico em caminho de escrita e arquivo gerenciado cujo hash mudou.
 - Apply prepara o tarball e as dependências antes de gravar; troca o runtime por staging e restaura snapshots dos arquivos/runtime se uma gravação falhar. O runtime é ignorado pelo Git.
