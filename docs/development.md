@@ -29,6 +29,24 @@ node dist/src/cli.js serve --workspace . --port 4319
 
 `npm run check` executa `lint`, `typecheck` e `test`, nessa ordem. `npm run build` compila fontes/testes em `dist/` e copia os arquivos de `src/dashboard/public` para o pacote. `npm run demo` conecta um cliente MCP real a um workspace temporário e executa a trilha PO → Dev → QA até Done; a demo de cliente e os passos manuais estão em [docs/demo.md](demo.md). `npm run benchmark:metrics` constrói uma fixture temporária com 10 mil PBIs, 50 mil eventos, uma sprint planejada e três sprints históricas válidas; as projeções fazem 10 mil simulações Monte Carlo. O script mede 12 reconstruções frias, uma onda fria com cinco clientes MCP, 100 leituras concorrentes aquecidas e 100 gravações, invalida o cache com eventos sintéticos, falha se a previsão ou as metas p95 não forem atendidas e remove a fixture ao terminar. `init` é repetível para a mesma configuração e recusa mudanças implícitas. `npm start` inicia o servidor MCP por stdio no diretório atual. `ssdd-mcp serve` oferece o mesmo catálogo pelo transporte Streamable HTTP, sempre em loopback. Para equipe, configure issuer e URL do resource para ativar OIDC e use `ssdd-mcp access grant|revoke` para provisionar papéis por projeto. `approval_issue` e `approval_revoke` dão a admins humanos controle sobre aprovações de uso único que os agentes enviam em `_meta`. `ssdd-mcp dashboard` inicia a API e o dashboard em loopback e imprime a URL de entrada com token de bootstrap de uso único; endpoints, sessão e comportamento da UI estão em [docs/dashboard.md](dashboard.md).
 
+## Iniciar o workspace e carregar o roadmap
+
+Depois do build, crie um workspace privado no diretório do projeto e confira o schema:
+
+```sh
+node dist/src/cli.js init --workspace . --key SSDD --name "SSDD MCP" --goal "Entrega guiada por especificação" --timezone America/Sao_Paulo
+node dist/src/cli.js doctor --workspace .
+```
+
+O banco fica em `.ssdd/ssdd.sqlite`, que é ignorado pelo Git. Para importar as tarefas descritas em `ROADMAP.md` ao projeto `SSDD`, execute o sincronizador com a versão compilada do servidor:
+
+```sh
+npm run build
+node scripts/sync-roadmap-to-mcp.mjs
+```
+
+O script usa um cliente MCP stdio real, cria épicos/features/histórias de meta/tarefas, adiciona as dependências `depends_on` e confere o grafo importado. `SSDD_WORKSPACE` e `SSDD_PROJECT_KEY` permitem selecionar outro workspace/chave. IDs de requisição e chaves de roadmap evitam duplicação; a suíte repete a importação após mudar o status no Markdown. A reimportação não altera automaticamente títulos, critérios, descrições, estado de workflow ou dependências de itens existentes; revise essas mudanças pelo MCP. A importação inicial deixa os itens em Draft: texto de roadmap/status não representa aprovação, baseline, evidência nem aceite dos gates. Consulte o estado local em [docs/status.md](status.md) e mantenha-o junto das alterações em [ROADMAP.md](../ROADMAP.md).
+
 Para receber GitHub webhooks no mesmo processo `serve`, configure o segredo HMAC e o repositório permitido por projeto:
 
 ```powershell
@@ -91,6 +109,7 @@ O pacote é validado como tarball local; `private: true` impede publicação aci
 
 - Testes usam `node:test` e ficam em `tests/`, próximos ao módulo que cobrem.
 - Testes de SQLite devem usar diretórios temporários e fechar conexões ao terminar.
+- `tests/scripts/sync-roadmap-to-mcp.test.ts` exercita o importador com workspace temporário e cliente MCP real, incluindo reexecução após mudança do status descritivo sem criar itens duplicados.
 - `npm run demo:release` compila e executa a trilha integrada OIDC PO/Developer/QA → MCP Streamable HTTP → dashboard; usa fixture local sem tenant externo.
 - Backup/restore usa bancos temporários com WAL e manifesto; cubra corrupção/hash inválido, alvo não vazio, histórico após restauração e consultas read-only de projeções. Exportações devem ter fixture com credenciais em colunas e JSON aninhado e provar que nenhum segredo aparece.
 - Testes de transporte devem usar um workspace temporário e um cliente MCP real. Stdio reserva stdout ao protocolo e envia diagnósticos a stderr; Streamable HTTP testa a era legacy com handshake e a era moderna `2026-07-28`, ferramentas, sessões, negociação de versão, validação de Host/Origin e limites de payload. A fixture OIDC assina tokens localmente e cobre descoberta, JWKS, claims obrigatórios, scope, provisionamento e isolamento de sessão. Aprovações usam cliente MCP real para verificar metadata, consumo concorrente, replay, revogação e rollback da mutação junto da aprovação.

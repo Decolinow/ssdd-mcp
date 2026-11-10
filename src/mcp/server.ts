@@ -1,9 +1,11 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { loadSkills } from "@modelcontextprotocol/server/ext/skills/node";
 import { z } from "zod";
 import { existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { dirname, resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { packageVersion } from "../package-version.js";
 import { openSqliteDatabase } from "../storage-sqlite/database.js";
 import { applyMigrations } from "../storage-sqlite/migrations.js";
@@ -102,6 +104,11 @@ import { cancelSprint, changeSprintScope, closeSprint, createSprintDraft, startS
 import { getSprint, listSprints } from "../application/sprint-queries.js";
 import { getSprintRetrospective, setSprintRetrospective } from "../application/sprint-retrospectives.js";
 import { sprintStates } from "../domain/sprints.js";
+
+const agentSkillCatalog = await loadSkills(
+  resolve(dirname(fileURLToPath(import.meta.url)), "../../../skills"),
+  { prefix: "ssdd", strict: true },
+);
 
 const projectListItemSchema = z.object({
   id: z.string().uuid(),
@@ -773,6 +780,7 @@ export function createMcpServer(
   const githubIssueTokens = integrations.githubIssueTokens ?? readGithubIssueTokensFromEnvironment();
   const azureDevOpsConnections = integrations.azureDevOpsConnections ?? readAzureDevOpsConnectionsFromEnvironment();
   const server = new McpServer({ name: "ssdd-mcp", version: packageVersion });
+  agentSkillCatalog.attach(server);
   const principal = database.prepare("SELECT principal_type FROM principals WHERE principal_id = ?")
     .get(principalId) as { principal_type: string } | undefined;
   const requiresHumanApproval = principal?.principal_type === "agent" || principal?.principal_type === "service";
@@ -3102,6 +3110,124 @@ export function createMcpServer(
         return toToolError(error);
       }
     },
+  );
+
+  server.registerPrompt(
+    "ssdd_plan_sprint",
+    {
+      title: "Refinar o planejamento SSDD",
+      description: "Ajuda PO e facilitador a decompor escopo em itens verificáveis, dependências e capacidade.",
+      argsSchema: z.object({
+        projectId: z.string().uuid(),
+        epicIdOrKey: z.string().trim().min(1).max(80).optional(),
+        sprintGoal: z.string().trim().min(1).max(500).optional(),
+      }),
+    },
+    ({ projectId, epicIdOrKey, sprintGoal }) => ({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: [
+            "Atue como Product Owner/facilitador deste projeto SSDD.",
+            `Projeto: ${projectId}.`,
+            ...(epicIdOrKey ? [`Épico em foco: ${epicIdOrKey}.`] : []),
+            ...(sprintGoal ? [`Objetivo informado: ${sprintGoal}.`] : []),
+            "Primeiro consulte project_get e work_item_list; use task_context_get/trace_query nos itens candidatos para confirmar critérios, baseline e dependências.",
+            "Proponha objetivo de sprint claro, itens pequenos e critérios observáveis. Verifique capacidade, DoD e itens bloqueados antes de fechar a seleção.",
+            "Preserve IDs SSDD-### e histórico. Não publique revisões, inicie sprint ou altere escopo sem solicitação explícita e aprovação humana exigida pelo gate.",
+            "Entregue uma proposta com premissas, dependências, riscos, capacidade e perguntas ainda abertas.",
+          ].join("\n"),
+        },
+      }],
+    }),
+  );
+
+  server.registerPrompt(
+    "ssdd_start_task",
+    {
+      title: "Iniciar desenvolvimento de uma tarefa",
+      description: "Carrega contexto Dev, critérios, baseline e dependências antes de implementar e testar.",
+      argsSchema: z.object({
+        projectId: z.string().uuid(),
+        taskIdOrKey: z.string().trim().min(1).max(80),
+      }),
+    },
+    ({ projectId, taskIdOrKey }) => ({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: [
+            "Atue como Developer neste projeto SSDD.",
+            `Projeto: ${projectId}; tarefa: ${taskIdOrKey}.`,
+            "Antes de editar, consulte work_item_get, task_context_get com profile=dev e work_item_gate_check. Leia critérios, revisões pinned, avisos de drift e dependências; registre o plano técnico e os arquivos prováveis.",
+            "Implemente somente o escopo aceito e acrescente testes de regressão para o comportamento alterado. Execute npm run check quando o repositório usar esse comando e reporte a saída real.",
+            "Atualize documentação e status na mesma mudança. Preserve IDs SSDD-###. Não invente evidência de build/QA nem certifique cenários; peça confirmação humana para transições ou operações gated.",
+            "Ao concluir, resuma arquivos alterados, decisões, comandos executados, resultados e riscos restantes.",
+          ].join("\n"),
+        },
+      }],
+    }),
+  );
+
+  server.registerPrompt(
+    "ssdd_validate_quality",
+    {
+      title: "Validar qualidade SSDD",
+      description: "Prepara uma validação de QA baseada em critérios, cenários publicados, build e evidência real.",
+      argsSchema: z.object({
+        projectId: z.string().uuid(),
+        itemIdOrKey: z.string().trim().min(1).max(80),
+        buildId: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
+    ({ projectId, itemIdOrKey, buildId }) => ({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: [
+            "Atue como QA deste projeto SSDD e valide o PBI sem presumir aprovação.",
+            `Projeto: ${projectId}; item: ${itemIdOrKey}.`,
+            ...(buildId ? [`Build candidata: ${buildId}.`] : []),
+            "Consulte work_item_get, baseline_get, scenario_criterion_search, test_run_record e work_item_gate_check conforme necessário. Verifique que cenários e revisões correspondem aos critérios e à baseline atuais.",
+            "Execute ou inspecione somente testes realmente disponíveis; associe cada resultado à build exata e anexe evidência reproduzível. Reporte falhas, cobertura ausente e drift.",
+            "Nunca invente execução, build, evidência ou certificação. test_run_certify e a transição para Done exigem o papel QA/gates aplicáveis; deixe a certificação para uma pessoa QA autorizada.",
+            "Entregue matriz critério→cenário→resultado→evidência e uma recomendação explícita: bloqueado, pronto para revisão humana ou validado com gate aplicável.",
+          ].join("\n"),
+        },
+      }],
+    }),
+  );
+
+  server.registerPrompt(
+    "ssdd_release_readiness",
+    {
+      title: "Revisar prontidão de release",
+      description: "Reúne gates, métricas, validação local/remota, documentação e pendências antes de uma release.",
+      argsSchema: z.object({
+        projectId: z.string().uuid(),
+        milestoneIdOrKey: z.string().trim().min(1).max(80).optional(),
+      }),
+    },
+    ({ projectId, milestoneIdOrKey }) => ({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: [
+            "Atue como release manager deste projeto SSDD.",
+            `Projeto: ${projectId}.`,
+            ...(milestoneIdOrKey ? [`Marco em análise: ${milestoneIdOrKey}.`] : []),
+            "Consulte project_get, metrics_get, milestone_get/list, work_item_list e work_item_gate_check para consolidar escopo e gates. Confira evidências locais, CI remota, pacote, guias operacionais e versão do manifesto.",
+            "Separe fatos verificados de itens não verificados; para cada gap, cite a ferramenta/arquivo/comando que pode resolvê-lo.",
+            "Não publique artefato, crie tag ou faça deploy. Essas ações precisam de solicitação explícita do usuário e de aceite dos gates.",
+            "Retorne decisão recomendada, itens bloqueantes, evidências, riscos residuais e próximo passo de menor custo.",
+          ].join("\n"),
+        },
+      }],
+    }),
   );
 
   return server;

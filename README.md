@@ -30,6 +30,8 @@ Para importar issues GitHub, configure também `SSDD_GITHUB_ISSUES_TOKEN_PAY` co
 
 O Azure Boards também pode ser importado por `azure_work_item_import_preview/apply`, usando `SSDD_AZURE_DEVOPS_ORGANIZATION_PAY`, `SSDD_AZURE_DEVOPS_PROJECT_PAY` e um PAT organizacional read-only em `SSDD_AZURE_DEVOPS_TOKEN_PAY`. O fluxo mapeia `User Story` para `story` e `Bug` para `bug`, exige PO humano para aplicar e só executa consultas read-only; veja a [configuração detalhada](docs/mcp.md#importação-unidirecional-do-azure-boards).
 
+O MCP publica prompts operacionais para PO, Developer, QA e Release e serve quatro skills com instruções por papel. Os prompts guiam o agente sem executar mutações ao serem carregados; clients compatíveis podem listar e validar os arquivos da extensão MCP Skills. Consulte [prompts e skills](docs/mcp.md#prompts-e-skills-para-agentes) e o [backlog de habilitação de agentes](ROADMAP.md#backlog-de-habilitação-de-agentes).
+
 Comandos de operação: `ssdd-mcp doctor [--workspace <diretório>]` verifica a saúde do banco sem alterá-lo; `ssdd-mcp backup [--workspace <diretório>] [--output <arquivo.sqlite>]` cria um backup online e manifesto `.manifest.json`; `ssdd-mcp restore --backup <arquivo.sqlite> [--workspace <workspace limpo>]` valida e restaura em um diretório com `.ssdd` ausente ou vazio; e `ssdd-mcp export [--workspace <diretório>] --format json|markdown|gherkin [--output <arquivo>]` exporta dados do projeto ou revisões publicadas de cenários sem credenciais. O formato Gherkin pode ser salvo como `.feature`; exportação não substitui backup. O fluxo, os limites e a recuperação estão em [ADR 0005](docs/adr/0005-workspace-backup-restore-export.md).
 
 ## Distribuição local e container
@@ -55,6 +57,7 @@ Configure o cliente MCP para executar `docker compose run --rm -i ssdd-mcp`. Cad
 | [Especificação funcional](docs/specification.md) | Domínio, rastreabilidade, papéis, fluxos de trabalho e critérios de aceite |
 | [Arquitetura e operação](docs/architecture.md) | Runtime, módulos, persistência, auditoria, concorrência e segurança |
 | [Contrato MCP](docs/mcp.md) | Ferramentas, filtros, contexto por tarefa, formatos e erros |
+| [Prompts e skills de agente](docs/mcp.md#prompts-e-skills-para-agentes) | Fluxos por papel, ferramentas recomendadas e gates humanos |
 | [Dashboard e projeções](docs/dashboard.md) | Board, capacidade, burndown, velocidade e previsão |
 | [Roadmap](ROADMAP.md) | Épicos, sprints, tarefas estimadas, dependências e entregas verificáveis |
 | [Demo local](docs/demo.md) | Trilha PO → Dev → QA, configuração de cliente stdio e validação do pacote |

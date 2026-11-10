@@ -328,7 +328,24 @@ Os perfis escolhem seções padrão. `dev` recebe hierarquia, critérios, regras
 
 Seções disponíveis: `hierarchy`, `acceptanceCriteria`, `businessRules`, `technicalDecisions`, `scenarios`, `testRuns` e `baseline`. `maxChars` aceita de 2.000 a 30.000 caracteres e o padrão é 8.000. Entradas são mantidas inteiras; se a página não comporta o próximo registro, `truncated` fica `true` e `nextCursor` retoma após o último registro entregue. O cursor vincula tarefa, projeto, principal, perfil, seções, orçamento e watermark de auditoria. Mudança de dados invalida a continuação com `STALE_CURSOR`; filtros diferentes ou token inválido retornam `VALIDATION_FAILED`.
 
-O servidor publica os templates `ssdd://projects/{projectId}/tasks/{taskIdOrKey}/context{?profile}`, `ssdd://projects/{projectId}/work-items/{itemIdOrKey}/revisions/{revisionNumber}`, `ssdd://projects/{projectId}/specs/{specIdOrKey}/revisions/{revisionNumber}`, `ssdd://projects/{projectId}/scenarios/{scenarioIdOrKey}/revisions/{revisionNumber}` e `ssdd://projects/{projectId}/test-runs/{runId}`. O resource de contexto aceita o perfil opcional e usa o orçamento padrão de 8.000 caracteres; para escolher seções, mudar o orçamento ou avançar cursor, use a ferramenta `task_context_get`. Resources de revisão recusam conteúdo em rascunho e repetem a autorização do projeto. Conteúdo maior que o orçamento é resumido na página com URI para leitura completa. Prompts opcionais seguem planejados e não executam comandos implicitamente.
+O servidor publica os templates `ssdd://projects/{projectId}/tasks/{taskIdOrKey}/context{?profile}`, `ssdd://projects/{projectId}/work-items/{itemIdOrKey}/revisions/{revisionNumber}`, `ssdd://projects/{projectId}/specs/{specIdOrKey}/revisions/{revisionNumber}`, `ssdd://projects/{projectId}/scenarios/{scenarioIdOrKey}/revisions/{revisionNumber}` e `ssdd://projects/{projectId}/test-runs/{runId}`. O resource de contexto aceita o perfil opcional e usa o orçamento padrão de 8.000 caracteres; para escolher seções, mudar o orçamento ou avançar cursor, use a ferramenta `task_context_get`. Resources de revisão recusam conteúdo em rascunho e repetem a autorização do projeto. Conteúdo maior que o orçamento é resumido na página com URI para leitura completa.
+
+## Prompts e skills para agentes
+
+`prompts/list` publica quatro fluxos sem efeito colateral:
+
+| Prompt | Argumentos | Uso |
+|---|---|---|
+| `ssdd_plan_sprint` | `projectId`, `epicIdOrKey?`, `sprintGoal?` | Refinar objetivo, critérios, dependências e capacidade como PO/facilitador |
+| `ssdd_start_task` | `projectId`, `taskIdOrKey` | Abrir contexto Dev, critérios, baseline e gates antes de implementar |
+| `ssdd_validate_quality` | `projectId`, `itemIdOrKey`, `buildId?` | Conferir critérios, cenários publicados, resultados e evidências de QA |
+| `ssdd_release_readiness` | `projectId`, `milestoneIdOrKey?` | Revisar escopo, métricas, gates, CI, pacote e guias operacionais |
+
+Os prompts apenas orientam o agente sobre chamadas e decisões; não executam ferramentas nem alteram estado ao serem obtidos. Eles distinguem fatos verificados de hipóteses, preservam os gates humanos e instruem o agente a não inventar testes, builds, evidências ou certificações.
+
+O servidor também declara a extensão MCP Skills do SDK para clientes compatíveis. `skills/list` publica `ssdd-product-owner`, `ssdd-developer`, `ssdd-quality-assurance` e `ssdd-release-manager`; `skills/get` e a leitura de arquivos servem os documentos de `skills/`. Clientes podem validar o digest antes de carregar uma skill. O pacote npm inclui esses arquivos. Um agente que não implementa a extensão ainda pode ler as skills diretamente do repositório ou do pacote; as ferramentas, resources e prompts MCP continuam independentes.
+
+Para instalar os playbooks no escopo do projeto Codex, copie os diretórios de `skills/` para `.agents/skills/`. Em outros hosts, use o mecanismo de skills do host ou leia `SKILL.md` pela extensão MCP. As instruções reforçam critérios testáveis, testes de regressão, sincronização da documentação e aprovação humana nas mutações.
 
 ## Mutações e erros
 

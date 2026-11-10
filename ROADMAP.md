@@ -110,6 +110,14 @@ Planejamento inicial em sprints de duas semanas. Pontos Fibonacci representam co
 - PostgreSQL para múltiplas réplicas só entra em sprint quando benchmark reproduzível demonstrar que a arquitetura single-host SQLite excede os limites acordados; medir primeiro e registrar a decisão em ADR.
 - Busca semântica só entra em sprint quando consultas representativas mostrarem lacunas do FTS5; qualquer resultado precisa trazer proveniência e preservar autorização por projeto.
 
+## Backlog de habilitação de agentes
+
+Entrega transversal ao roadmap; não está comprometida com uma sprint até haver capacidade medida. A hierarquia de trabalho no MCP fica Épico E4 → Feature de habilitação → história de fluxo guiado → tasks.
+
+| ID | Tarefa | Pontos | Depende de | Aceite |
+|---|---|---:|---|---|
+| SSDD-901 | Publicar prompts MCP e skills de agente por papel | 5 | 105, 303, 304 | Clientes stdio e Streamable HTTP listam e obtêm prompts PO, Developer, QA e Release; a extensão MCP Skills lista e lê as quatro skills com verificação de digest; prompts e skills seguem contexto, gates humanos e proibição de fabricar evidências; testes e documentação cobrem os dois transports e o pacote npm inclui as skills |
+
 ## Refinamento para a Sprint 7
 
 - **SSDD-701:** exportar a revisão publicada corrente de cada cenário para Gherkin válido, com tags rastreáveis e conteúdo de uma linha; executar o parser oficial para verificar recursos e passos gerados. Rascunhos e revisões supersedidas ficam fora da exportação.

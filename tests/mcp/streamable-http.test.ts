@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { spawn } from "node:child_process";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { SkillsClient } from "@modelcontextprotocol/client/ext/skills";
 import { request as httpRequest } from "node:http";
 import { createServer as createTcpServer } from "node:net";
 import { once } from "node:events";
@@ -101,6 +102,17 @@ test("Streamable HTTP supports the MCP 2026-07-28 stateless protocol era", async
   await client.connect(transport);
   const tools = await client.listTools();
   assert.ok(tools.tools.some((tool) => tool.name === "project_list"));
+  const prompts = await client.listPrompts();
+  assert.equal(prompts.prompts.length, 4);
+  const skillClient = new SkillsClient(client);
+  assert.equal(skillClient.supported, true);
+  const skillListing = await skillClient.list();
+  assert.equal(skillListing.skills.length, 4);
+  const qualitySkill = await skillClient.read(
+    skillListing.skills.find((skill) => skill.frontmatter.name === "ssdd-quality-assurance")!,
+  );
+  assert.equal(qualitySkill.verified, true);
+  assert.match(qualitySkill.body ?? "", /Never invent a run/);
   const result = await client.callTool({ name: "project_list", arguments: {} });
   assert.notEqual(result.isError, true);
   assert.equal((result.structuredContent as { projects: Array<{ key: string }> }).projects[0]?.key, "PAY");

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { SkillsClient } from "@modelcontextprotocol/client/ext/skills";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -113,6 +114,29 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   assert.ok(resourceTemplates.resourceTemplates.some((resource) => resource.name === "scenario-revision"));
   assert.ok(resourceTemplates.resourceTemplates.some((resource) => resource.name === "test-run"));
 
+  const prompts = await client.listPrompts();
+  assert.deepEqual(prompts.prompts.map((prompt) => prompt.name).sort(), [
+    "ssdd_plan_sprint",
+    "ssdd_release_readiness",
+    "ssdd_start_task",
+    "ssdd_validate_quality",
+  ]);
+  const skillsClient = new SkillsClient(client);
+  assert.equal(skillsClient.supported, true);
+  const skillListing = await skillsClient.list();
+  assert.deepEqual(skillListing.skills.map((skill) => skill.frontmatter.name).sort(), [
+    "ssdd-developer",
+    "ssdd-product-owner",
+    "ssdd-quality-assurance",
+    "ssdd-release-manager",
+  ]);
+  const developerSkill = await skillsClient.read(
+    skillListing.skills.find((skill) => skill.frontmatter.name === "ssdd-developer")!,
+  );
+  assert.equal(developerSkill.verified, true);
+  assert.match(developerSkill.body ?? "", /task_context_get/);
+  assert.match(developerSkill.body ?? "", /regression tests/);
+
   const listResult = await client.callTool({ name: "project_list", arguments: {} });
   assert.notEqual(listResult.isError, true);
   assert.ok(listResult.structuredContent);
@@ -125,6 +149,23 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
 
   const projectId = listed.projects[0]?.id;
   assert.ok(projectId);
+  const promptArguments = {
+    projectId,
+    taskIdOrKey: "SSDD-7",
+    itemIdOrKey: "SSDD-7",
+  };
+  const promptExpectations = [
+    ["ssdd_plan_sprint", /capacidade/i],
+    ["ssdd_start_task", /testes de regressão/i],
+    ["ssdd_validate_quality", /Nunca invente/i],
+    ["ssdd_release_readiness", /Não publique/i],
+  ] as const;
+  for (const [name, expectedInstruction] of promptExpectations) {
+    const prompt = await client.getPrompt({ name, arguments: promptArguments });
+    const promptContent = prompt.messages[0]?.content;
+    assert.ok(promptContent && promptContent.type === "text");
+    assert.match(promptContent.text, expectedInstruction);
+  }
   const dodSetResult = await client.callTool({
     name: "definition_of_done_set",
     arguments: {
