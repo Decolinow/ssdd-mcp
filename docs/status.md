@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-11-10  
 **Fase:** Sprint 8 concluída localmente; aceite da CI remota e da release v0.2 ainda pendente  
-**Sprint atual:** SSDD-803 concluída localmente; próximo passo: restabelecer o acesso remoto para validar a matriz de CI e fechar a release
+**Sprint atual:** SSDD-803 concluída localmente; próximo passo: confirmar a publicação da branch `main` para executar a CI remota e fechar a release
 
 ## Entregue nesta revisão
 
@@ -62,7 +62,7 @@
 
 | ID | Estado | Evidência / pendência |
 |---|---|---|
-| SSDD-101 | Validação local concluída; CI remoto pendente | Workflow e matriz 6× (Linux/macOS/Windows × Node 24/26) configurados. `npm run check` passou em Windows com Node 24.18.0 e Node 26.13.0, e em WSL/Linux com Node 24.22.2 e Node 26.13.0. O commit inicial `c3b9b35` existe localmente; `git ls-remote origin` não retornou refs e o conector GitHub retornou 404 para o repositório, então a matriz remota ainda não pode ser executada. |
+| SSDD-101 | Validação local concluída; CI remoto pendente | Workflow e matriz 6× (Linux/macOS/Windows × Node 24/26) configurados. `npm run check` passou em Windows com Node 24.18.0 e Node 26.13.0, e em WSL/Linux com Node 24.22.2 e Node 26.13.0. Os commits locais existem; `git ls-remote origin` não retornou refs e `git push --dry-run origin main` reconheceu `main` como nova branch, mas não confirmou permissão de escrita. O conector GitHub retorna 404; a matriz remota continua pendente. |
 | SSDD-102 | Concluído localmente | Versões MCP/SQLite registradas; handshake stdio, WAL, foreign keys, FTS5 e JSON cobertos por testes. |
 | SSDD-103 | Concluído localmente | `init` repetido retorna o mesmo projeto; drift de checksum aborta a inicialização sem gravar o projeto. |
 | SSDD-104 | Concluído localmente | Principal local, papéis, autorização, auditoria e idempotência testados; negação e erro transacional não deixam eventos/efeitos parciais. |
@@ -110,8 +110,8 @@
 - Resultado: a suíte cobre criação/listagem de equipes, capacidade isolada, seleção ambígua, sprints simultâneas, reserva de PBIs, Monte Carlo seeded, capacidade reduzida, alvo fora do horizonte, histórico v1 e contratos MCP/HTTP. A matriz remota Linux/macOS/Windows × Node 24/26 ainda depende do acesso ao repositório.
 - Verificações anteriores: `npm run demo:release` concluiu PO → Developer → QA → Done com três clientes OIDC MCP e confirmou item/baseline pelo dashboard HTTP. O tarball instalado em prefixo global limpo passou por `--version`, `init` e `doctor`; inclui 69 arquivos (aprox. 211 KB compactado e 1 MB descompactado). Smoke visual anterior percorreu as seis abas no desktop e, com dados E2E, backlog, board, métricas e detalhe de qualidade em 390 × 844; o documento manteve largura de 375 px em viewport de 390 px e não houve erro/aviso no console.
 - O benchmark atual exercita também as 10.000 simulações; a onda de cinco clientes mediu p95 154,74 ms, leituras aquecidas 37,10 ms e gravações 80,07 ms, dentro das metas.
-- Limite atual: o commit inicial `c3b9b35` está local, mas `git ls-remote origin` não retornou refs e o conector GitHub respondeu 404. Confirmar o repositório/acesso antes de publicar o commit e observar Actions. O build e o volume passaram localmente, mas a matriz completa Linux/macOS/Windows × Node 24/26 e o job do GitHub Actions ainda não foram observados. O cache é local ao processo e limitado a 1 s, invalidado por mudança auditada.
+- Limite atual: `origin` não expõe refs; o dry-run reconheceu que `main` seria criada, mas a permissão de escrita só pode ser confirmada no push real. O conector GitHub respondeu 404. Os commits estão prontos localmente; falta autorização para publicar e observar Actions. O build e o volume passaram localmente, mas a matriz completa Linux/macOS/Windows × Node 24/26 e o job do GitHub Actions ainda não foram observados. O cache é local ao processo e limitado a 1 s, invalidado por mudança auditada.
 
 ## Próximo passo
 
-Confirmar o repositório remoto e o acesso de publicação, enviar o commit inicial, observar a matriz CI Linux/macOS/Windows × Node 24/26 e fechar o aceite/tag v0.2. O pacote, a imagem Docker e o `doctor` já foram validados localmente com a previsão v2. Depois da release, revisar adoção e priorizar a próxima sprint. O MCP permanece em loopback e o acesso de equipe passa por proxy TLS.
+Com autorização, enviar a branch `main`, observar a matriz CI Linux/macOS/Windows × Node 24/26 e fechar o aceite/tag v0.2. O pacote, a imagem Docker e o `doctor` já foram validados localmente com a previsão v2. Depois da release, revisar adoção e priorizar a próxima sprint. O MCP permanece em loopback e o acesso de equipe passa por proxy TLS.
