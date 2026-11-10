@@ -58,6 +58,7 @@ Configure o cliente MCP para executar `docker compose run --rm -i ssdd-mcp`. Cad
 | [Dashboard e projeções](docs/dashboard.md) | Board, capacidade, burndown, velocidade e previsão |
 | [Roadmap](ROADMAP.md) | Épicos, sprints, tarefas estimadas, dependências e entregas verificáveis |
 | [Demo local](docs/demo.md) | Trilha PO → Dev → QA, configuração de cliente stdio e validação do pacote |
+| [Notas de release v0.2.0 (rascunho)](docs/release-v0.2.md) | Compatibilidade, upgrade, instalação e gate de publicação |
 | [Status](docs/status.md) | Sprint atual, tarefas iniciadas, evidências e próximo passo |
 | [Desenvolvimento](docs/development.md) | Instalação, comandos, fluxo de contribuição e atualização da documentação |
 | [Decisão inicial de stack](docs/adr/0001-stack-inicial.md) | Versões escolhidas e premissas ainda abertas |

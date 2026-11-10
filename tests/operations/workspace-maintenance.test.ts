@@ -9,6 +9,7 @@ import { createWorkItem } from "../../src/application/create-work-item.js";
 import { getProjectDashboardMetrics } from "../../src/application/dashboard-metrics.js";
 import { grantExternalIdentity } from "../../src/application/external-identities.js";
 import { initializeProject } from "../../src/application/initialize-project.js";
+import { packageVersion } from "../../src/package-version.js";
 import { createScenario, proposeScenarioRevision, publishScenarioRevision } from "../../src/application/scenario-commands.js";
 import { openSqliteDatabase, type SqliteDatabase } from "../../src/storage-sqlite/database.js";
 import {
@@ -137,6 +138,7 @@ describe("workspace backup, restore, export, and diagnostics", () => {
   it("reports database health and exports project data without credentials or identity keys", () => {
     const report = diagnoseWorkspace(workspace);
     assert.equal(report.status, "ok");
+    assert.equal(report.appVersion, packageVersion);
     assert.equal(report.integrity, "ok");
     assert.equal(report.migrations?.status, "current");
     assert.equal(report.projectCount, 1);
@@ -217,6 +219,7 @@ describe("workspace backup, restore, export, and diagnostics", () => {
   it("reports missing workspace databases without exposing filesystem details", () => {
     const report = diagnoseWorkspace(join(root, "missing"));
     assert.equal(report.status, "error");
+    assert.equal(report.appVersion, packageVersion);
     assert.equal(report.databasePresent, false);
     assert.deepEqual(report.errors, ["Workspace database is missing. Run `ssdd-mcp init` first."]);
     assert.doesNotMatch(JSON.stringify(report), /identity|token|secret|password/iu);

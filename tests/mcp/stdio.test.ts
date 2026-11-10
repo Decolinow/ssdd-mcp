@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { initializeProject } from "../../src/application/initialize-project.js";
+import { packageVersion } from "../../src/package-version.js";
 import { openSqliteDatabase } from "../../src/storage-sqlite/database.js";
 
 test("stdio exposes project and work item tools through a real MCP client", async (context) => {
@@ -32,6 +33,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   });
 
   await client.connect(transport);
+  assert.equal(client.getServerVersion()?.version, packageVersion);
   const listedTools = await client.listTools();
   assert.deepEqual(
     listedTools.tools.map((tool) => tool.name).sort(),

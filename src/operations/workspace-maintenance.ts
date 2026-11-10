@@ -4,6 +4,7 @@ import { chmod, copyFile, link, mkdir, readFile, readdir, rm, rmdir, stat, unlin
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, basename, join, resolve } from "node:path";
 import Sqlite from "better-sqlite3";
+import { packageVersion } from "../package-version.js";
 import { applyMigrations, inspectMigrationHistory, type MigrationInspection } from "../storage-sqlite/migrations.js";
 import { openSqliteDatabase } from "../storage-sqlite/database.js";
 
@@ -212,7 +213,7 @@ export function diagnoseWorkspace(workspace: string): DoctorReport {
   if (!sqliteDatabaseExists(databasePath)) {
     return {
       status: "error",
-      appVersion: "0.1.0",
+      appVersion: packageVersion,
       databasePresent: false,
       sqliteVersion: null,
       journalMode: null,
@@ -253,7 +254,7 @@ export function diagnoseWorkspace(workspace: string): DoctorReport {
     const status = errors.length > 0 ? "error" : warnings.length > 0 ? "warning" : "ok";
     return {
       status,
-      appVersion: "0.1.0",
+      appVersion: packageVersion,
       databasePresent: true,
       sqliteVersion,
       journalMode,
@@ -268,7 +269,7 @@ export function diagnoseWorkspace(workspace: string): DoctorReport {
     errors.push(error instanceof Error ? error.message : "Database diagnostic failed.");
     return {
       status: "error",
-      appVersion: "0.1.0",
+      appVersion: packageVersion,
       databasePresent: true,
       sqliteVersion: null,
       journalMode: null,

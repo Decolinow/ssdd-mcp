@@ -5,6 +5,7 @@ import { grantExternalIdentity, revokeExternalIdentityRoles } from "./applicatio
 import { getOrCreateLocalPrincipal, projectRoles, type ProjectRole } from "./application/local-identity.js";
 import { startMcpServer } from "./mcp/server.js";
 import { startMcpHttpServer } from "./mcp/http-server.js";
+import { packageVersion } from "./package-version.js";
 import { readWebhookSecretsFromEnvironment } from "./mcp/webhook-receiver.js";
 import { readGithubRepositoriesFromEnvironment } from "./application/github-webhooks.js";
 import { readGithubIssueTokensFromEnvironment } from "./integrations/github-issues.js";
@@ -60,7 +61,7 @@ export async function runCli(
     return 0;
   }
   if (command === "--version" || command === "-v") {
-    stdout.write("0.1.0\n");
+    stdout.write(`${packageVersion}\n`);
     return 0;
   }
   if (command !== "init") {

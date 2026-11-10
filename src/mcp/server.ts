@@ -4,6 +4,7 @@ import { z } from "zod";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { packageVersion } from "../package-version.js";
 import { openSqliteDatabase } from "../storage-sqlite/database.js";
 import { applyMigrations } from "../storage-sqlite/migrations.js";
 import { getOrCreateLocalPrincipal } from "../application/local-identity.js";
@@ -771,7 +772,7 @@ export function createMcpServer(
   const githubRepositories = integrations.githubRepositories ?? readGithubRepositoriesFromEnvironment();
   const githubIssueTokens = integrations.githubIssueTokens ?? readGithubIssueTokensFromEnvironment();
   const azureDevOpsConnections = integrations.azureDevOpsConnections ?? readAzureDevOpsConnectionsFromEnvironment();
-  const server = new McpServer({ name: "ssdd-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "ssdd-mcp", version: packageVersion });
   const principal = database.prepare("SELECT principal_type FROM principals WHERE principal_id = ?")
     .get(principalId) as { principal_type: string } | undefined;
   const requiresHumanApproval = principal?.principal_type === "agent" || principal?.principal_type === "service";

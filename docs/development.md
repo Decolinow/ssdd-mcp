@@ -77,8 +77,8 @@ As migrações são consecutivas, versionadas por checksum e executadas em trans
 ```sh
 npm run build
 mkdir -p ../packages
-npm pack --pack-destination ../packages
-npm install --global --prefix ../ssdd-mcp-install ../packages/ssdd-mcp-0.1.0.tgz
+tarball="$(npm pack --json --pack-destination ../packages | node -p 'JSON.parse(require("node:fs").readFileSync(0, "utf8"))[0].filename')"
+npm install --global --prefix ../ssdd-mcp-install "../packages/$tarball"
 docker compose build
 docker compose run --rm ssdd-mcp init --workspace /data --key PAY --name "Pagamentos" --goal "Pagamentos confiáveis" --timezone America/Sao_Paulo
 docker compose run --rm ssdd-mcp doctor --workspace /data

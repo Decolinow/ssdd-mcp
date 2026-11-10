@@ -57,8 +57,8 @@ jobs:
 
       - name: Install generated tarball in a clean prefix
         run: |
-          npm pack --pack-destination "$RUNNER_TEMP"
-          npm install --global --prefix "$RUNNER_TEMP/npm-prefix" "$RUNNER_TEMP/ssdd-mcp-0.1.0.tgz"
+          TARBALL="$(npm pack --json --pack-destination "$RUNNER_TEMP" | jq -er '.[0].filename')"
+          npm install --global --prefix "$RUNNER_TEMP/npm-prefix" "$RUNNER_TEMP/$TARBALL"
           "$RUNNER_TEMP/npm-prefix/bin/ssdd-mcp" --version
           "$RUNNER_TEMP/npm-prefix/bin/ssdd-mcp" init --workspace "$RUNNER_TEMP/package-workspace" --key CI --name "CI package smoke test" --goal "Verify installed package" --timezone UTC
           "$RUNNER_TEMP/npm-prefix/bin/ssdd-mcp" doctor --workspace "$RUNNER_TEMP/package-workspace" | jq -e '.status == "ok" and .projectCount == 1'
