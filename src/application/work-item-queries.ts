@@ -40,6 +40,16 @@ export function getWorkItem(
 ): WorkItem {
   assertProjectAuthorization(database, projectId, principalId);
 
+  // Stable roadmap IDs share the `SSDD-###` spelling with generated item keys.
+  // Once a mapping exists, the roadmap ID takes precedence; callers that need
+  // the generated key in that collision must use the item's UUID.
+  const normalizedReference = itemIdOrKey.trim().toUpperCase();
+  const roadmapMapping = /^SSDD-\d{3}$/u.test(normalizedReference)
+    ? database.prepare("SELECT item_id FROM roadmap_item_ids WHERE project_id = ? AND roadmap_id = ?")
+      .get(projectId, normalizedReference) as { item_id: string } | undefined
+    : undefined;
+  const lookupReference = roadmapMapping?.item_id ?? itemIdOrKey;
+
   const row = database
     .prepare(
       `SELECT item_id, project_id, item_key, type, parent_id, related_story_id,
@@ -51,7 +61,7 @@ export function getWorkItem(
        FROM work_items
        WHERE project_id = ? AND (item_id = ? OR item_key = ? COLLATE NOCASE)`,
     )
-    .get(projectId, itemIdOrKey, itemIdOrKey) as WorkItemRow | undefined;
+    .get(projectId, lookupReference, lookupReference) as WorkItemRow | undefined;
 
   if (row === undefined) {
     throw new ApplicationError("NOT_FOUND", "Work item was not found.");

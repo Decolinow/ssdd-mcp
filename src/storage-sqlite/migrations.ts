@@ -1974,6 +1974,247 @@ export const initialMigrations: readonly SqliteMigration[] = [
         END;
     `,
   },
+  {
+    version: 24,
+    name: "index-test-run-history-by-project-and-scenario",
+    sql: `
+      CREATE INDEX test_runs_by_project_sequence
+        ON test_runs (project_id, sequence DESC);
+      CREATE INDEX test_runs_by_scenario_sequence
+        ON test_runs (project_id, scenario_id, sequence DESC);
+    `,
+  },
+  {
+    version: 25,
+    name: "development-sessions-release-events-and-task-qa-links",
+    sql: `
+      CREATE TABLE development_sessions (
+        session_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        developer_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        session_reference TEXT CHECK (session_reference IS NULL OR length(trim(session_reference)) BETWEEN 1 AND 160),
+        status TEXT NOT NULL CHECK (status IN ('active', 'paused', 'completed', 'cancelled')),
+        started_at TEXT NOT NULL,
+        last_resumed_at TEXT,
+        ended_at TEXT,
+        active_seconds INTEGER NOT NULL DEFAULT 0 CHECK (active_seconds >= 0),
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id),
+        UNIQUE (project_id, session_id),
+        CHECK ((status = 'active' AND last_resumed_at IS NOT NULL AND ended_at IS NULL)
+          OR (status = 'paused' AND last_resumed_at IS NULL AND ended_at IS NULL)
+          OR (status IN ('completed', 'cancelled') AND last_resumed_at IS NULL AND ended_at IS NOT NULL))
+      ) STRICT;
+
+      CREATE UNIQUE INDEX development_sessions_one_active_per_task
+        ON development_sessions (project_id, item_id) WHERE status = 'active';
+      CREATE UNIQUE INDEX development_sessions_one_open_per_developer_task
+        ON development_sessions (project_id, item_id, developer_principal_id) WHERE status IN ('active', 'paused');
+      CREATE INDEX development_sessions_by_developer
+        ON development_sessions (project_id, developer_principal_id, started_at DESC);
+
+      CREATE TABLE development_session_events (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL UNIQUE,
+        project_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        event_type TEXT NOT NULL CHECK (event_type IN ('started', 'paused', 'resumed', 'completed', 'cancelled')),
+        principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        occurred_at TEXT NOT NULL,
+        reason TEXT,
+        FOREIGN KEY (project_id, session_id) REFERENCES development_sessions(project_id, session_id)
+      ) STRICT;
+      CREATE INDEX development_session_events_by_session
+        ON development_session_events (project_id, session_id, sequence);
+      CREATE TRIGGER development_session_events_immutable_update
+        BEFORE UPDATE ON development_session_events
+        BEGIN SELECT RAISE(ABORT, 'development session event history is immutable'); END;
+      CREATE TRIGGER development_session_events_immutable_delete
+        BEFORE DELETE ON development_session_events
+        BEGIN SELECT RAISE(ABORT, 'development session event history is immutable'); END;
+
+      CREATE TABLE development_session_spec_refs (
+        project_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        spec_id TEXT NOT NULL,
+        revision_number INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, session_id, spec_id),
+        FOREIGN KEY (project_id, session_id) REFERENCES development_sessions(project_id, session_id),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id),
+        FOREIGN KEY (project_id, spec_id, revision_number)
+          REFERENCES specification_revisions(project_id, spec_id, revision_number)
+      ) STRICT;
+      CREATE TRIGGER development_session_spec_refs_immutable_update
+        BEFORE UPDATE ON development_session_spec_refs
+        BEGIN SELECT RAISE(ABORT, 'session technical specification references are immutable'); END;
+      CREATE TRIGGER development_session_spec_refs_immutable_delete
+        BEFORE DELETE ON development_session_spec_refs
+        BEGIN SELECT RAISE(ABORT, 'session technical specification references are immutable'); END;
+
+      CREATE TABLE scenario_revision_work_items (
+        project_id TEXT NOT NULL,
+        scenario_id TEXT NOT NULL,
+        revision_number INTEGER NOT NULL,
+        item_id TEXT NOT NULL,
+        PRIMARY KEY (project_id, scenario_id, revision_number, item_id),
+        FOREIGN KEY (project_id, scenario_id, revision_number)
+          REFERENCES scenario_revisions(project_id, scenario_id, revision_number),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id)
+      ) STRICT;
+      CREATE INDEX scenario_revision_work_items_by_task
+        ON scenario_revision_work_items (project_id, item_id, scenario_id, revision_number);
+      CREATE TRIGGER scenario_revision_work_items_validate
+        BEFORE INSERT ON scenario_revision_work_items
+        BEGIN
+          SELECT CASE WHEN (SELECT status FROM scenario_revisions WHERE project_id = new.project_id
+            AND scenario_id = new.scenario_id AND revision_number = new.revision_number) <> 'draft'
+            THEN RAISE(ABORT, 'task scenario links can only be added to draft revisions') END;
+          SELECT CASE WHEN (SELECT type FROM work_items WHERE project_id = new.project_id AND item_id = new.item_id) <> 'task'
+            THEN RAISE(ABORT, 'scenario revision links may target only task work items') END;
+        END;
+      CREATE TRIGGER scenario_revision_work_items_immutable_update
+        BEFORE UPDATE ON scenario_revision_work_items
+        BEGIN SELECT RAISE(ABORT, 'scenario task coverage history is immutable'); END;
+      CREATE TRIGGER scenario_revision_work_items_immutable_delete
+        BEFORE DELETE ON scenario_revision_work_items
+        BEGIN SELECT RAISE(ABORT, 'scenario task coverage history is immutable'); END;
+
+      CREATE TABLE development_session_scenario_refs (
+        project_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        scenario_id TEXT NOT NULL,
+        revision_number INTEGER NOT NULL,
+        captured_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, session_id, scenario_id),
+        FOREIGN KEY (project_id, session_id) REFERENCES development_sessions(project_id, session_id),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id),
+        FOREIGN KEY (project_id, scenario_id, revision_number)
+          REFERENCES scenario_revisions(project_id, scenario_id, revision_number)
+      ) STRICT;
+      CREATE TRIGGER development_session_scenario_refs_immutable_update
+        BEFORE UPDATE ON development_session_scenario_refs
+        BEGIN SELECT RAISE(ABORT, 'session scenario references are immutable'); END;
+      CREATE TRIGGER development_session_scenario_refs_immutable_delete
+        BEFORE DELETE ON development_session_scenario_refs
+        BEGIN SELECT RAISE(ABORT, 'session scenario references are immutable'); END;
+
+      CREATE TABLE test_run_work_items (
+        project_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        linked_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        linked_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, run_id, item_id),
+        FOREIGN KEY (run_id) REFERENCES test_runs(run_id),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id)
+      ) STRICT;
+      CREATE INDEX test_run_work_items_by_item
+        ON test_run_work_items (project_id, item_id, run_id);
+      CREATE TRIGGER test_run_work_items_validate_task
+        BEFORE INSERT ON test_run_work_items
+        WHEN (SELECT type FROM work_items WHERE project_id = new.project_id AND item_id = new.item_id) <> 'task'
+        BEGIN SELECT RAISE(ABORT, 'test runs can only be linked directly to task work items'); END;
+      CREATE TRIGGER test_run_work_items_validate_project
+        BEFORE INSERT ON test_run_work_items
+        WHEN (SELECT project_id FROM test_runs WHERE run_id = new.run_id) <> new.project_id
+        BEGIN SELECT RAISE(ABORT, 'test run and work item must belong to the same project'); END;
+      CREATE TRIGGER test_run_work_items_immutable_update
+        BEFORE UPDATE ON test_run_work_items
+        BEGIN SELECT RAISE(ABORT, 'test run task links are immutable'); END;
+      CREATE TRIGGER test_run_work_items_immutable_delete
+        BEFORE DELETE ON test_run_work_items
+        BEGIN SELECT RAISE(ABORT, 'test run task links are immutable'); END;
+
+      CREATE TABLE deployment_events (
+        event_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(project_id),
+        environment TEXT NOT NULL CHECK (environment IN ('homologation', 'production')),
+        build_id TEXT NOT NULL CHECK (length(trim(build_id)) BETWEEN 1 AND 128),
+        release_version TEXT CHECK (release_version IS NULL OR length(trim(release_version)) BETWEEN 1 AND 128),
+        pipeline_run_id TEXT CHECK (pipeline_run_id IS NULL OR length(trim(pipeline_run_id)) BETWEEN 1 AND 160),
+        outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'failed', 'rolled_back')),
+        deployed_at TEXT NOT NULL,
+        principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        notes TEXT CHECK (notes IS NULL OR length(notes) <= 2000),
+        rollback_of_event_id TEXT,
+        FOREIGN KEY (project_id, rollback_of_event_id) REFERENCES deployment_events(project_id, event_id),
+        UNIQUE (project_id, event_id),
+        CHECK ((outcome = 'rolled_back' AND rollback_of_event_id IS NOT NULL)
+          OR (outcome <> 'rolled_back' AND rollback_of_event_id IS NULL))
+      ) STRICT;
+      CREATE INDEX deployment_events_by_environment_date
+        ON deployment_events (project_id, environment, deployed_at DESC);
+
+      CREATE TABLE deployment_event_work_items (
+        project_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        PRIMARY KEY (project_id, event_id, item_id),
+        FOREIGN KEY (project_id, event_id) REFERENCES deployment_events(project_id, event_id),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id)
+      ) STRICT;
+      CREATE INDEX deployment_event_work_items_by_item
+        ON deployment_event_work_items (project_id, item_id, event_id);
+
+      CREATE TABLE deployment_event_milestones (
+        project_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        milestone_id TEXT NOT NULL,
+        PRIMARY KEY (project_id, event_id, milestone_id),
+        FOREIGN KEY (project_id, event_id) REFERENCES deployment_events(project_id, event_id),
+        FOREIGN KEY (project_id, milestone_id) REFERENCES milestones(project_id, milestone_id)
+      ) STRICT;
+      CREATE TRIGGER deployment_events_immutable_update
+        BEFORE UPDATE ON deployment_events
+        BEGIN SELECT RAISE(ABORT, 'deployment event history is immutable'); END;
+      CREATE TRIGGER deployment_events_immutable_delete
+        BEFORE DELETE ON deployment_events
+        BEGIN SELECT RAISE(ABORT, 'deployment event history is immutable'); END;
+      CREATE TRIGGER deployment_event_work_items_immutable_update
+        BEFORE UPDATE ON deployment_event_work_items
+        BEGIN SELECT RAISE(ABORT, 'deployment work item links are immutable'); END;
+      CREATE TRIGGER deployment_event_work_items_immutable_delete
+        BEFORE DELETE ON deployment_event_work_items
+        BEGIN SELECT RAISE(ABORT, 'deployment work item links are immutable'); END;
+      CREATE TRIGGER deployment_event_milestones_immutable_update
+        BEFORE UPDATE ON deployment_event_milestones
+        BEGIN SELECT RAISE(ABORT, 'deployment milestone links are immutable'); END;
+      CREATE TRIGGER deployment_event_milestones_immutable_delete
+        BEFORE DELETE ON deployment_event_milestones
+        BEGIN SELECT RAISE(ABORT, 'deployment milestone links are immutable'); END;
+    `,
+  },
+  {
+    version: 26,
+    name: "stable-roadmap-id-mapping",
+    sql: `
+      CREATE TABLE roadmap_item_ids (
+        project_id TEXT NOT NULL,
+        roadmap_id TEXT NOT NULL CHECK (roadmap_id GLOB 'SSDD-[0-9][0-9][0-9]'),
+        item_id TEXT NOT NULL,
+        bound_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        bound_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, roadmap_id),
+        UNIQUE (project_id, item_id),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id)
+      ) STRICT;
+      CREATE INDEX roadmap_item_ids_by_item ON roadmap_item_ids (project_id, item_id);
+      CREATE TRIGGER roadmap_item_ids_validate_task
+        BEFORE INSERT ON roadmap_item_ids
+        WHEN (SELECT type FROM work_items WHERE project_id = new.project_id AND item_id = new.item_id) <> 'task'
+        BEGIN SELECT RAISE(ABORT, 'roadmap IDs can only bind to task work items'); END;
+      CREATE TRIGGER roadmap_item_ids_immutable_update
+        BEFORE UPDATE ON roadmap_item_ids
+        BEGIN SELECT RAISE(ABORT, 'roadmap ID mappings are immutable'); END;
+      CREATE TRIGGER roadmap_item_ids_immutable_delete
+        BEFORE DELETE ON roadmap_item_ids
+        BEGIN SELECT RAISE(ABORT, 'roadmap ID mappings are immutable'); END;
+    `,
+  },
 ];
 
 export function applyMigrations(

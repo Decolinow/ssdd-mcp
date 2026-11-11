@@ -13,12 +13,14 @@ import { ApplicationError } from "./errors.js";
 import { executeIdempotentCommand, type CommandReceipt } from "./idempotent-command.js";
 import { assertProjectAuthorization } from "./local-identity.js";
 import { findScenario, resolveCriterion, toRevision } from "./scenario-queries.js";
+import { getWorkItem } from "./work-item-queries.js";
 
 export interface ScenarioContentInput {
   readonly title: string;
   readonly preconditions?: readonly string[];
   readonly steps: readonly ScenarioStep[];
   readonly coverage?: readonly { readonly targetType: "criterion" | "specification"; readonly reference: string }[];
+  readonly workItemIdOrKeys?: readonly string[];
 }
 
 export interface CreateScenarioInput extends ScenarioContentInput {
@@ -56,6 +58,7 @@ export interface RecordTestRunInput {
   readonly result: TestRunResult;
   readonly notes?: string;
   readonly evidenceUri?: string;
+  readonly workItemIdOrKeys?: readonly string[];
 }
 
 interface ScenarioRevisionRow {
@@ -85,6 +88,7 @@ export function createScenario(
     throw new ApplicationError("VALIDATION_FAILED", "Scenario keys must use 1-32 letters, digits, dots, underscores or dashes.");
   }
   const coverageReferences = normalizeCoverageReferences(input.coverage ?? []);
+  const workItemReferences = normalizeWorkItemReferences(input.workItemIdOrKeys ?? []);
 
   return executeIdempotentCommand(database, {
     projectId: input.projectId,
@@ -97,6 +101,7 @@ export function createScenario(
       kind,
       content: payloadContent,
       coverage: coverageReferences.map((entry) => ({ ...entry })),
+      workItemIdOrKeys: [...workItemReferences],
     },
     requiredRoles: ["qa"],
     auditEvent: (revision) => ({
@@ -118,6 +123,7 @@ export function createScenario(
       const revisionId = randomUUID();
       const now = new Date().toISOString();
       const snapshot = resolveCoverage(database, input.projectId, content, coverageReferences);
+      const workItemIds = resolveTaskReferences(database, input.projectId, input.principalId, workItemReferences);
       database.prepare(
         `INSERT INTO scenarios
           (scenario_id, project_id, scenario_key, kind, title, version, created_by_principal_id, created_at)
@@ -130,6 +136,7 @@ export function createScenario(
          VALUES (?, ?, ?, 1, 'draft', ?, ?, ?)`,
       ).run(revisionId, input.projectId, id, JSON.stringify(snapshot), input.principalId, now);
       insertCoverage(database, input.projectId, id, 1, snapshot.coverage);
+      insertScenarioWorkItems(database, input.projectId, id, 1, workItemIds);
       return {
         id: revisionId,
         projectId: input.projectId,
@@ -161,6 +168,7 @@ export function proposeScenarioRevision(
   const content = normalizeContent(input);
   const payloadContent = toJsonContent(content);
   const coverageReferences = normalizeCoverageReferences(input.coverage ?? []);
+  const workItemReferences = normalizeWorkItemReferences(input.workItemIdOrKeys ?? []);
   return executeIdempotentCommand(database, {
     projectId: input.projectId,
     principalId: input.principalId,
@@ -172,6 +180,7 @@ export function proposeScenarioRevision(
       expectedVersion: input.expectedVersion,
       content: payloadContent,
       coverage: coverageReferences.map((entry) => ({ ...entry })),
+      workItemIdOrKeys: [...workItemReferences],
     },
     requiredRoles: ["qa"],
     auditEvent: (revision) => ({
@@ -191,15 +200,19 @@ export function proposeScenarioRevision(
         throw new ApplicationError("VALIDATION_FAILED", "Publish the open scenario revision before proposing another one.");
       }
       const published = database.prepare(
-        `SELECT snapshot_json FROM scenario_revisions
+        `SELECT snapshot_json, revision_number FROM scenario_revisions
          WHERE project_id = ? AND scenario_id = ? AND status = 'published'`,
-      ).get(input.projectId, scenario.scenario_id) as { snapshot_json: string } | undefined;
+      ).get(input.projectId, scenario.scenario_id) as { snapshot_json: string; revision_number: number } | undefined;
       if (published === undefined) {
         throw new ApplicationError("VALIDATION_FAILED", "Publish the initial scenario revision before revising it.");
       }
       const snapshot = resolveCoverage(database, input.projectId, content, coverageReferences);
+      const workItemIds = resolveTaskReferences(database, input.projectId, input.principalId, workItemReferences);
       const previousSnapshot = JSON.parse(published.snapshot_json) as ScenarioSnapshot;
-      if (JSON.stringify(snapshot) === JSON.stringify(previousSnapshot)) {
+      const previousWorkItemIds = (database.prepare(
+        `SELECT item_id FROM scenario_revision_work_items WHERE project_id = ? AND scenario_id = ? AND revision_number = ? ORDER BY item_id`,
+      ).all(input.projectId, scenario.scenario_id, published.revision_number) as Array<{ item_id: string }>).map((row) => row.item_id);
+      if (JSON.stringify(snapshot) === JSON.stringify(previousSnapshot) && JSON.stringify([...workItemIds].sort()) === JSON.stringify(previousWorkItemIds)) {
         throw new ApplicationError("VALIDATION_FAILED", "The proposed revision does not change the published scenario.");
       }
       const latest = database.prepare(
@@ -215,6 +228,7 @@ export function proposeScenarioRevision(
          VALUES (?, ?, ?, ?, 'draft', ?, ?, ?)`,
       ).run(revisionId, input.projectId, scenario.scenario_id, revisionNumber, JSON.stringify(snapshot), input.principalId, now);
       insertCoverage(database, input.projectId, scenario.scenario_id, revisionNumber, snapshot.coverage);
+      insertScenarioWorkItems(database, input.projectId, scenario.scenario_id, revisionNumber, workItemIds);
       incrementScenarioVersion(database, input.projectId, scenario.scenario_id, input.expectedVersion);
       return {
         id: revisionId,
@@ -342,6 +356,7 @@ export function recordTestRun(
   const buildId = input.buildId.trim();
   const notes = input.notes?.trim() || null;
   const evidenceUri = input.evidenceUri?.trim() || null;
+  const workItemReferences = normalizeWorkItemReferences(input.workItemIdOrKeys ?? []);
   if (buildId.length === 0 || buildId.length > 128) {
     throw new ApplicationError("VALIDATION_FAILED", "Build ID must contain between 1 and 128 characters.");
   }
@@ -361,6 +376,7 @@ export function recordTestRun(
       result: input.result,
       notes,
       evidenceUri,
+      workItemIdOrKeys: [...workItemReferences],
     },
     requiredRoles: ["developer", "qa"],
     auditEvent: (run) => ({
@@ -375,6 +391,7 @@ export function recordTestRun(
         revisionNumber: run.revisionNumber,
         buildId: run.buildId,
         result: run.result,
+        workItemIdOrKeys: [...workItemReferences],
       },
     }),
     execute: () => {
@@ -425,6 +442,12 @@ export function recordTestRun(
         run.executedByPrincipalId,
         run.executedAt,
       );
+      const linkedTaskIds = resolveTaskReferences(database, input.projectId, input.principalId, workItemReferences);
+      const linkTask = database.prepare(
+        `INSERT INTO test_run_work_items (project_id, run_id, item_id, linked_by_principal_id, linked_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      );
+      for (const itemId of linkedTaskIds) linkTask.run(input.projectId, run.id, itemId, input.principalId, run.executedAt);
       return run;
     },
   });
@@ -479,6 +502,39 @@ function normalizeCoverageReferences(
     seen.add(identity);
     return { targetType: entry.targetType, reference };
   });
+}
+
+function normalizeWorkItemReferences(references: readonly string[]): readonly string[] {
+  if (references.length > 100) throw new ApplicationError("VALIDATION_FAILED", "A scenario or test run can reference up to 100 tasks.");
+  const normalized = references.map((reference) => reference.trim());
+  if (normalized.some((reference) => reference.length === 0 || reference.length > 120)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Task references must contain 1-120 characters.");
+  }
+  const unique = new Set(normalized.map((reference) => reference.toLowerCase()));
+  if (unique.size !== normalized.length) throw new ApplicationError("VALIDATION_FAILED", "Task references must be unique.");
+  return normalized;
+}
+
+function resolveTaskReferences(database: SqliteDatabase, projectId: string, principalId: string, references: readonly string[]): string[] {
+  return references.map((reference) => {
+    const item = getWorkItem(database, projectId, principalId, reference);
+    if (item.type !== "task") throw new ApplicationError("VALIDATION_FAILED", `Work item '${reference}' is not a task.`);
+    return item.id;
+  });
+}
+
+function insertScenarioWorkItems(
+  database: SqliteDatabase,
+  projectId: string,
+  scenarioId: string,
+  revisionNumber: number,
+  itemIds: readonly string[],
+): void {
+  const insert = database.prepare(
+    `INSERT INTO scenario_revision_work_items (project_id, scenario_id, revision_number, item_id)
+     VALUES (?, ?, ?, ?)`,
+  );
+  for (const itemId of itemIds) insert.run(projectId, scenarioId, revisionNumber, itemId);
 }
 
 function resolveCoverage(

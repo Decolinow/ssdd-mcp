@@ -30,8 +30,8 @@ it("dry-run and check do not create files in the target repository", () => {
     assert.equal(plan.mode, "dry-run");
     assert.equal(plan.target, target);
     assert.equal(plan.conflicts.length, 0);
-    assert.equal(plan.actions.filter((action) => action.path.startsWith(".agents/skills/") && action.action === "create").length, 4);
-    assert.equal(plan.actions.filter((action) => action.path.startsWith(".opencode/skills/") && action.action === "create").length, 4);
+    assert.equal(plan.actions.filter((action) => action.path.startsWith(".agents/skills/") && action.action === "create").length, 5);
+    assert.equal(plan.actions.filter((action) => action.path.startsWith(".opencode/skills/") && action.action === "create").length, 5);
     assert.ok(plan.actions.some((action) => action.path === ".ssdd/agent-runtime/node_modules" && action.action === "install"));
     assert.equal(existsSync(join(target, ".ssdd")), false);
     assert.equal(existsSync(join(target, ".mcp.json")), false);
@@ -93,8 +93,8 @@ it("installs the local MCP runtime and native Claude, Codex, and OpenCode files"
   assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`);
   const summary = JSON.parse(applied.stdout) as { mode: string; skills: number; agents: number; clients: string[] };
   assert.equal(summary.mode, "apply");
-  assert.equal(summary.skills, 4);
-  assert.equal(summary.agents, 4);
+  assert.equal(summary.skills, 5);
+  assert.equal(summary.agents, 5);
   assert.deepEqual(summary.clients, ["Claude Code", "Codex", "OpenCode"]);
 
   const claudeConfig = JSON.parse(readFileSync(join(target, ".mcp.json"), "utf8")) as {
@@ -122,7 +122,7 @@ it("installs the local MCP runtime and native Claude, Codex, and OpenCode files"
   assert.ok(openCodeConfig.mcp.servers.other);
   assert.equal(openCodeConfig.mcp.servers.ssdd_mcp?.type, "local");
 
-  const skillIds = ["ssdd-developer", "ssdd-product-owner", "ssdd-quality-assurance", "ssdd-release-manager"];
+  const skillIds = ["ssdd-developer", "ssdd-product-owner", "ssdd-quality-assurance", "ssdd-release-manager", "ssdd-technical-lead"];
   for (const id of skillIds) {
     const installedSkill = readFileSync(join(target, ".agents", "skills", id, "SKILL.md"), "utf8");
     assert.equal(installedSkill, readFileSync(join(repositoryRoot, "skills", id, "SKILL.md"), "utf8"));
@@ -140,8 +140,8 @@ it("installs the local MCP runtime and native Claude, Codex, and OpenCode files"
     assert.match(openCodeAgent, new RegExp(`.opencode/skills/${id}/SKILL.md`));
     assert.equal(readFileSync(join(target, ".opencode", "skills", id, "SKILL.md"), "utf8"), installedSkill);
   }
-  assert.equal(readdirSync(join(target, ".agents", "skills")).length, 4);
-  assert.equal(readdirSync(join(target, ".opencode", "skills")).length, 4);
+  assert.equal(readdirSync(join(target, ".agents", "skills")).length, 5);
+  assert.equal(readdirSync(join(target, ".opencode", "skills")).length, 5);
   const gitignore = readFileSync(join(target, ".gitignore"), "utf8");
   assert.ok(gitignore.includes("# Preserve this project ignore note."));
   assert.ok(gitignore.includes("/.ssdd/agent-runtime/"));

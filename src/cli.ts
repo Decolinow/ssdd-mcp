@@ -30,6 +30,7 @@ Uso:
   ssdd-mcp init --key <KEY> --name <nome> --goal <objetivo> --timezone <IANA> [--workspace <diretório>]
   ssdd-mcp stdio [--workspace <diretório>]
   ssdd-mcp serve [--workspace <diretório>] [--port <porta>] [--oidc-issuer <URL> --resource-url <URL>]
+    MCP em /mcp; probes locais GET /healthz e /readyz.
     Webhooks usam SSDD_WEBHOOK_SECRET_<PROVIDER>__<PROJECT_KEY> e POST /webhooks/<provider>/<project-key>.
     GitHub também exige SSDD_GITHUB_REPOSITORY_<PROJECT_KEY>=<owner>/<repository>.
     A importação read-only de issues usa SSDD_GITHUB_ISSUES_TOKEN_<PROJECT_KEY>.

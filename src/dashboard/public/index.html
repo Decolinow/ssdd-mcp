@@ -93,9 +93,9 @@
           </section>
 
           <section id="backlog-view" class="view" role="tabpanel" aria-labelledby="backlog-tab">
-            <div class="view-heading">
+            <div class="view-heading backlog-heading">
               <div><h2>Itens fora da sprint ativa</h2><p>Itens ordenados pela prioridade do backlog. Abra um item para consultar critérios, estimativas e versão.</p></div>
-              <span id="backlog-count" class="count-label">0 itens</span>
+              <div class="view-heading-actions"><span id="backlog-count" class="count-label">0 itens</span><button id="create-work-item" class="button button-primary" type="button">Novo PBI</button></div>
             </div>
             <div id="backlog-list" class="backlog-list"></div>
           </section>
@@ -110,9 +110,23 @@
 
           <section id="quality-view" class="view" role="tabpanel" aria-labelledby="quality-tab" hidden>
             <div class="view-heading">
-              <div><h2>Qualidade por PBI</h2><p>Cobertura de critérios conforme a baseline fixada. Abra um item para ver cenários, execuções por build, certificações e evidências.</p></div>
+              <div><h2>Qualidade e cenários</h2><p>Cobertura de critérios, cenários versionados e execuções vinculadas à revisão publicada e ao build.</p></div>
               <span id="quality-count" class="count-label">0 itens</span>
             </div>
+            <section class="qa-panel" aria-labelledby="qa-chart-title"><div class="qa-panel-heading"><div><h3 id="qa-chart-title">Resultados de execução</h3><p>Até 100 execuções recentes, agrupadas pelo resultado registrado.</p></div></div><div id="qa-run-chart"></div></section>
+            <section class="qa-panel" aria-labelledby="scenario-list-title"><div class="qa-panel-heading"><div><h3 id="scenario-list-title">Cenários</h3><p>Rascunhos precisam ser publicados antes de receber execuções.</p></div><button id="create-scenario" class="button button-primary" type="button">Novo cenário</button></div><div id="scenario-list" class="scenario-list"></div></section>
+            <section class="qa-panel" aria-labelledby="test-run-title"><div class="qa-panel-heading"><div><h3 id="test-run-title">Registrar execução</h3><p>Selecione a revisão publicada exata que foi executada e vincule as tarefas verificadas.</p></div></div>
+              <form id="test-run-form" class="qa-run-form">
+                <label class="form-field" for="test-run-scenario">Cenário e revisão publicada<select id="test-run-scenario" required></select></label>
+                <label class="form-field" for="test-run-build">Build<input id="test-run-build" type="text" maxlength="128" required placeholder="Ex.: build-2026.11.10.1"></label>
+                <label class="form-field" for="test-run-result">Resultado<select id="test-run-result" required><option value="passed">Aprovado</option><option value="failed">Reprovado</option><option value="blocked">Bloqueado</option><option value="skipped">Ignorado</option></select></label>
+              <label class="form-field" for="test-run-notes">Notas<textarea id="test-run-notes" rows="2" maxlength="2000"></textarea></label>
+                <label class="form-field" for="test-run-evidence">URI da evidência<input id="test-run-evidence" type="url" maxlength="2048" placeholder="https://…"></label>
+                <label class="form-field" for="test-run-tasks">Tarefas verificadas<textarea id="test-run-tasks" rows="2" placeholder="Uma chave ou UUID de tarefa por linha"></textarea><small>Ex.: PAY-42. A execução aparecerá no contexto da tarefa.</small></label>
+                <button id="submit-test-run" class="button button-primary" type="submit">Registrar execução</button>
+              </form>
+              <div id="test-run-history" class="test-run-history"></div>
+            </section>
             <div id="quality-list" class="quality-list"></div>
           </section>
 
@@ -156,7 +170,35 @@
         <button class="icon-button close-dialog" type="button" aria-label="Fechar detalhes">×</button>
       </div>
       <div id="item-details" class="item-details"></div>
-      <div class="modal-actions"><button id="detail-move-button" class="button button-primary" type="button">Mover item</button><button class="button button-secondary close-dialog" type="button">Fechar</button></div>
+      <div class="modal-actions"><button id="detail-edit-button" class="button button-secondary" type="button">Editar conteúdo</button><button id="detail-move-button" class="button button-primary" type="button">Mover item</button><button class="button button-secondary close-dialog" type="button">Fechar</button></div>
+    </dialog>
+
+    <dialog id="work-item-form-dialog" class="modal editor-modal" aria-labelledby="work-item-form-title">
+      <form id="work-item-form">
+        <div class="modal-header"><div><p class="eyebrow">PRODUCT BACKLOG</p><h2 id="work-item-form-title">Novo PBI</h2></div><button class="icon-button close-dialog" type="button" aria-label="Fechar">×</button></div>
+        <label class="form-field" for="work-item-type">Tipo<select id="work-item-type"><option value="story">História</option><option value="bug">Bug</option></select></label>
+        <label class="form-field" for="work-item-parent">Feature pai<select id="work-item-parent" required></select></label>
+        <label class="form-field" for="work-item-title">Título<input id="work-item-title" maxlength="200" required></label>
+        <label class="form-field" for="work-item-description">Descrição<textarea id="work-item-description" rows="3" maxlength="10000"></textarea></label>
+        <label class="form-field" for="work-item-priority">Prioridade<select id="work-item-priority"><option value="1">1 · Mais alta</option><option value="2">2</option><option value="3">3</option><option value="4">4 · Mais baixa</option></select></label>
+        <label class="form-field" for="work-item-criteria">Critérios de aceite<textarea id="work-item-criteria" rows="5" placeholder="Um critério por linha"></textarea><small>Na edição, use a chave existente no início, por exemplo AC-1: resultado visível, para preservar o vínculo.</small></label>
+        <div class="modal-actions"><button class="button button-secondary close-dialog" type="button">Cancelar</button><button id="submit-work-item" class="button button-primary" type="submit">Criar PBI</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="scenario-form-dialog" class="modal editor-modal" aria-labelledby="scenario-form-title">
+      <form id="scenario-form">
+        <div class="modal-header"><div><p class="eyebrow">CENÁRIO DE QA</p><h2 id="scenario-form-title">Novo cenário</h2></div><button class="icon-button close-dialog" type="button" aria-label="Fechar">×</button></div>
+        <label class="form-field" for="scenario-key">Chave<input id="scenario-key" maxlength="32" required placeholder="CHECKOUT-001"></label>
+        <label class="form-field" for="scenario-kind">Tipo<select id="scenario-kind"><option value="acceptance">Aceitação</option><option value="regression">Regressão</option><option value="integration">Integração</option><option value="performance">Performance</option><option value="security">Segurança</option><option value="manual">Manual</option></select></label>
+        <label class="form-field" for="scenario-title">Título<input id="scenario-title" maxlength="200" required></label>
+        <label class="form-field" for="scenario-preconditions">Pré-condições<textarea id="scenario-preconditions" rows="2" placeholder="Uma por linha"></textarea></label>
+        <label class="form-field" for="scenario-actions">Ações dos passos<textarea id="scenario-actions" rows="4" required placeholder="Uma ação por linha"></textarea></label>
+        <label class="form-field" for="scenario-expectations">Resultados esperados<textarea id="scenario-expectations" rows="4" required placeholder="Um resultado por linha, na mesma ordem das ações"></textarea></label>
+        <label class="form-field" for="scenario-coverage">Critérios e especificações cobertos<textarea id="scenario-coverage" rows="2" placeholder="Um vínculo por linha: PAY-12:AC-1 ou specification:BR-01"></textarea><small>Critério aceita PBI:AC-1; use specification:CHAVE para especificações. O MCP valida os vínculos.</small></label>
+        <label class="form-field" for="scenario-tasks">Tarefas associadas<textarea id="scenario-tasks" rows="2" placeholder="Uma chave ou UUID de tarefa por linha"></textarea><small>Somente tarefas existentes. A associação pertence à revisão do cenário.</small></label>
+        <div class="modal-actions"><button class="button button-secondary close-dialog" type="button">Cancelar</button><button id="submit-scenario" class="button button-primary" type="submit">Criar rascunho</button></div>
+      </form>
     </dialog>
 
     <dialog id="transition-dialog" class="modal transition-modal" aria-labelledby="transition-title">

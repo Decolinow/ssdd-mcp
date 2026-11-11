@@ -14,7 +14,7 @@ import {
   publishScenarioRevision,
   recordTestRun,
 } from "../../src/application/scenario-commands.js";
-import { getScenario, listScenarios, searchScenariosByCriterion } from "../../src/application/scenario-queries.js";
+import { getScenario, listScenarios, listTestRunPage, searchScenariosByCriterion } from "../../src/application/scenario-queries.js";
 import { openSqliteDatabase, type SqliteDatabase } from "../../src/storage-sqlite/database.js";
 import { applyMigrations } from "../../src/storage-sqlite/migrations.js";
 
@@ -174,6 +174,77 @@ describe("versioned scenarios, coverage and test runs", () => {
       { revisionNumber: 2, status: "published" },
     ]);
     assert.equal(searchScenariosByCriterion(database, projectId, principalId, criterionId).length, 2);
+  });
+
+  it("paginates filtered test-run history and rejects mismatched or stale cursors", () => {
+    createScenario(database, scenarioInput("PAY-TC-PAGE", "Histórico paginado"));
+    publishScenarioRevision(database, {
+      projectId,
+      principalId,
+      requestId: "scenario-publish-page",
+      scenarioIdOrKey: "PAY-TC-PAGE",
+      revisionNumber: 1,
+      expectedVersion: 1,
+    });
+    recordTestRun(database, {
+      ...runInput("run-page-failed", "build-page-1", "failed", 1),
+      scenarioIdOrKey: "PAY-TC-PAGE",
+    });
+    recordTestRun(database, {
+      ...runInput("run-page-passed-1", "build-page-1", "passed", 1),
+      scenarioIdOrKey: "PAY-TC-PAGE",
+    });
+    recordTestRun(database, {
+      ...runInput("run-page-passed-2", "build-page-2", "passed", 1),
+      scenarioIdOrKey: "PAY-TC-PAGE",
+    });
+
+    const firstPage = listTestRunPage(database, projectId, principalId, {
+      scenarioIdOrKey: "pay-tc-page",
+      limit: 2,
+    });
+    assert.deepEqual(firstPage.runs.map(({ result }) => result), ["passed", "passed"]);
+    assert.ok(firstPage.watermark > 0);
+    assert.ok(firstPage.nextCursor);
+    assert.throws(
+      () => listTestRunPage(database, projectId, principalId, {
+        scenarioIdOrKey: "PAY-TC-PAGE",
+        result: "failed",
+        limit: 2,
+        cursor: firstPage.nextCursor!,
+      }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED",
+    );
+
+    const secondPage = listTestRunPage(database, projectId, principalId, {
+      scenarioIdOrKey: "PAY-TC-PAGE",
+      limit: 2,
+      cursor: firstPage.nextCursor!,
+    });
+    assert.deepEqual(secondPage.runs.map(({ result }) => result), ["failed"]);
+    assert.equal(secondPage.nextCursor, null);
+
+    recordTestRun(database, {
+      ...runInput("run-page-new", "build-page-3", "passed", 1),
+      scenarioIdOrKey: "PAY-TC-PAGE",
+    });
+    assert.throws(
+      () => listTestRunPage(database, projectId, principalId, {
+        scenarioIdOrKey: "PAY-TC-PAGE",
+        limit: 2,
+        cursor: firstPage.nextCursor!,
+      }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "STALE_CURSOR",
+    );
+
+    const filtered = listTestRunPage(database, projectId, principalId, {
+      scenarioIdOrKey: "PAY-TC-PAGE",
+      buildId: "build-page-1",
+      result: "passed",
+    });
+    assert.deepEqual(filtered.runs.map(({ buildId, result }) => ({ buildId, result })), [
+      { buildId: "build-page-1", result: "passed" },
+    ]);
   });
 
   it("requires a human QA publisher and prevents cross-project coverage references", () => {

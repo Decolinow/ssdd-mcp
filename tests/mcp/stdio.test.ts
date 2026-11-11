@@ -50,6 +50,12 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "comment_list",
       "definition_of_done_get",
       "definition_of_done_set",
+      "deployment_event_list",
+      "deployment_event_record",
+      "developer_execution_metrics_get",
+      "development_session_list",
+      "development_session_start",
+      "development_session_transition",
       "evidence_add",
       "evidence_list",
       "github_issue_import_apply",
@@ -58,11 +64,16 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "impact_list",
       "metrics_get",
       "milestone_create",
+      "milestone_forecast_history",
+      "milestone_forecast_recalculate",
       "milestone_get",
       "milestone_list",
       "milestone_scope_change",
       "project_get",
       "project_list",
+      "roadmap_id_bind",
+      "roadmap_id_list",
+      "roadmap_id_resolve",
       "scenario_create",
       "scenario_criterion_search",
       "scenario_get",
@@ -89,6 +100,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "team_create",
       "team_list",
       "test_run_certify",
+      "test_run_list",
       "test_run_record",
       "trace_link_add",
       "trace_link_remove",
@@ -100,6 +112,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "work_item_gate_check",
       "work_item_get",
       "work_item_list",
+      "work_item_quality_get",
       "work_item_rank",
       "work_item_revision_list",
       "work_item_revision_propose",
@@ -117,6 +130,8 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   const prompts = await client.listPrompts();
   assert.deepEqual(prompts.prompts.map((prompt) => prompt.name).sort(), [
     "ssdd_plan_sprint",
+    "ssdd_refine_backlog",
+    "ssdd_refine_technical_design",
     "ssdd_release_readiness",
     "ssdd_start_task",
     "ssdd_validate_quality",
@@ -129,6 +144,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
     "ssdd-product-owner",
     "ssdd-quality-assurance",
     "ssdd-release-manager",
+    "ssdd-technical-lead",
   ]);
   const developerSkill = await skillsClient.read(
     skillListing.skills.find((skill) => skill.frontmatter.name === "ssdd-developer")!,
@@ -136,6 +152,17 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   assert.equal(developerSkill.verified, true);
   assert.match(developerSkill.body ?? "", /task_context_get/);
   assert.match(developerSkill.body ?? "", /regression tests/);
+  const qualitySkill = await skillsClient.read(
+    skillListing.skills.find((skill) => skill.frontmatter.name === "ssdd-quality-assurance")!,
+  );
+  assert.equal(qualitySkill.verified, true);
+  assert.match(qualitySkill.body ?? "", /test_run_list/);
+  assert.match(qualitySkill.body ?? "", /work_item_quality_get/);
+  const technicalLeadSkill = await skillsClient.read(
+    skillListing.skills.find((skill) => skill.frontmatter.name === "ssdd-technical-lead")!,
+  );
+  assert.equal(technicalLeadSkill.verified, true);
+  assert.match(technicalLeadSkill.body ?? "", /implements/);
 
   const listResult = await client.callTool({ name: "project_list", arguments: {} });
   assert.notEqual(listResult.isError, true);
@@ -155,6 +182,8 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
     itemIdOrKey: "SSDD-7",
   };
   const promptExpectations = [
+    ["ssdd_refine_backlog", /não invente chaves/i],
+    ["ssdd_refine_technical_design", /work item → specification/i],
     ["ssdd_plan_sprint", /capacidade/i],
     ["ssdd_start_task", /testes de regressão/i],
     ["ssdd_validate_quality", /Nunca invente/i],
@@ -165,6 +194,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
     const promptContent = prompt.messages[0]?.content;
     assert.ok(promptContent && promptContent.type === "text");
     assert.match(promptContent.text, expectedInstruction);
+    if (name === "ssdd_validate_quality") assert.match(promptContent.text, /work_item_quality_get/);
   }
   const dodSetResult = await client.callTool({
     name: "definition_of_done_set",

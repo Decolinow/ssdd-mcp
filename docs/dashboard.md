@@ -1,46 +1,81 @@
 # Dashboard e projeções
 
-## Visões
+## Abas disponíveis hoje
 
-| Visão | Elementos | Filtros e interação |
-|---|---|---|
-| Executiva | Objetivo do produto, status de marcos e épicos, burndown e burnup, variação de escopo, previsão de entrega, bloqueios e riscos | Marco, épico, área e data de corte. Abrir card mostra a lista que compõe o indicador |
-| Técnica | Itens em progresso, revisão e validação, idade do WIP, bloqueios, dependências, cobertura e baselines desatualizadas | Sprint, tipo, estado, responsável, área, tag, cenário, regra e cobertura |
-| Board | Colunas Ready, Em progresso, Em revisão, Em validação e Done. Swimlane por Feature ou responsável. Backlog mantém rascunhos e itens fora da sprint | Visualização por PBI ou tarefa com agrupamento pelo pai. Drag and drop aciona o mesmo comando MCP e desfaz mudança visual se houver conflito ou gate. Controle por teclado equivalente |
-| Planejamento | Product Backlog ordenado, sprint com objetivo e seleção, capacidade, pontos comprometidos e tarefas em horas | Preparar plano, comparar carga, propor entrada/saída com motivo e confirmar |
-| Qualidade | Matriz critério × cenário, última execução certificada compatível, falhas, cobertura faltante, bugs e evidências | PBI, build, revisão de regra, área e resultado |
-| Auditoria | Timeline com alterações, antes/depois, responsável, delegação, motivo e links | Entidade, sprint, ator, tipo e intervalo |
-| Retrospectiva | Aprendizados, ações acordadas e histórico imutável das revisões de sprint | Sprint fechada e revisão histórica |
+O dashboard atual tem seis abas; o roadmap detalha a expansão executiva, técnica e de planejamento.
 
-Dashboard mostra filtros ativos, unidade, intervalo, último evento processado e estados vazios. A visão executiva indica a cobertura de estimativas e o tamanho da amostra. Mudanças do MCP aparecem sem recarregar a página, por polling com watermark no MVP. O detalhe do item tem links para requisito, versão, cenário, execução e evidência.
+| Aba | O que permite fazer |
+|---|---|
+| Métricas | Consultar burndown, burnup, previsão, velocidade, WIP, bloqueios e cobertura; filtrar por time, marco, sprint e data de corte; abrir a composição dos indicadores disponíveis e o esforço/calibração por Developer. |
+| Product Backlog | Pesquisar histórias e bugs, filtrar por tipo, prioridade, estado e versão, cadastrar um PBI e consultar seus detalhes, tarefas filhas e revisões. |
+| Board | Consultar o fluxo dos itens, abrir detalhes e propor transições por arrastar/soltar ou controles de teclado; gates e autorização são validados pelo serviço de aplicação. |
+| Qualidade | Criar cenários, associá-los a tarefas e critérios, propor/publicar revisões como QA humano, registrar execuções ligadas à revisão publicada, build e tarefas verificadas e consultar resultados recentes. |
+| Atividade | Consultar eventos de auditoria do projeto em páginas, com ator, motivo, transição e watermark. |
+| Retrospectiva | Consultar retrospectivas de sprints fechadas e revisões históricas. |
 
-## Métricas executivas e técnicas
+A interface atualiza os dados automaticamente a cada 30 segundos e também oferece atualização manual. Os filtros, a data observada e o watermark aparecem nas consultas de métricas. Cada gráfico tem informação equivalente em texto ou tabela onde aplicável. O detalhe de PBI lista tarefas filhas navegáveis. O detalhe de tarefa mostra hierarquia, critérios, regras, decisões técnicas, cenários, runs/builds, alertas de drift, datas derivadas de sessões e eventos de release e o histórico de Developers, falhas e rollbacks. Contexto extenso tem paginação explícita.
+
+## Abrir o dashboard
+
+No checkout do projeto, compile o pacote e inicialize o workspace uma vez antes do primeiro uso. Os comandos de preparação estão no [início rápido do README](../README.md#preparar-um-workspace). Em seguida, inicie o servidor:
+
+```sh
+node dist/src/cli.js dashboard --workspace . --port 4318
+```
+
+Abra no mesmo computador a URL com token de uso único impressa no terminal. O primeiro acesso troca o token por um cookie de sessão local e remove o token da barra de endereço. Mantenha o processo ativo durante o uso; `Ctrl+C` encerra o dashboard. Para outro workspace, informe seu caminho em `--workspace`; use outra porta se 4318 já estiver ocupada.
+
+## Como as telas se conectam
+
+```mermaid
+flowchart LR
+  PBI[PO cadastra PBI] --> REV[Propõe revisão imutável]
+  REV --> PUB[PO publica revisão]
+  PUB --> SC[QA cadastra cenário e propõe revisão]
+  SC -->|associa tarefa(s)| TASK[Tarefa de desenvolvimento]
+  SC --> SPUB[QA publica revisão do cenário]
+  SPUB --> RUN[Developer ou QA registra execução]
+  TASK -->|inclui UUID/chave| RUN
+  RUN --> LINK[Execução fica ligada à tarefa, cenário, revisão publicada e build]
+  LINK --> CERT[QA certifica pelo MCP]
+  CERT --> DONE[Gate Done valida baseline, build, evidências e certificação]
+```
+
+O dashboard cobre cadastro/revisão/publicação de PBI, cadastro/revisão/publicação de cenário e registro de execuções. Os formulários de cenário e execução aceitam uma chave ou UUID de tarefa por linha; a edição de cenário pré-carrega os vínculos da revisão publicada para preservar a associação ao propor nova revisão. No detalhe da tarefa, o dashboard mostra os dados versionados consultados por `task_context_get`. Certificar execução é uma operação MCP; os detalhes do PBI exibem certificações já registradas. Essa separação mantém explícitos o papel humano e o gate aplicado ao concluir um item.
+
+## Conteúdo da aba Métricas
 
 A aba **Métricas** é a entrada do dashboard. Ela reúne burndown da sprint, burnup do marco, cenários de previsão P25/P50/P75, velocidade recente, WIP, bloqueios e cobertura. O seletor global de time filtra sprints, velocidade e previsão; os filtros da aba selecionam marco, sprint e data local de corte. Em projetos com vários times, o usuário escolhe explicitamente um time; uma única equipe é selecionada automaticamente. WIP e cobertura continuam sendo métricas do projeto. A tela informa data observada e watermark; séries usam pontos como unidade explícita e a previsão mostra geração, tamanho de amostra, capacidade e riscos.
 
-Os gráficos exibem até 90 pontos recentes e cada ponto pode ser selecionado pelo mouse ou teclado. A seleção recalcula a leitura no corte daquele dia e lista os PBIs ativos com estado e estimativa usados no total. O detalhamento do marco valida que escopo, restante, concluído e cancelado reconciliam com a série. O detalhamento da sprint usa o último dia efetivo da janela, respeitando seu fechamento. A tabela de WIP lista idade e impactos, a tabela de cobertura abre cada PBI e a tabela de velocidade mostra pontos entregues e horas registradas sem transformar uma unidade na outra.
+Os gráficos exibem até 90 pontos recentes e cada ponto pode ser selecionado pelo mouse ou teclado. A seleção recalcula a leitura no corte daquele dia e lista os PBIs ativos com estado e estimativa usados no total. O detalhamento do marco valida que escopo, restante, concluído e cancelado reconciliam com a série. O detalhamento da sprint usa o último dia efetivo da janela, respeitando seu fechamento. A tabela de WIP lista idade e impactos, a tabela de cobertura abre cada PBI e a tabela de velocidade mostra pontos entregues e horas registradas sem transformar uma unidade na outra. A tabela individual exibe horas ativas, tarefas concluídas, estimativa/execução e fator de calibração; o fator só aparece com pelo menos cinco tarefas concluídas com estimativa confirmada. O fator é consultivo e não altera as estimativas automaticamente.
 
 Quando não há time, marco, sprint, amostras ou itens, a aba explica qual dado está ausente. `GET /api/v1/projects/{projectId}/teams` lista os IDs, nomes, configuração e composição disponíveis. `GET /api/v1/projects/{projectId}/dashboard-metrics` e o tool MCP `metrics_get` chamam a mesma projeção de aplicação, dentro de uma transação SQLite comum. Ambos aceitam `teamId`, `milestoneId`, `sprintId` e `asOfDate`; projeto com vários times exige seleção explícita e time inválido retorna opções disponíveis. `none` desativa a seleção de marco ou sprint. A seleção é incluída na chave do cache e na consulta de forecast, velocidade e opções de sprint; previsões persistem snapshots separados por time. A primeira consulta pode gravar um snapshot após a migração v23 sem alterar o escopo nem adicionar evento de domínio. O cache em memória dura até 1 s, após nova checagem de autorização e watermark.
 
 ## Capacidade
 
-Configurar duração da sprint, dias úteis, feriados, membros, períodos de disponibilidade, dedicação por time e ausências. Permitir capacidade agregada provisória informando quantidade de membros e horas úteis por membro/dia. Quando houver entradas individuais completas, usar o cálculo individual, com modo exibido na interface.
+O resumo da sprint ativa mostra a capacidade calculada e congelada na abertura, junto do objetivo, intervalo e itens. A configuração de calendários, membros, dedicação, feriados ou ausências é feita pelo MCP usando `team_create` e `team_capacity_set`; `team_capacity_get` consulta o resultado. Consulte a seção [Time, calendário e capacidade](mcp.md#time-calend%C3%A1rio-e-capacidade) no contrato MCP.
 
-Por pessoa e dia útil, capacidade = máximo entre 0 e horas padrão menos ausência, multiplicado pela dedicação. A capacidade da sprint é a soma. Dedicação fica entre 0 e 100%. Exemplo com dois membros, dez dias e seis horas úteis. A tem um dia de ausência e dedicação integral. B tem 50% de dedicação. Total de 84 horas (54 + 30). Capacidade planejada fica registrada na abertura e correções são auditadas. Horas restantes de tarefas são comparáveis à capacidade. Story points representam estimativa relativa do PBI, sem conversão direta para horas.
+Por pessoa e dia útil, capacidade = máximo entre 0 e horas padrão menos ausência, multiplicado pela dedicação. A capacidade da sprint é a soma. Dedicação fica entre 0 e 100%. Exemplo: com dois membros, dez dias e seis horas úteis, A com um dia de ausência e dedicação integral contribui 54 h; B a 50% contribui 30 h; total 84 h. A capacidade planejada fica registrada na abertura e correções são auditadas. Horas restantes de tarefas são comparáveis à capacidade; story points representam estimativa relativa do PBI e não são convertidos diretamente para horas.
 
-O MCP já calcula esse valor com `team_capacity_get` a partir de configurações imutáveis, calendário, dedicação e ausências. `sprint_draft` fixa a versão da configuração e `sprint_start` guarda o cálculo detalhado por dia e pessoa. Planejamento e capacidade também são consultáveis pela API local. O resumo da sprint ativa mostra objetivo, intervalo, itens, pontos e capacidade registrada na abertura; telas executivas e análise de capacidade continuam no roadmap.
+O MCP calcula capacidade a partir de configurações imutáveis, calendário, dedicação e ausências. `sprint_draft` fixa a versão da configuração e `sprint_start` guarda o cálculo detalhado por dia e pessoa. Planejamento e capacidade também são consultáveis pela API local. O backlog `SSDD-97–100` planeja completar operações de planejamento e paridade no dashboard.
 
 ## Backlog e board local
 
-`ssdd-mcp dashboard --workspace <diretório> --port 4318` imprime a URL de entrada do dashboard com token de uso único. Abrir a URL consome o token, grava o cookie local e serve a interface. O navegador remove o token da barra de endereço após carregar. A interface inicial é servida por `/`, `/dashboard.js` e `/dashboard.css`; o build copia `src/dashboard/public` para o pacote distribuído.
-
 O Product Backlog lista histórias e bugs do projeto com busca por chave/título, filtro por tipo, prioridade, estado e versão. O seletor de time escolhe a sprint ativa e as retrospectivas disponíveis para o planejamento; com vários times, nenhuma sprint é inferida até uma seleção. Quando há sprint ativa no time escolhido, o board limita-se ao escopo comprometido e o Product Backlog reúne o restante; sem sprint ativa, o board mostra os itens que já entraram no fluxo. O resumo da sprint expõe objetivo, datas, quantidade de PBIs, pontos e horas de capacidade da abertura.
 
-Cards abrem detalhe com descrição, critérios, estimativas, pai, responsável e versões. Drag and drop e o botão “Mover item” por teclado abrem o mesmo formulário de transição. A pessoa informa o motivo e, para Done, a build candidata. A interface chama o endpoint HTTP compartilhado com `expectedVersion`, `requestId` e CSRF; as regras de autorização, workflow, baseline e gates continuam no serviço de aplicação. Um gate recusado mantém o card no estado atual e mostra o diagnóstico. Conflito de versão mantém o estado atual, informa `VERSION_CONFLICT` e recarrega a lista para apresentar a versão mais recente. A tela atualiza a cada 30 segundos e também por ação manual.
+Cards de PBI abrem detalhe com descrição, critérios, estimativas, pai, responsável, versões e lista de tarefas filhas navegável. No detalhe da tarefa, a interface consulta o contexto autorizado pelo serviço MCP, junto da timeline, sessões de desenvolvimento, deploys e revisões. Exibe regra de negócio e especificação com revisão, origem (baseline, herança ou vínculo direto) e tipo de link. `implements` sinaliza implementação declarada; `relates_to` fornece contexto relacionado. Cenários e execuções identificam relação por cobertura ou vínculo direto e preservam revisão/build. Drag and drop e o botão “Mover item” por teclado abrem o mesmo formulário de transição. A pessoa informa o motivo e, para Done, a build candidata. A interface chama o endpoint HTTP compartilhado com `expectedVersion`, `requestId` e CSRF; as regras de autorização, workflow, baseline e gates continuam no serviço de aplicação. Um gate recusado mantém o card no estado atual e mostra o diagnóstico. Conflito de versão mantém o estado atual, informa `VERSION_CONFLICT` e recarrega a lista para apresentar a versão mais recente. A tela atualiza a cada 30 segundos e também por ação manual.
+
+O botão **Novo PBI** cadastra histórias e bugs com Feature pai, descrição, prioridade e critérios. Em detalhes, **Editar conteúdo** propõe uma revisão imutável; um PO humano publica o rascunho pelo próprio detalhe. Revisões publicadas e rascunhos permanecem visíveis. As operações de atribuição, estimativa, comentários, ranking e vínculos ainda estão planejadas no backlog `SSDD-89`.
+
+Para executar o fluxo de QA, crie um cenário na aba Qualidade, associe-o ao PBI/critério pela cobertura e às tarefas verificadas pelo campo **Tarefas associadas**, proponha sua revisão e publique-a como QA humano. Registre uma execução escolhendo essa revisão publicada e informando build, resultado, notas, URI de evidência e tarefas verificadas. Uma revisão em rascunho não aceita execução. A execução é imutável e conserva as tarefas exatas que validou, a revisão e a build. Para certificar um resultado compatível com a baseline, use `test_run_certify` pelo MCP; certificação não é feita pela interface nesta versão.
 
 ## Qualidade e atividade
 
-A tabela de cobertura da aba Métricas mostra até 20 histórias e bugs, com percentual de critérios obrigatórios cobertos, estado da baseline e versão do item. Sem baseline, a linha é identificada como preview; a cobertura não é apresentada como aprovação. A resposta também informa `itemsTotal` e `itemsTruncated`; contagens e percentuais consideram todos os PBIs do projeto, mesmo quando os detalhes são limitados. Abra o detalhe do PBI para consultar seu snapshot completo. No detalhe, o relatório reconstrói os critérios fixados e lista as revisões de cenário incluídas na baseline, última execução por build, certificação compatível e evidências anexadas, com paginação das evidências. A atividade do projeto e a timeline do PBI usam `audit_events`; cada transição inclui `transitionId` e aponta para o registro original com ator, motivo, versão e estado anterior/posterior. A atividade tem páginas de até 100 eventos, ordenação mais recente primeiro e cursor vinculado ao watermark do projeto. Uma alteração concorrente invalida o cursor e pede uma leitura nova.
+A tabela de cobertura da aba Métricas mostra até 20 histórias e bugs, com percentual de critérios obrigatórios cobertos, estado da baseline e versão do item. Sem baseline, a linha é identificada como preview; a cobertura não é apresentada como aprovação. A resposta também informa `itemsTotal` e `itemsTruncated`; contagens e percentuais consideram todos os PBIs do projeto, mesmo quando os detalhes são limitados. Abra o detalhe do PBI para consultar seu snapshot completo. No detalhe, o relatório reconstrói os critérios fixados e lista as revisões de cenário incluídas na baseline, última execução por build, certificação compatível e evidências anexadas, com paginação das evidências.
+
+A aba **Qualidade** mostra um gráfico agregado dos 100 runs mais recentes por `passed`, `failed`, `blocked` e `skipped`, com legenda textual equivalente. O histórico mostra cenário, revisão exata, build e link seguro para evidência HTTP(S). O gráfico ainda não tem filtros de build/período nem drill-down; gráfico de cobertura com drill-down e certificação pela UI continuam planejados em `SSDD-93`, `SSDD-95` e `SSDD-96`.
+
+A atividade do projeto e a timeline do PBI usam `audit_events`; cada transição inclui `transitionId` e aponta para o registro original com ator, motivo, versão e estado anterior/posterior. A atividade tem páginas de até 100 eventos, ordenação mais recente primeiro e cursor vinculado ao watermark do projeto. Uma alteração concorrente invalida o cursor e pede uma leitura nova.
 
 A aba Retrospectiva lista sprints fechadas e mostra resumo, práticas para continuar/interromper/experimentar e ações com responsável humano e PBI opcional. O seletor permite ler uma revisão histórica. A gravação usa `sprint_retrospective_set` pelo MCP; cada atualização preserva uma nova revisão append-only.
 
@@ -54,15 +89,27 @@ Rotas disponíveis:
 - `GET /`, `/dashboard.js` e `/dashboard.css` servem a interface local com políticas de segurança de conteúdo.
 - `GET /api/v1/projects/{projectId}/quality` resume cobertura obrigatória por PBI; `GET /api/v1/projects/{projectId}/audit` lista eventos auditados, com filtros `entityType`/`entityId`, `limit` e `cursor`.
 - `GET /api/v1/projects/{projectId}/dashboard-metrics` agrega burnup, burndown, previsão, velocidade, WIP e cobertura com opções de marco/sprint e watermark comum; filtros opcionais: `milestoneId`, `sprintId` e `asOfDate`.
+- `GET /api/v1/projects/{projectId}/developer-execution-metrics` retorna esforço individual agregado por período e filtro opcional `developerPrincipalId`; a consulta usa as mesmas regras de autorização do MCP.
+- `GET /api/v1/projects/{projectId}/development-sessions?itemIdOrKey=...&limit=...` lista sessões da tarefa, com nome do Developer, horários UTC, status e duração ativa.
+- `GET /api/v1/projects/{projectId}/deployment-events?itemIdOrKey=...&environment=homologation|production&limit=...` consulta eventos observados, incluindo falha e rollback. O dashboard mostra o último evento aprovado por ambiente como data resumida.
 - `GET /api/v1/projects/{projectId}/work-items`, com filtros repetidos `type` e `state`, além de `parentId`, `search`, `limit` e `cursor`.
+- `POST /api/v1/projects/{projectId}/work-items` cria PBI; `GET /api/v1/projects/{projectId}/work-items/{itemIdOrKey}/revisions` consulta revisões.
+- `POST /api/v1/projects/{projectId}/work-items/{itemIdOrKey}/revisions` propõe conteúdo imutável e `POST .../revisions/{revisionNumber}/publish` publica conforme o papel PO.
 - `GET /api/v1/projects/{projectId}/work-items/{itemIdOrKey}`.
+- `GET /api/v1/projects/{projectId}/work-items/{taskIdOrKey}/context`, com `profile`, parâmetros repetidos `include`, `maxChars` e `cursor`, retorna a mesma projeção autorizada de `task_context_get` e pode ser paginada.
 - `GET /api/v1/projects/{projectId}/work-items/{itemIdOrKey}/quality`, com cursor opcional para continuar as evidências; `GET /api/v1/projects/{projectId}/work-items/{itemIdOrKey}/timeline` mostra eventos do PBI.
 - `GET /api/v1/projects/{projectId}/sprints?status=active` e `GET /api/v1/projects/{projectId}/sprints/{sprintIdOrKey}`.
+- `GET|POST /api/v1/projects/{projectId}/scenarios` lista e cria cenários; `GET /api/v1/projects/{projectId}/scenarios/{scenarioIdOrKey}` consulta revisões e snapshots.
+- `GET /api/v1/projects/{projectId}/scenarios/{scenarioIdOrKey}/revisions/{revisionNumber}/work-items` lista as tarefas vinculadas à revisão, para que a UI preserve as relações ao propor nova revisão.
+- `POST /api/v1/projects/{projectId}/scenarios/{scenarioIdOrKey}/revisions` propõe revisão; `POST .../revisions/{revisionNumber}/publish` publica revisão humana QA.
+- `GET /api/v1/projects/{projectId}/test-runs?scenario={key}&limit={1..100}` consulta execuções recentes; `POST /api/v1/projects/{projectId}/scenarios/{scenarioIdOrKey}/test-runs` registra execução da revisão publicada, build, resultado e `workItemIdOrKeys` opcional com as tarefas verificadas.
 - `GET /api/v1/projects/{projectId}/sprints/{sprintIdOrKey}/retrospective`, com `revisionNumber` opcional para leitura histórica.
 - `POST /api/v1/projects/{projectId}/work-items/{itemIdOrKey}/transition`, usando o mesmo comando de transição do MCP.
 - `POST /api/v1/projects/{projectId}/sprints/{sprintIdOrKey}/retrospective`, usando o mesmo comando do MCP e proteção CSRF; a autorização de facilitador humano é aplicada no serviço.
 
-O servidor valida `Host` e `Origin` de loopback, não habilita CORS e define políticas de cache, CSP, enquadramento e referrer. Toda escrita exige `Origin` exata e `X-SSDD-CSRF` obtido na sessão. O token de bootstrap é consumido uma vez por processo; a sessão vive em memória e desaparece ao encerrar o servidor. Erros mantêm `code`, `message`, `details`, `retryable` e `correlationId`; uma falta de associação ao projeto produz `FORBIDDEN`, igual ao MCP. A interface é local e não carrega scripts ou fontes externos. A criação e a edição de conteúdo do item seguem pelo fluxo MCP nesta entrega.
+O servidor valida `Host` e `Origin` de loopback, não habilita CORS e define políticas de cache, CSP, enquadramento e referrer. Toda escrita exige `Origin` exata e `X-SSDD-CSRF` obtido na sessão. O token de bootstrap é consumido uma vez por processo; a sessão vive em memória e desaparece ao encerrar o servidor. Erros mantêm `code`, `message`, `details`, `retryable` e `correlationId`; uma falta de associação ao projeto produz `FORBIDDEN`, igual ao MCP. Todas as rotas de mutação chamam os serviços de aplicação compartilhados e não escrevem diretamente no SQLite. A interface continua local e não carrega scripts ou fontes externos. As demais operações MCP seguem o roadmap `SSDD-85–100`.
+
+Iniciar/pausar/concluir sessões e gravar homologação/produção são mutações disponíveis pelo MCP nesta versão; o dashboard consome as consultas e apresenta as datas/histórico. Use `ssdd_start_task` ou `development_session_*` para registrar desenvolvimento e `deployment_event_record` para registrar um resultado efetivamente observado no ambiente.
 
 ## Séries e unidades
 

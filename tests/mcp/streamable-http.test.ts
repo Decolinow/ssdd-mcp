@@ -19,6 +19,29 @@ import { createMcpHttpServer, listenMcpHttpServer, maximumMcpHttpRequestBytes } 
 
 const cliWebhookSecret = "cli-test-webhook-secret-with-at-least-32-bytes";
 
+test("Streamable HTTP exposes minimal liveness and readiness probes", async (context) => {
+  const workspace = createWorkspace();
+  const handle = createMcpHttpServer(workspace);
+  const address = await listenMcpHttpServer(handle, 0);
+
+  context.after(async () => {
+    await handle.close();
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const health = await fetch(`${address.origin}/healthz`);
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), { status: "ok" });
+
+  const readiness = await fetch(`${address.origin}/readyz`);
+  assert.equal(readiness.status, 200);
+  assert.deepEqual(await readiness.json(), { status: "ready" });
+
+  const invalidMethod = await fetch(`${address.origin}/healthz`, { method: "POST", body: "{}" });
+  assert.equal(invalidMethod.status, 405);
+  assert.equal(invalidMethod.headers.get("allow"), "GET");
+});
+
 test("Streamable HTTP negotiates MCP and serves the same project tools as stdio", async (context) => {
   const workspace = createWorkspace();
   const handle = createMcpHttpServer(workspace);
@@ -44,6 +67,10 @@ test("Streamable HTTP negotiates MCP and serves the same project tools as stdio"
   assert.ok(sessionId, "initialize response should create an MCP session");
   const tools = await client.listTools();
   assert.ok(tools.tools.some((tool) => tool.name === "project_list"));
+  assert.ok(tools.tools.some((tool) => tool.name === "work_item_quality_get"));
+  assert.ok(tools.tools.some((tool) => tool.name === "milestone_forecast_history"));
+  assert.ok(tools.tools.some((tool) => tool.name === "milestone_forecast_recalculate"));
+  assert.ok(tools.tools.some((tool) => tool.name === "test_run_list"));
   assert.ok(tools.tools.some((tool) => tool.name === "metrics_get"));
   assert.ok(tools.tools.some((tool) => tool.name === "github_issue_import_preview"));
   assert.ok(tools.tools.some((tool) => tool.name === "github_issue_import_apply"));
@@ -103,11 +130,11 @@ test("Streamable HTTP supports the MCP 2026-07-28 stateless protocol era", async
   const tools = await client.listTools();
   assert.ok(tools.tools.some((tool) => tool.name === "project_list"));
   const prompts = await client.listPrompts();
-  assert.equal(prompts.prompts.length, 4);
+  assert.equal(prompts.prompts.length, 6);
   const skillClient = new SkillsClient(client);
   assert.equal(skillClient.supported, true);
   const skillListing = await skillClient.list();
-  assert.equal(skillListing.skills.length, 4);
+  assert.equal(skillListing.skills.length, 5);
   const qualitySkill = await skillClient.read(
     skillListing.skills.find((skill) => skill.frontmatter.name === "ssdd-quality-assurance")!,
   );
@@ -411,6 +438,10 @@ test("serve CLI accepts a real Streamable HTTP client in a separate process", as
     if (processHandle.exitCode === null) {
       processHandle.kill("SIGTERM");
       await once(processHandle, "exit");
+    }
+    // On Windows, child.kill("SIGTERM") terminates the child instead of delivering a catchable POSIX signal.
+    if (process.platform !== "win32") {
+      assert.equal(processHandle.exitCode, 0, "serve should close the HTTP server cleanly on SIGTERM");
     }
     rmSync(workspace, { recursive: true, force: true });
   });

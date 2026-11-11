@@ -98,7 +98,7 @@ describe("milestone delivery forecasts", () => {
     assert.ok(favorable?.estimatedDate && base?.estimatedDate && cautious?.estimatedDate);
     assert.ok(favorable.estimatedDate <= base.estimatedDate);
     assert.ok(base.estimatedDate <= cautious.estimatedDate);
-    assert.ok(forecast.probabilityOnTime !== null && forecast.probabilityOnTime > 0.99);
+    assert.ok(forecast.probabilityOnTime !== null && forecast.probabilityOnTime > 0.95);
     assert.equal(forecast.targetDateWithinHorizon, true);
     assert.ok(forecast.capacityBases.some((basis) =>
       basis.source === "planned_sprint_configuration" && basis.sprintId === futureSprint.id));

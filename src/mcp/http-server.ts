@@ -195,6 +195,17 @@ export function startMcpHttpServer(
     if (Object.keys(options.webhookSecrets ?? {}).length > 0) {
       writeLine("Recepção de webhooks autenticada por assinatura está ativa.");
     }
+    const shutdown = (signal: "SIGINT" | "SIGTERM"): void => {
+      writeLine(`Recebido ${signal}; encerrando o servidor MCP e fechando sessões.`);
+      void handle.close().then(() => {
+        writeLine("Servidor MCP encerrado.");
+      }).catch((error: unknown) => {
+        writeLine(`Falha ao encerrar o servidor MCP: ${error instanceof Error ? error.message : "Erro inesperado."}`);
+        process.exitCode = 1;
+      });
+    };
+    process.once("SIGINT", () => shutdown("SIGINT"));
+    process.once("SIGTERM", () => shutdown("SIGTERM"));
   }).catch((error: unknown) => {
     writeLine(`MCP HTTP error: ${error instanceof Error ? error.message : "Erro inesperado."}`);
     process.exitCode = 1;
@@ -248,6 +259,32 @@ async function handleRequest(
   } catch {
     await closeConnectionForUnreadBody(incoming, outgoing);
     sendJson(outgoing, 400, { code: "INVALID_REQUEST", message: "The request target is invalid." });
+    return;
+  }
+  if (requestUrl.pathname === "/healthz" || requestUrl.pathname === "/readyz") {
+    if (incoming.method !== "GET") {
+      await closeConnectionForUnreadBody(incoming, outgoing);
+      outgoing.setHeader("Allow", "GET");
+      sendJson(outgoing, 405, { code: "METHOD_NOT_ALLOWED", message: "Health endpoints accept GET only." });
+      return;
+    }
+    const healthRequest = toWebRequest(incoming, requestUrl, false);
+    const healthOriginRejection = originValidationResponse(healthRequest, allowedOriginHostnames);
+    if (healthOriginRejection !== undefined) {
+      await closeConnectionForUnreadBody(incoming, outgoing);
+      await writeWebResponse(healthOriginRejection, outgoing);
+      return;
+    }
+    if (requestUrl.pathname === "/healthz") {
+      sendJson(outgoing, 200, { status: "ok" });
+      return;
+    }
+    try {
+      database.prepare("SELECT 1").get();
+      sendJson(outgoing, 200, { status: "ready" });
+    } catch {
+      sendJson(outgoing, 503, { status: "not_ready" });
+    }
     return;
   }
   const webhookRoute = /^\/webhooks\/([a-z][a-z0-9-]{0,63})\/([A-Za-z][A-Za-z0-9]{0,9})$/u.exec(requestUrl.pathname);

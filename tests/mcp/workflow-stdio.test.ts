@@ -132,6 +132,66 @@ test("stdio completes a baseline-to-QA workflow through MCP tools", async (conte
   assert.equal(readyValue.transition.baselineId, readyValue.baseline.id);
   assert.equal(readyValue.auditEventIds.length, 1);
 
+  const milestoneResult = await client.callTool({
+    name: "milestone_create",
+    arguments: {
+      projectId,
+      requestId: "workflow-milestone",
+      milestoneKey: "PAY-RELEASE-01",
+      title: "Primeira entrega",
+      goal: "Entregar confirmação confiável de pedidos.",
+      targetDate: "2099-01-01",
+      itemIdsOrKeys: [story.id],
+      reason: "Escopo de teste da trilha MCP.",
+    },
+  });
+  assert.notEqual(milestoneResult.isError, true);
+  const milestoneId = (milestoneResult.structuredContent as { milestone: { id: string } }).milestone.id;
+  const metricsResult = await client.callTool({
+    name: "metrics_get",
+    arguments: { projectId, milestoneId },
+  });
+  assert.notEqual(metricsResult.isError, true);
+  const metrics = metricsResult.structuredContent as {
+    selectedTeamId: string | null;
+    forecast: { forecastId: string; status: string } | null;
+  };
+  assert.ok(metrics.forecast);
+  const forecastHistoryResult = await client.callTool({
+    name: "milestone_forecast_history",
+    arguments: {
+      projectId,
+      milestoneIdOrKey: milestoneId,
+      ...(metrics.selectedTeamId === null ? {} : { teamId: metrics.selectedTeamId }),
+      limit: 5,
+    },
+  });
+  assert.notEqual(forecastHistoryResult.isError, true);
+  const forecasts = (forecastHistoryResult.structuredContent as { forecasts: Array<{ forecastId: string }> }).forecasts;
+  assert.ok(forecasts.some(({ forecastId }) => forecastId === metrics.forecast?.forecastId));
+  const recalculationResult = await client.callTool({
+    name: "milestone_forecast_recalculate",
+    arguments: { projectId, forecastId: metrics.forecast.forecastId },
+  });
+  assert.notEqual(recalculationResult.isError, true);
+  assert.equal((recalculationResult.structuredContent as { status: string }).status, metrics.forecast.status);
+  const forecastHistoryAfterRecalculation = await client.callTool({
+    name: "milestone_forecast_history",
+    arguments: {
+      projectId,
+      milestoneIdOrKey: milestoneId,
+      ...(metrics.selectedTeamId === null ? {} : { teamId: metrics.selectedTeamId }),
+      limit: 5,
+    },
+  });
+  assert.notEqual(forecastHistoryAfterRecalculation.isError, true);
+  assert.deepEqual(
+    (forecastHistoryAfterRecalculation.structuredContent as { forecasts: Array<{ forecastId: string }> }).forecasts
+      .map(({ forecastId }) => forecastId),
+    forecasts.map(({ forecastId }) => forecastId),
+    "recalculating an immutable forecast must not persist a new snapshot",
+  );
+
   const evidence = await client.callTool({
     name: "evidence_add",
     arguments: {
@@ -171,6 +231,50 @@ test("stdio completes a baseline-to-QA workflow through MCP tools", async (conte
   });
   assert.notEqual(runResult.isError, true);
   const runId = (runResult.structuredContent as { run: { id: string } }).run.id;
+  const runHistoryResult = await client.callTool({
+    name: "test_run_list",
+    arguments: {
+      projectId,
+      scenarioIdOrKey: scenarioId,
+      buildId: "candidate-42",
+      result: "passed",
+      limit: 10,
+    },
+  });
+  assert.notEqual(runHistoryResult.isError, true);
+  const runHistory = runHistoryResult.structuredContent as {
+    runs: Array<{ id: string; scenarioId: string; revisionNumber: number; buildId: string; result: string }>;
+    nextCursor: string | null;
+    watermark: number;
+  };
+  assert.deepEqual(runHistory.runs.map(({ id, scenarioId: listedScenarioId, revisionNumber, buildId, result }) => ({
+    id, scenarioId: listedScenarioId, revisionNumber, buildId, result,
+  })), [{
+    id: runId,
+    scenarioId,
+    revisionNumber: 1,
+    buildId: "candidate-42",
+    result: "passed",
+  }]);
+  assert.equal(runHistory.nextCursor, null);
+  assert.ok(runHistory.watermark > 0);
+  const qualityResult = await client.callTool({
+    name: "work_item_quality_get",
+    arguments: { projectId, itemIdOrKey: story.id },
+  });
+  assert.notEqual(qualityResult.isError, true);
+  const quality = qualityResult.structuredContent as {
+    mode: string;
+    baseline: { sequence: number } | null;
+    requiredCriteria: number;
+    coveredRequiredCriteria: number;
+    criteria: Array<{ covered: boolean; scenarios: Array<{ latestRuns: Array<{ run: { id: string } }> }> }>;
+  };
+  assert.equal(quality.mode, "pinned");
+  assert.equal(quality.baseline?.sequence, 1);
+  assert.deepEqual([quality.requiredCriteria, quality.coveredRequiredCriteria], [1, 1]);
+  assert.ok(quality.criteria[0]?.covered);
+  assert.ok(quality.criteria[0]?.scenarios[0]?.latestRuns.some(({ run }) => run.id === runId));
   const certificationResult = await client.callTool({
     name: "test_run_certify",
     arguments: {

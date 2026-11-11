@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { createWorkItem } from "../../src/application/create-work-item.js";
 import { ApplicationError } from "../../src/application/errors.js";
 import { initializeProject } from "../../src/application/initialize-project.js";
+import { bindRoadmapItemId } from "../../src/application/roadmap-identifiers.js";
 import { getWorkItem, listWorkItems } from "../../src/application/work-item-queries.js";
 import { openSqliteDatabase, type SqliteDatabase } from "../../src/storage-sqlite/database.js";
 import { applyMigrations } from "../../src/storage-sqlite/migrations.js";
@@ -103,6 +104,29 @@ describe("work item hierarchy and acceptance criteria", () => {
       .prepare("SELECT entity_id FROM audit_events WHERE event_type = 'work_item.created' ORDER BY sequence")
       .all() as Array<{ entity_id: string }>;
     assert.deepEqual(auditRows.map((row) => row.entity_id), [epic.id, feature.id, story.id]);
+  });
+
+  it("resolves a mapped stable roadmap ID before a generated key with the same spelling", () => {
+    const epic = createWorkItem(database, command("epic", "Epic roadmap")).value;
+    const feature = createWorkItem(database, command("feature", "Feature roadmap", { parentId: epic.id })).value;
+    const story = createWorkItem(database, command("story", "Story roadmap", { parentId: feature.id })).value;
+    const stableTask = createWorkItem(database, command("task", "Stable SSDD-101 task", { parentId: story.id })).value;
+    const generatedKeyTask = createWorkItem(database, command("task", "Generated SSDD-101 key", { parentId: story.id })).value;
+    database.prepare("UPDATE work_items SET item_key = 'SSDD-101' WHERE project_id = ? AND item_id = ?")
+      .run(projectId, generatedKeyTask.id);
+
+    const mapping = bindRoadmapItemId(database, {
+      projectId,
+      principalId,
+      requestId: "bind-stable-roadmap-id",
+      roadmapId: "SSDD-101",
+      itemIdOrKey: stableTask.id,
+    }).value;
+
+    assert.equal(mapping.itemId, stableTask.id);
+    assert.equal(mapping.itemKey, stableTask.key);
+    assert.equal(getWorkItem(database, projectId, principalId, "SSDD-101").id, stableTask.id);
+    assert.equal(getWorkItem(database, projectId, principalId, generatedKeyTask.id).id, generatedKeyTask.id);
   });
 
   it("rejects wrong and cross-project parents without consuming a key or writing partial state", () => {

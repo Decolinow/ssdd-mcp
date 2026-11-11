@@ -6,29 +6,38 @@ Usar `@modelcontextprotocol/server` 2.4.0, com negociação de versão segundo a
 
 Entradas e saídas têm JSON Schema e tipos compartilhados com os adaptadores. Nomes da tabela são públicos. Reads devolvem `structuredContent` e resumo textual serializável para clientes que leem somente `content`. Resultado de comando inclui versão atual e `auditEventIds`. Os limites de itens, profundidade e texto são aplicados pelo servidor. O cliente pode pedir continuação sem expandir todo o grafo.
 
+Uma instância HTTP atende vários clientes e projetos do mesmo workspace. Na conexão, o cliente chama `project_list`, pede seleção humana se houver mais de um projeto e envia o UUID selecionado em `projectId` em cada chamada; não existe estado global de projeto ativo. A autorização do projeto é repetida em toda ferramenta. Para bind, TLS/OIDC, proxy, probes locais, backup e limites de topologia, siga o [runbook do servidor de equipe](team-server.md).
+
+Para a versão moderna `2026-07-28`, o transporte é sem sessão e serve cada requisição sem estado de conexão MCP. Clientes anteriores que iniciam handshake continuam atendidos por sessão legacy em memória. Um restart encerra essas sessões antigas; o servidor ainda usa um processo SQLite único, portanto a ausência de sessão moderna não habilita várias instâncias da aplicação. A implementação expõe `GET /healthz` e `GET /readyz` somente para monitoramento local; publique externamente apenas `/mcp`.
+
 ## Ferramentas e autorizações
 
 Toda entrada de domínio inclui `projectId` após descoberta, exceto `project_list`. A sigla H indica confirmação humana. O mesmo ator pode possuir vários papéis e a configuração do projeto pode reduzir o conjunto de permissões.
 
 | Ferramentas | Entradas específicas e resultado | Acesso |
 |---|---|---|
-| `project_list`, `project_get` | Projetos visíveis e configuração básica autorizada; catálogo de tipos e filtros será ampliado com o domínio | Leitura de projeto |
+| `project_list`, `project_get` | Projetos visíveis, objetivo, fuso e papéis concedidos ao principal autenticado | Leitura de projeto |
 | `work_item_list`, `work_item_get`, `work_item_create` | Lista filtra por tipo, estado, pai e texto com paginação; consulta aceita UUID ou chave legível. Criação respeita hierarquia e tipo | Leitura; criação por PO/Dev/QA conforme o tipo |
 | `work_item_revision_list`, `work_item_revision_propose`, `work_item_revision_publish` | Histórico de snapshots, conteúdo candidato e versão/revisão alvo | PO/Developer/QA propõem por tipo; publicação exige PO humano |
 | `work_item_transition`, `work_item_gate_check`, `work_item_rank`, `work_item_assign` | Transição com versão/motivo, diagnóstico de Ready/Done, posição entre vizinhos ou responsável elegível | PO humano aprova PBI Ready/cancelamento; Developer/QA podem preparar tarefa; Developer humano conclui PBI |
+| `work_item_quality_get` | `projectId`, `itemIdOrKey`, `evidenceCursor?`; consolida cobertura, revisões, execuções por build, certificações e evidências | Leitura autorizada de história/bug; evidências continuam paginadas |
 | `work_item_estimate`, `work_item_estimate_confirm` | Unidade, valor, justificativa, proposta, versão esperada e estimativa vigente | Developer/QA propõe pontos para história/bug ou horas para tarefa. Uma pessoa Developer confirma a proposta |
 | `comment_add`, `comment_list` | Texto imutável e consulta paginada vinculada ao projeto e item | PO/Developer/QA/Tech Lead/facilitador |
 | `spec_list`, `spec_get`, `spec_create`, `spec_revision_propose`, `spec_revision_publish` | Tipos, histórico de revisões, conteúdo JSON, versão esperada e número da revisão | Leitura por projeto. PO/Tech Lead propõe por tipo; publicação requer papel e principal humano |
 | `scenario_create`, `scenario_list`, `scenario_get`, `scenario_criterion_search`, `scenario_revision_propose`, `scenario_revision_publish` | Cenário versionado, passos, pré-condições, cobertura por critério/regra e histórico | QA propõe; revisão só é publicada por QA humano |
-| `test_run_record`, `test_run_certify` | Revisão publicada do cenário, build, resultado, notas e referência de evidência | Developer/QA registra observação imutável; somente QA humano certifica execução aprovada da baseline |
+| `test_run_list`, `test_run_record`, `test_run_certify` | Lista execuções recentes com filtros por cenário/build/resultado e cursor; grava observação por revisão publicada; certifica execução de baseline | Leitura por membro; Developer/QA registra observação imutável; somente QA humano certifica execução aprovada da baseline |
 | `trace_link_add`, `trace_link_remove`, `trace_query` | Núcleo atual: `implements`, `relates_to`, `depends_on`; endpoints por UUID/chave, direção, profundidade e orçamento de nós | PO/Dev/QA/Tech Lead conforme ação e tipo de ligação |
 | `evidence_add`, `evidence_list` | Tipo, URI, descrição e build opcional; consulta paginada por item retorna baseline capturada e autoria | PO/Developer/QA/Tech Lead; registros são imutáveis |
 | `baseline_fix`, `baseline_get`, `impact_list`, `baseline_revalidate` | Revisões congeladas do PBI, especificações ligadas, cenários cobertos e impactos abertos/resolvidos | PO fixa quando Ready; revalidação exige principal humano PO ou Tech Lead |
-| `task_context_get` | `projectId`, `taskIdOrKey`, perfil opcional, seções incluídas, `maxChars` e cursor. Retorna hierarquia, referências versionadas, warnings de baseline e `nextCursor` | Leitura de tarefa autorizada no projeto |
+| `task_context_get` | `projectId`, `taskIdOrKey`, perfil opcional, seções incluídas, `maxChars` e cursor. Retorna hierarquia, critérios, especificações/regras, cenários, runs por build, proveniência, relações `implements`/`relates_to`, warnings de baseline e `nextCursor` | Leitura de tarefa autorizada no projeto |
+| `development_session_start`, `development_session_transition`, `development_session_list` | Inicia a sessão de domínio de uma tarefa atribuída ao Developer autenticado; pausa, retoma, conclui ou cancela com versão esperada; consulta por tarefa, Developer e estado | Start/transition exigem o Developer atribuído e sessão própria; leitura por membro do projeto |
+| `developer_execution_metrics_get` | Período e Developer opcional; horas ativas, tarefas concluídas, estimativa versus execução, variação e fator de calibração condicionado a pelo menos cinco tarefas | Leitura por membro; dados individuais são descritivos e não formam ranking |
+| `deployment_event_record`, `deployment_event_list` | Eventos imutáveis de homologação/produção com build, versão, pipeline, ator, timestamp UTC, resultado, rollback e vínculos a tarefas/PBIs/marcos | Homologação: Admin/QA/PO/Tech Lead; produção: Admin/PO/Tech Lead; produção aprovada exige Done e homologação aprovada do mesmo build |
+| `roadmap_id_bind`, `roadmap_id_resolve`, `roadmap_id_list` | Vincula ID estável `SSDD-###` a UUID/chave gerada, resolve um ID e lista vínculos persistidos por projeto | Bind por Admin/PO; resolver/listar por membro |
 | `definition_of_done_set`, `definition_of_done_get` | Revisão de critérios versionada; configuração com `expectedVersion`, leitura atual ou histórica | Alteração por pessoa PO/facilitadora; leitura por membro do projeto |
 | `sprint_list`, `sprint_get`, `sprint_draft`, `sprint_scope_change`, `sprint_start`, `sprint_close`, `sprint_cancel` | Planejamento por `teamId`, seleção de PBIs Ready, alterações de escopo, snapshots e histórico de estado | Leitura por membro; seleção explícita em projetos com vários times; edição de rascunho por PO/Developer/facilitador; início por PO humano; escopo ativo exige PO humano; fechamento/cancelamento por PO ou facilitador humano |
 | `sprint_retrospective_get`, `sprint_retrospective_set` | Leitura da revisão corrente ou histórica; registro versionado de aprendizados e ações com responsável e PBI opcional | Leitura por membro; escrita após fechamento por facilitador humano; responsáveis precisam ser pessoas humanas do projeto |
-| `milestone_create`, `milestone_get`, `milestone_list`, `milestone_scope_change` | Objetivo e data alvo do marco; PBIs aprovados com baseline, revisão e pontos; histórico append-only de alterações | Leitura por membro; criação e mudança do escopo por PO humano |
+| `milestone_create`, `milestone_get`, `milestone_list`, `milestone_scope_change`, `milestone_forecast_history`, `milestone_forecast_recalculate` | Objetivo e data alvo; PBIs aprovados com baseline, revisão e pontos; histórico do escopo e snapshots de previsão, com recálculo verificável | Leitura por membro; criação e mudança do escopo por PO humano; consultas de previsão não gravam |
 | `metrics_get` | `teamId`, `milestoneId`, `sprintId` (UUID ou chave), `asOfDate`; retorna burnup, previsão, série da sprint, velocidade, WIP, cobertura, watermark e opções | Leitura por membro; time obrigatório quando o projeto tem vários; pode registrar snapshot imutável de previsão |
 | `github_reference_list` | `workItemIdOrKey` opcional e `limit` de 1 a 100; retorna o PR e workflow run mais recente por referência | Leitura por membro do projeto |
 | `github_issue_import_preview`, `github_issue_import_apply` | Repositório, Feature destino, tipo `story`/`bug`, limite; apply recebe `expectedPlanHash` e `requestId` | Preview por membro; apply só por PO humano |
@@ -227,7 +236,7 @@ Os tipos aceitos são `business_rule`, `glossary`, `api_contract`, `adr` e `non_
 
 `scenario_get` retorna o histórico; `scenario_list` retorna até 100 resumos com filtro opcional por tipo. `scenario_criterion_search` recebe o UUID do critério ou a referência `item:AC-N`, percorre apenas revisões publicadas/supersedidas e devolve para cada uma a última execução de cada build. Revisões em rascunho não aparecem e ainda não podem receber execução.
 
-`test_run_record` registra resultado `passed`, `failed`, `blocked` ou `skipped`, revisão publicada, `buildId`, notas e URI opcional de evidência. Execuções são append-only, idempotentes por `requestId` e auditadas. Repetir um cenário/build registra nova observação; a busca retorna a de maior sequência para aquele par. `test_run_certify` exige PBI em `in_validation`, versão esperada, execução aprovada da revisão de cenário fixada na baseline e a execução mais recente desse cenário/revisão/build. O principal precisa ter papel QA e tipo `human`; o comando incrementa a versão do PBI e grava certificação imutável. Uma execução registrada por agente permanece observação e não satisfaz o gate.
+`test_run_record` registra resultado `passed`, `failed`, `blocked` ou `skipped`, revisão publicada, `buildId`, notas e URI opcional de evidência. Execuções são append-only, idempotentes por `requestId` e auditadas. Repetir um cenário/build registra nova observação; a busca retorna a de maior sequência para aquele par. `test_run_list` permite descobrir o histórico por projeto, filtrar opcionalmente por ID/chave de cenário, build e resultado, e ler páginas de 1–100 registros (padrão 25). A ordem é mais recente primeiro. `nextCursor` é vinculado ao projeto, principal, filtros, limite e maior sequência correspondente; uma nova execução que corresponda à consulta invalida o cursor com `STALE_CURSOR`. Use a página sem cursor para reiniciar a leitura. `test_run_certify` exige PBI em `in_validation`, versão esperada, execução aprovada da revisão de cenário fixada na baseline e a execução mais recente desse cenário/revisão/build. O principal precisa ter papel QA e tipo `human`; o comando incrementa a versão do PBI e grava certificação imutável. Uma execução registrada por agente permanece observação e não satisfaz o gate.
 
 ### Baselines e impactos
 
@@ -240,6 +249,8 @@ Ao publicar uma revisão de especificação, o servidor procura itens `ready`, `
 ### Workflow, evidências e certificação
 
 `work_item_gate_check` recebe `projectId`, item por UUID/chave e `targetState` (`ready` ou `done`), com `buildId` obrigatório para avaliar a conclusão de um PBI. Retorna cada gate, resultado, mensagem e detalhes diagnósticos. Para cenário sem execução no build, os detalhes listam builds disponíveis. `work_item_transition` recebe `targetState`, `expectedVersion` e motivo; só executa transições permitidas, registra a transição e evento de auditoria e devolve o novo número de versão. Erros `GATE_BLOCKED` carregam o relatório de gates no campo `details`.
+
+`work_item_quality_get` reúne critérios da revisão congelada na baseline ou, sem baseline, da revisão corrente em modo `preview`. Cada critério indica cobertura e inclui cenários elegíveis, revisão e última execução de cada build; certificações e evidências da baseline aparecem junto do run/item correspondente. A resposta inclui contagem e percentual dos critérios obrigatórios. `evidenceCursor` continua a página de evidências, sem recalcular ou alterar o relatório de domínio. Use `test_run_list` quando precisar percorrer execuções antigas que não sejam a última de cada build.
 
 Entrada de PBI em Ready exige revisão publicada, critérios, cenário publicado para cada critério obrigatório, estimativa de pontos confirmada e especificações `implements` publicadas. A baseline inicial é gravada de forma atômica com a transição. Para tarefas, Ready exige pai PBI em Ready/em andamento, baseline herdada, responsável e descrição de saída esperada. Dependências incompletas bloqueiam início e conclusão.
 
@@ -269,6 +280,8 @@ A resposta inclui `projectId`, `asOfDate`, `observedAt`, `watermarkSequence`, ID
 
 Cada chamada valida a associação do principal ao projeto e consulta o watermark dentro de uma transação SQLite. Uma projeção em memória pode ser reutilizada por até 1 s para a mesma conexão SQLite, principal, projeto, filtros e watermark; a autorização é checada novamente e qualquer evento auditado invalida o valor. Se houver um marco elegível no corte, a previsão pode gravar ou reutilizar um snapshot imutável da tabela de forecast criada na v17; o algoritmo v2 usa a chave de algoritmo existente, sem nova migration. Seed e entradas persistidas permitem reprodução exata. Snapshots de algoritmo v1 mantêm recálculo pela implementação original. O registro não altera o escopo nem cria evento de domínio. Projeto sem associação retorna `FORBIDDEN`, como nas demais ferramentas. Corte anterior à criação do marco retorna `forecastUnavailableReason: "before_milestone_created"` e métricas de marco/previsão nulas.
 
+`milestone_forecast_history` recebe marco, `teamId` opcional e limite de 1–20 (padrão 10); retorna snapshots recentes sem incluir o vetor de capacidade/insumos completo da simulação. Em projetos com vários times, informe `teamId`. `milestone_forecast_recalculate` recebe `forecastId` de um snapshot e reproduz o algoritmo versionado com os insumos imutáveis persistidos; retorna status, percentis, cenários, seed e probabilidade recalculados, sem criar snapshot nem evento.
+
 ### Definition of Done e planejamento de sprint
 
 `definition_of_done_set` recebe `expectedVersion`, 1–50 critérios e motivo; `0` cria a revisão inicial. Cada revisão é imutável, e uma versão vencida retorna `VERSION_CONFLICT`. IDs omitidos são gerados pelo servidor e preservados no retry idempotente. `definition_of_done_get` retorna a versão corrente ou a indicada por `revisionNumber`. Escrita exige pessoa PO ou facilitadora.
@@ -289,18 +302,28 @@ Cada chamada valida a associação do principal ao projeto e consulta o watermar
 - Listas têm 25 registros por página por padrão, máximo 100. Cursor opaco tem ordenação estável com ID para desempate e vínculo ao projeto, principal e filtro. Se o watermark do conjunto mudar de modo a invalidar a paginação, devolver `STALE_CURSOR` e exigir reinício. Auditoria pagina por sequência com teto de snapshot.
 - `fields` limita projeção e `include` escolhe relações ou seções. Campos sensíveis são controlados pela política, independentemente da projeção solicitada. Datas em ISO 8601 e enums em inglês.
 
+## Sessões, calibração e releases
+
+`development_session_start` só inicia uma tarefa em `in_progress` atribuída ao principal Developer autenticado. A sessão recebe UUID de domínio independente da sessão MCP, horário UTC do servidor e referência opcional da conversa. No início, fixa as revisões publicadas das especificações ligadas diretamente à tarefa e das revisões de cenário associadas a ela. `development_session_transition` exige o dono da sessão, versão esperada e motivo; pause/resume acumula apenas intervalos ativos. Reatribuir a tarefa não altera o Developer que executou a sessão. O agente conclui a sessão quando encerra seu esforço, mesmo que a tarefa siga em revisão/QA.
+
+`developer_execution_metrics_get` mantém story points na velocidade de time. A visão individual usa horas de sessões concluídas e distribui estimativa/execução de tarefas com vários Developers na proporção do esforço registrado. `effortCalibrationFactor` é `horas reais ÷ horas estimadas` e só aparece com ao menos cinco tarefas concluídas e estimadas no período. É um fator descritivo para apoiar a calibração de horas; não modifica estimativas, forecast ou avaliação de pessoas automaticamente.
+
+`deployment_event_record` registra resultado observado no ambiente; não infere deploy a partir de CI ou do estado `Done`. Rollback é um evento separado que aponta para deploy bem-sucedido do mesmo ambiente. Deploy de produção aprovado valida que cada item esteja `Done` e tenha homologação aprovada para o mesmo `buildId`. `deployment_event_list` preserva falhas e rollbacks. O detalhe da tarefa no dashboard mostra início/fim de desenvolvimento e as datas mais recentes de homologação/produção aprovadas.
+
+Os IDs estáveis do roadmap são aliases persistidos e imutáveis, sem consumir o namespace das chaves geradas. Quando um `SSDD-###` estiver mapeado, `work_item_get` e comandos que resolvem referências tratam essa forma como o ID estável. Se a chave gerada de outro item tiver a mesma grafia, use o UUID para endereçar a chave sem ambiguidade.
+
 ## Contexto de uma tarefa
 
-`task_context_get` exige um work item do tipo tarefa e percorre a hierarquia até o épico. Usa a baseline mais recente do PBI pai quando ela existe; caso contrário, resolve revisões publicadas correntes e marca o resultado como `preview`, com warning `NO_BASELINE_PREVIEW`. Revisões de PBI, especificação e cenário são identificadas por número e URI. Regras ligadas depois da baseline e revisões publicadas mais recentes aparecem como warnings; o conteúdo de uma baseline permanece o conteúdo consultado.
+`task_context_get` exige um work item do tipo tarefa e percorre a hierarquia até o épico. Usa a baseline mais recente do PBI pai quando ela existe; caso contrário, resolve revisões publicadas correntes e marca o resultado como `preview`, com warning `NO_BASELINE_PREVIEW`. Revisões de PBI, especificação e cenário são identificadas por número e URI. Links ativos `implements` (tarefa → especificação) e `relates_to` (entre tarefa e especificação, em qualquer direção) são consultados na hierarquia; a origem informa se o link é direto ou herdado e, quando aplicável, inclui `traceLinkType`. `implements` afirma que o trabalho implementa aquela especificação; `relates_to` só fornece contexto e não deve ser tratado como prova de implementação. Regras ligadas depois da baseline e revisões publicadas mais recentes aparecem como warnings; o conteúdo de uma baseline permanece o conteúdo consultado.
 
-Os perfis escolhem seções padrão. `dev` recebe hierarquia, critérios, regras de negócio, decisões técnicas e cenários. `qa` recebe hierarquia, critérios, regras, cenários e última execução por build. `po` recebe o conjunto mais amplo, incluindo decisões, resultados e resumo da baseline. `include` substitui a seleção padrão. O perfil só filtra contexto; a autorização continua baseada no principal e no projeto. Se uma seção não tiver referências, sua lista vem vazia.
+Os perfis escolhem seções padrão. `dev` recebe hierarquia, critérios, regras de negócio, decisões técnicas e cenários; `qa` recebe hierarquia, critérios, regras, cenários e última execução por build; `po` recebe o conjunto mais amplo, incluindo decisões, resultados e resumo da baseline. `include` substitui a seleção padrão; prompts e skills de implementação/QA pedem explicitamente também `testRuns` e `baseline`. Cada cenário e run pode carregar chaves/UUIDs das tarefas que cobre; contexto de tarefa inclui cenário publicado associado diretamente e runs registrados para aquela tarefa, além das relações obtidas por cobertura. O run conserva a revisão publicada e o build exatos. O perfil só filtra contexto; a autorização continua baseada no principal e no projeto. Se uma seção não tiver referências, sua lista vem vazia.
 
 ```json
 {
   "projectId": "3d8a2c36-4de5-4a8a-9411-23c98db1b3ce",
   "taskIdOrKey": "PAY-13",
   "profile": "dev",
-  "include": ["hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios"],
+  "include": ["hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "testRuns", "baseline"],
   "maxChars": 8000
 }
 ```
@@ -332,18 +355,20 @@ O servidor publica os templates `ssdd://projects/{projectId}/tasks/{taskIdOrKey}
 
 ## Prompts e skills para agentes
 
-`prompts/list` publica quatro fluxos sem efeito colateral:
+`prompts/list` publica seis fluxos sem efeito colateral:
 
 | Prompt | Argumentos | Uso |
 |---|---|---|
+| `ssdd_refine_backlog` | `projectId`, `epicIdOrKey?`, `outcome?` | Refina necessidade em história/bug, critérios e tarefas sem inventar chaves ou gravar sem solicitação |
+| `ssdd_refine_technical_design` | `projectId`, `itemIdOrKey`, `outcome?` | Refina design, tarefas testáveis, migrações e vínculo work item → specification sem assumir aprovação de negócio |
 | `ssdd_plan_sprint` | `projectId`, `epicIdOrKey?`, `sprintGoal?` | Refinar objetivo, critérios, dependências e capacidade como PO/facilitador |
-| `ssdd_start_task` | `projectId`, `taskIdOrKey` | Abrir contexto Dev, critérios, baseline e gates antes de implementar |
-| `ssdd_validate_quality` | `projectId`, `itemIdOrKey`, `buildId?` | Conferir critérios, cenários publicados, resultados e evidências de QA |
-| `ssdd_release_readiness` | `projectId`, `milestoneIdOrKey?` | Revisar escopo, métricas, gates, CI, pacote e guias operacionais |
+| `ssdd_start_task` | `projectId`, `taskIdOrKey` | Abrir contexto Dev, transicionar quando solicitado, iniciar sessão de domínio e fixar revisões usadas |
+| `ssdd_validate_quality` | `projectId`, `itemIdOrKey`, `buildId?` | Começar em `work_item_quality_get`, investigar histórico com `test_run_list` e conferir gates/evidências sem inventar resultados |
+| `ssdd_release_readiness` | `projectId`, `milestoneIdOrKey?` | Revisar escopo, métricas, gates, CI, pacote, guias e histórico de deployment; registrar eventos após resultado observado |
 
 Os prompts apenas orientam o agente sobre chamadas e decisões; não executam ferramentas nem alteram estado ao serem obtidos. Eles distinguem fatos verificados de hipóteses, preservam os gates humanos e instruem o agente a não inventar testes, builds, evidências ou certificações.
 
-O servidor também declara a extensão MCP Skills do SDK para clientes compatíveis. `skills/list` publica `ssdd-product-owner`, `ssdd-developer`, `ssdd-quality-assurance` e `ssdd-release-manager`; `skills/get` e a leitura de arquivos servem os documentos de `skills/`. Clientes podem validar o digest antes de carregar uma skill. O pacote npm inclui esses arquivos. Um agente que não implementa a extensão ainda pode ler as skills diretamente do repositório ou do pacote; as ferramentas, resources e prompts MCP continuam independentes.
+O servidor também declara a extensão MCP Skills do SDK para clientes compatíveis. `skills/list` publica `ssdd-product-owner`, `ssdd-technical-lead`, `ssdd-developer`, `ssdd-quality-assurance` e `ssdd-release-manager`; `skills/get` e a leitura de arquivos servem os documentos de `skills/`. Clientes podem validar o digest antes de carregar uma skill. O pacote npm inclui esses arquivos. Um agente que não implementa a extensão ainda pode ler as skills diretamente do repositório ou do pacote; as ferramentas, resources e prompts MCP continuam independentes.
 
 Para instalar os playbooks no escopo do projeto Codex, copie os diretórios de `skills/` para `.agents/skills/`. Em outros hosts, use o mecanismo de skills do host ou leia `SKILL.md` pela extensão MCP. As instruções reforçam critérios testáveis, testes de regressão, sincronização da documentação e aprovação humana nas mutações.
 

@@ -22,6 +22,16 @@ import {
 import type { JsonValue } from "../application/idempotent-command.js";
 import { getProject, listProjects } from "../application/project-queries.js";
 import { getProjectDashboardMetrics } from "../application/dashboard-metrics.js";
+import { bindRoadmapItemId, listRoadmapItemIds, resolveRoadmapItemId } from "../application/roadmap-identifiers.js";
+import {
+  getDeveloperExecutionMetrics,
+  listDeploymentEvents,
+  listDevelopmentSessions,
+  recordDeployment,
+  startDevelopmentSession,
+  transitionDevelopmentSession,
+} from "../application/development-lifecycle.js";
+import { listMilestoneForecastHistory, recalculateMilestoneForecast } from "../application/forecast-queries.js";
 import {
   listGithubReferences,
   readGithubRepositoriesFromEnvironment,
@@ -46,6 +56,7 @@ import {
 } from "../integrations/azure-devops-work-items.js";
 import { createWorkItem } from "../application/create-work-item.js";
 import { getWorkItem, listWorkItemRevisions, listWorkItems } from "../application/work-item-queries.js";
+import { getWorkItemQualityReport } from "../application/quality-queries.js";
 import {
   addWorkItemComment,
   assignWorkItem,
@@ -73,7 +84,7 @@ import {
   publishScenarioRevision,
   recordTestRun,
 } from "../application/scenario-commands.js";
-import { getScenario, listScenarios, searchScenariosByCriterion } from "../application/scenario-queries.js";
+import { getScenario, listScenarios, listTestRunPage, searchScenariosByCriterion } from "../application/scenario-queries.js";
 import { ApplicationError } from "../application/errors.js";
 import {
   fixWorkItemBaseline,
@@ -258,6 +269,11 @@ const testRunSchema = z.object({
   evidenceUri: z.string().nullable(),
   executedByPrincipalId: z.string().uuid(),
   executedAt: z.string().datetime(),
+});
+const testRunPageSchema = z.object({
+  runs: z.array(testRunSchema),
+  nextCursor: z.string().nullable(),
+  watermark: z.number().int().nonnegative(),
 });
 const workflowGateSchema = z.object({
   id: z.string(),
@@ -575,6 +591,51 @@ const scenarioCoverageMatchSchema = z.object({
   revision: scenarioRevisionSchema,
   resultsByBuild: z.array(testRunSchema),
 });
+const workItemQualityReportSchema = z.object({
+  projectId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  itemKey: z.string(),
+  state: z.string(),
+  version: z.number().int().positive(),
+  mode: z.enum(["pinned", "preview"]),
+  baseline: z.object({ id: z.string().uuid(), sequence: z.number().int().positive() }).nullable(),
+  requiredCriteria: z.number().int().nonnegative(),
+  coveredRequiredCriteria: z.number().int().nonnegative(),
+  coveragePercent: z.number().int().min(0).max(100).nullable(),
+  criteria: z.array(z.object({
+    criterion: criterionSchema,
+    covered: z.boolean(),
+    scenarios: z.array(z.object({
+      scenario: z.object({
+        id: z.string().uuid(),
+        key: z.string(),
+        kind: z.enum(scenarioKinds),
+        title: z.string(),
+      }),
+      revision: scenarioRevisionSchema,
+      latestRuns: z.array(z.object({
+        run: testRunSchema,
+        certification: testRunCertificationSchema.nullable(),
+      })),
+    })),
+  })),
+  evidence: z.array(workItemEvidenceSchema),
+  nextEvidenceCursor: z.string().nullable(),
+});
+const forecastStatusSchema = z.enum([
+  "complete", "incomplete_scope", "blocked", "insufficient_data", "no_capacity", "zero_velocity", "forecast_ready",
+]);
+const forecastRecalculationSchema = z.object({
+  forecastId: z.string().uuid(),
+  algorithmVersion: z.string(),
+  recalculatedAt: z.string().datetime(),
+  status: forecastStatusSchema,
+  percentiles: z.record(z.string(), z.unknown()),
+  scenarios: z.array(z.record(z.string(), z.unknown())),
+  probabilityOnTime: z.number().min(0).max(1).nullable(),
+  seed: z.number().int().nullable(),
+  simulationCount: z.number().int().positive().nullable(),
+});
 const scenarioContentInputSchema = z.object({
   title: z.string().trim().min(1).max(200),
   preconditions: z.array(z.string().trim().min(1).max(1_000)).max(20).optional(),
@@ -586,6 +647,49 @@ const scenarioContentInputSchema = z.object({
     targetType: z.enum(["criterion", "specification"]),
     reference: z.string().trim().min(1).max(120),
   })).max(100).optional(),
+  workItemIdOrKeys: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+});
+const developmentSessionSchema = z.object({
+  id: z.string().uuid(),
+  projectId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  itemKey: z.string(),
+  itemTitle: z.string(),
+  developerPrincipalId: z.string().uuid(),
+  developerName: z.string(),
+  sessionReference: z.string().nullable(),
+  status: z.enum(["active", "paused", "completed", "cancelled"]),
+  startedAt: z.string().datetime(),
+  endedAt: z.string().datetime().nullable(),
+  activeSeconds: z.number().int().nonnegative(),
+  version: z.number().int().positive(),
+  technicalSpecifications: z.array(z.object({ id: z.string().uuid(), key: z.string(), revisionNumber: z.number().int().positive() })),
+  scenarios: z.array(z.object({ id: z.string().uuid(), key: z.string(), revisionNumber: z.number().int().positive() })),
+});
+const deploymentEventSchema = z.object({
+  id: z.string().uuid(),
+  projectId: z.string().uuid(),
+  environment: z.enum(["homologation", "production"]),
+  buildId: z.string(),
+  releaseVersion: z.string().nullable(),
+  pipelineRunId: z.string().nullable(),
+  outcome: z.enum(["succeeded", "failed", "rolled_back"]),
+  occurredAt: z.string().datetime(),
+  principalId: z.string().uuid(),
+  principalName: z.string(),
+  rollbackOfEventId: z.string().uuid().nullable(),
+  itemIds: z.array(z.string().uuid()),
+  milestoneIds: z.array(z.string().uuid()),
+  notes: z.string().nullable(),
+});
+const roadmapItemReferenceSchema = z.object({
+  roadmapId: z.string().regex(/^SSDD-\d{3}$/u),
+  projectId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  itemKey: z.string(),
+  title: z.string(),
+  boundByPrincipalId: z.string().uuid(),
+  boundAt: z.string().datetime(),
 });
 const baselineSchema = z.object({
   id: z.string().uuid(),
@@ -712,6 +816,9 @@ const taskContextEntrySchema = z.object({
     key: z.string(),
     revisionNumber: z.number().int().positive().nullable(),
     mode: z.enum(["pinned", "current"]),
+    relationship: z.enum(["parent_baseline", "hierarchy_link", "task_direct_link", "scenario_coverage", "task_run_link"]).optional(),
+    traceLinkType: z.enum(["implements", "relates_to"]).optional(),
+    pinSource: z.enum(["pbi_baseline", "development_session"]).optional(),
     uri: z.string().nullable(),
   }),
   content: z.unknown(),
@@ -1043,6 +1150,58 @@ export function createMcpServer(
       } catch (error) {
         return toToolError(error);
       }
+    },
+  );
+
+  server.registerTool(
+    "roadmap_id_bind",
+    {
+      title: "Vincular ID estável do roadmap",
+      description: "Registra uma associação imutável por projeto entre SSDD-### e a tarefa real do MCP, sem confundir o ID estável com a chave gerada do work item.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128),
+        roadmapId: z.string().trim().regex(/^SSDD-\d{3}$/u), itemIdOrKey: z.string().trim().min(1).max(120),
+      }),
+      outputSchema: z.object({ roadmapItem: roadmapItemReferenceSchema, auditEventIds: z.array(z.string().uuid()) }),
+    },
+    ({ projectId, requestId, roadmapId, itemIdOrKey }) => {
+      try {
+        const receipt = bindRoadmapItemId(database, { projectId, principalId, requestId, roadmapId, itemIdOrKey });
+        const result = { roadmapItem: receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "roadmap_id_resolve",
+    {
+      title: "Resolver ID estável do roadmap",
+      description: "Resolve SSDD-### para a identidade real da tarefa no projeto; use quando um plano ou dependência cita o ID estável do roadmap.",
+      inputSchema: z.object({ projectId: z.string().uuid(), roadmapId: z.string().trim().regex(/^SSDD-\d{3}$/u) }),
+      outputSchema: z.object({ roadmapItem: roadmapItemReferenceSchema }),
+    },
+    ({ projectId, roadmapId }) => {
+      try {
+        const result = { roadmapItem: resolveRoadmapItemId(database, { projectId, principalId, roadmapId }) };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "roadmap_id_list",
+    {
+      title: "Listar IDs estáveis do roadmap",
+      description: "Lista o mapa de IDs documentados para UUIDs e chaves geradas no projeto.",
+      inputSchema: z.object({ projectId: z.string().uuid() }),
+      outputSchema: z.object({ roadmapItems: z.array(roadmapItemReferenceSchema) }),
+    },
+    ({ projectId }) => {
+      try {
+        const result = { roadmapItems: listRoadmapItemIds(database, { projectId, principalId }) };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
     },
   );
 
@@ -1839,7 +1998,7 @@ export function createMcpServer(
         auditEventIds: z.array(z.string().uuid()),
       }),
     },
-    ({ projectId, requestId, key, kind, title, preconditions, steps, coverage }) => {
+    ({ projectId, requestId, key, kind, title, preconditions, steps, coverage, workItemIdOrKeys }) => {
       try {
         const receipt = createScenario(database, {
           projectId,
@@ -1851,6 +2010,7 @@ export function createMcpServer(
           steps,
           ...(preconditions === undefined ? {} : { preconditions }),
           ...(coverage === undefined ? {} : { coverage }),
+          ...(workItemIdOrKeys === undefined ? {} : { workItemIdOrKeys }),
         });
         const result = { revision: receipt.value, auditEventIds: receipt.auditEventIds };
         return {
@@ -1879,7 +2039,7 @@ export function createMcpServer(
         auditEventIds: z.array(z.string().uuid()),
       }),
     },
-    ({ projectId, requestId, scenarioIdOrKey, expectedVersion, title, preconditions, steps, coverage }) => {
+    ({ projectId, requestId, scenarioIdOrKey, expectedVersion, title, preconditions, steps, coverage, workItemIdOrKeys }) => {
       try {
         const receipt = proposeScenarioRevision(database, {
           projectId,
@@ -1891,6 +2051,7 @@ export function createMcpServer(
           steps,
           ...(preconditions === undefined ? {} : { preconditions }),
           ...(coverage === undefined ? {} : { coverage }),
+          ...(workItemIdOrKeys === undefined ? {} : { workItemIdOrKeys }),
         });
         const result = { revision: receipt.value, auditEventIds: receipt.auditEventIds };
         return {
@@ -2027,10 +2188,11 @@ export function createMcpServer(
         result: z.enum(testRunResults),
         notes: z.string().max(2_000).optional(),
         evidenceUri: z.string().trim().min(1).max(2_048).optional(),
+        workItemIdOrKeys: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
       }),
       outputSchema: z.object({ run: testRunSchema, auditEventIds: z.array(z.string().uuid()) }),
     },
-    ({ projectId, requestId, scenarioIdOrKey, revisionNumber, buildId, result, notes, evidenceUri }) => {
+    ({ projectId, requestId, scenarioIdOrKey, revisionNumber, buildId, result, notes, evidenceUri, workItemIdOrKeys }) => {
       try {
         const receipt = recordTestRun(database, {
           projectId,
@@ -2042,11 +2204,202 @@ export function createMcpServer(
           result,
           ...(notes === undefined ? {} : { notes }),
           ...(evidenceUri === undefined ? {} : { evidenceUri }),
+          ...(workItemIdOrKeys === undefined ? {} : { workItemIdOrKeys }),
         });
         const payload = { run: receipt.value, auditEventIds: receipt.auditEventIds };
         return {
           content: [{ type: "text", text: JSON.stringify(payload) }],
           structuredContent: payload,
+        };
+      } catch (error) {
+        return toToolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "development_session_start",
+    {
+      title: "Iniciar sessão de desenvolvimento",
+      description: "Inicia uma sessão rastreável para a tarefa atribuída ao principal autenticado e fixa as revisões técnicas e cenários ligados à tarefa.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128),
+        itemIdOrKey: z.string().trim().min(1).max(120), expectedVersion: z.number().int().positive(),
+        sessionReference: z.string().trim().min(1).max(160).optional(),
+      }),
+      outputSchema: z.object({ session: developmentSessionSchema, auditEventIds: z.array(z.string().uuid()) }),
+    },
+    ({ projectId, requestId, itemIdOrKey, expectedVersion, sessionReference }) => {
+      try {
+        const receipt = startDevelopmentSession(database, {
+          projectId, principalId, requestId, itemIdOrKey, expectedVersion,
+          ...(sessionReference === undefined ? {} : { sessionReference }),
+        });
+        const result = { session: receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "development_session_transition",
+    {
+      title: "Atualizar sessão de desenvolvimento",
+      description: "Pausa, retoma, conclui ou cancela a sessão do próprio desenvolvedor com duração ativa acumulada e histórico imutável.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), sessionId: z.string().uuid(),
+        action: z.enum(["pause", "resume", "complete", "cancel"]), expectedVersion: z.number().int().positive(),
+        reason: z.string().trim().min(1).max(500),
+      }),
+      outputSchema: z.object({ session: developmentSessionSchema, auditEventIds: z.array(z.string().uuid()) }),
+    },
+    ({ projectId, requestId, sessionId, action, expectedVersion, reason }) => {
+      try {
+        const receipt = transitionDevelopmentSession(database, { projectId, principalId, requestId, sessionId, action, expectedVersion, reason });
+        const result = { session: receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "development_session_list",
+    {
+      title: "Consultar sessões de desenvolvimento",
+      description: "Lista sessões por tarefa, desenvolvedor ou status; sessões ativas incluem a duração acumulada até agora.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), itemIdOrKey: z.string().trim().min(1).max(120).optional(),
+        developerPrincipalId: z.string().uuid().optional(), status: z.enum(["active", "paused", "completed", "cancelled"]).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+      }),
+      outputSchema: z.object({ sessions: z.array(developmentSessionSchema) }),
+    },
+    ({ projectId, itemIdOrKey, developerPrincipalId, status, limit }) => {
+      try {
+        const result = { sessions: listDevelopmentSessions(database, {
+          projectId, principalId,
+          ...(itemIdOrKey === undefined ? {} : { itemIdOrKey }),
+          ...(developerPrincipalId === undefined ? {} : { developerPrincipalId }),
+          ...(status === undefined ? {} : { status }), ...(limit === undefined ? {} : { limit }),
+        }) };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "developer_execution_metrics_get",
+    {
+      title: "Consultar esforço e velocidade por desenvolvedor",
+      description: "Resume horas ativas registradas, tarefas concluídas e variância contra horas estimadas; amostras menores que cinco tarefas são sinalizadas e não ranqueadas.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(), developerPrincipalId: z.string().uuid().optional(),
+      }),
+      outputSchema: z.object({
+        projectId: z.string().uuid(), period: z.object({ from: z.string(), to: z.string() }), minimumSampleTasks: z.number().int(),
+        developers: z.array(z.object({
+          principalId: z.string().uuid(), name: z.string(), completedSessions: z.number().int(), completedTasks: z.number().int(),
+          activeHours: z.number(), activeHoursOnCompletedTasks: z.number(), estimatedHoursOnCompletedTasks: z.number(),
+          estimateVariancePercent: z.number().nullable(), effortCalibrationFactor: z.number().nullable(), sampleSufficient: z.boolean(),
+        })),
+      }),
+    },
+    ({ projectId, from, to, developerPrincipalId }) => {
+      try {
+        const result = getDeveloperExecutionMetrics(database, {
+          projectId, principalId, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }),
+          ...(developerPrincipalId === undefined ? {} : { developerPrincipalId }),
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "deployment_event_record",
+    {
+      title: "Registrar evento de implantação",
+      description: "Registra sucesso, falha ou rollback em homologação/produção e liga o evento a tarefas, PBIs ou marcos; produção exige Done e homologação bem-sucedida do mesmo build.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128),
+        environment: z.enum(["homologation", "production"]), buildId: z.string().trim().min(1).max(128),
+        releaseVersion: z.string().trim().min(1).max(128).optional(), pipelineRunId: z.string().trim().min(1).max(160).optional(),
+        outcome: z.enum(["succeeded", "failed", "rolled_back"]), occurredAt: z.string().datetime().optional(),
+        itemIdOrKeys: z.array(z.string().trim().min(1).max(120)).max(100).default([]),
+        milestoneIdOrKeys: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+        rollbackOfEventId: z.string().uuid().optional(), notes: z.string().max(2_000).optional(),
+      }),
+      outputSchema: z.object({ event: deploymentEventSchema, auditEventIds: z.array(z.string().uuid()) }),
+    },
+    ({ projectId, requestId, environment, buildId, releaseVersion, pipelineRunId, outcome, occurredAt, itemIdOrKeys, milestoneIdOrKeys, rollbackOfEventId, notes }) => {
+      try {
+        const receipt = recordDeployment(database, {
+          projectId, principalId, requestId, environment, buildId, outcome, itemIdOrKeys,
+          ...(releaseVersion === undefined ? {} : { releaseVersion }), ...(pipelineRunId === undefined ? {} : { pipelineRunId }),
+          ...(occurredAt === undefined ? {} : { occurredAt }), ...(milestoneIdOrKeys === undefined ? {} : { milestoneIdOrKeys }),
+          ...(rollbackOfEventId === undefined ? {} : { rollbackOfEventId }), ...(notes === undefined ? {} : { notes }),
+        });
+        const result = { event: receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "deployment_event_list",
+    {
+      title: "Consultar histórico de implantações",
+      description: "Lista eventos de release por projeto, ambiente e work item, mantendo falhas e rollbacks no histórico.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), itemIdOrKey: z.string().trim().min(1).max(120).optional(),
+        environment: z.enum(["homologation", "production"]).optional(), limit: z.number().int().min(1).max(200).optional(),
+      }),
+      outputSchema: z.object({ events: z.array(deploymentEventSchema) }),
+    },
+    ({ projectId, itemIdOrKey, environment, limit }) => {
+      try {
+        const result = { events: listDeploymentEvents(database, {
+          projectId, principalId, ...(itemIdOrKey === undefined ? {} : { itemIdOrKey }),
+          ...(environment === undefined ? {} : { environment }), ...(limit === undefined ? {} : { limit }),
+        }) };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "test_run_list",
+    {
+      title: "Consultar histórico de execuções de teste",
+      description: "Lista observações QA recentes do projeto, com filtros por cenário, build e resultado e cursor estável para continuar o histórico.",
+      inputSchema: z.object({
+        projectId: z.string().uuid().describe("UUID do projeto retornado por project_list."),
+        scenarioIdOrKey: z.string().trim().min(1).max(80).optional()
+          .describe("Filtra por ID ou chave do cenário; omita para consultar o projeto inteiro."),
+        buildId: z.string().trim().min(1).max(128).optional()
+          .describe("Filtra pela identificação exata da build registrada."),
+        result: z.enum(testRunResults).optional()
+          .describe("Filtra por passed, failed, blocked ou skipped."),
+        limit: z.number().int().min(1).max(100).optional()
+          .describe("Quantidade máxima de execuções na página; padrão 25 e máximo 100."),
+        cursor: z.string().max(4_096).optional()
+          .describe("Cursor opaco nextCursor retornado na página anterior; reinicie sem cursor após STALE_CURSOR."),
+      }),
+      outputSchema: testRunPageSchema,
+    },
+    ({ projectId, scenarioIdOrKey, buildId, result, limit, cursor }) => {
+      try {
+        const page = listTestRunPage(database, projectId, principalId, {
+          ...(scenarioIdOrKey === undefined ? {} : { scenarioIdOrKey }),
+          ...(buildId === undefined ? {} : { buildId }),
+          ...(result === undefined ? {} : { result }),
+          ...(limit === undefined ? {} : { limit }),
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(page) }],
+          structuredContent: page,
         };
       } catch (error) {
         return toToolError(error);
@@ -2145,6 +2498,55 @@ export function createMcpServer(
       try {
         const milestones = listMilestones(database, projectId, principalId, limit);
         return { content: [{ type: "text", text: JSON.stringify({ milestones }) }], structuredContent: { milestones } };
+      } catch (error) {
+        return toToolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "milestone_forecast_history",
+    {
+      title: "Consultar histórico de previsões",
+      description: "Lista snapshots imutáveis recentes de um marco/time; retorna os resultados, sem insumos completos da simulação.",
+      inputSchema: z.object({
+        projectId: z.string().uuid().describe("UUID do projeto retornado por project_list."),
+        milestoneIdOrKey: z.string().trim().min(1).max(80).describe("UUID ou chave do marco."),
+        teamId: z.string().uuid().optional().describe("Time da previsão; obrigatório quando o projeto tem vários times."),
+        limit: z.number().int().min(1).max(20).optional().describe("Máximo de snapshots recentes; padrão 10, máximo 20."),
+      }),
+      outputSchema: z.object({ forecasts: z.array(metricsObjectSchema) }),
+    },
+    ({ projectId, milestoneIdOrKey, teamId, limit }) => {
+      try {
+        const entries = listMilestoneForecastHistory(database, {
+          projectId, principalId, milestoneIdOrKey,
+          ...(teamId === undefined ? {} : { teamId }),
+          limit: limit ?? 10,
+        });
+        const result = { forecasts: entries.map(({ forecast }) => forecast) };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) {
+        return toToolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "milestone_forecast_recalculate",
+    {
+      title: "Recalcular snapshot de previsão",
+      description: "Reexecuta o algoritmo e insumos imutáveis do snapshot indicado para verificar reprodutibilidade; não grava dados.",
+      inputSchema: z.object({
+        projectId: z.string().uuid().describe("UUID do projeto retornado por project_list."),
+        forecastId: z.string().uuid().describe("ID do snapshot retornado por metrics_get ou milestone_forecast_history."),
+      }),
+      outputSchema: forecastRecalculationSchema,
+    },
+    ({ projectId, forecastId }) => {
+      try {
+        const recalculation = recalculateMilestoneForecast(database, { projectId, principalId, forecastId });
+        return { content: [{ type: "text", text: JSON.stringify(recalculation) }], structuredContent: recalculation };
       } catch (error) {
         return toToolError(error);
       }
@@ -2891,6 +3293,32 @@ export function createMcpServer(
   );
 
   server.registerTool(
+    "work_item_quality_get",
+    {
+      title: "Consultar qualidade do item",
+      description: "Consolida critérios, cenários, últimas execuções por build, certificações e evidências na baseline ou em modo preview.",
+      inputSchema: z.object({
+        projectId: z.string().uuid().describe("UUID do projeto retornado por project_list."),
+        itemIdOrKey: z.string().trim().min(1).max(80).describe("UUID ou chave de uma história ou bug."),
+        evidenceCursor: z.string().max(4_096).optional()
+          .describe("Cursor nextEvidenceCursor da resposta anterior para continuar a página de evidências."),
+      }),
+      outputSchema: workItemQualityReportSchema,
+    },
+    ({ projectId, itemIdOrKey, evidenceCursor }) => {
+      try {
+        const report = getWorkItemQualityReport(database, {
+          projectId, principalId, itemIdOrKey,
+          ...(evidenceCursor === undefined ? {} : { evidenceCursor }),
+        });
+        return { content: [{ type: "text", text: JSON.stringify(report) }], structuredContent: report };
+      } catch (error) {
+        return toToolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
     "work_item_transition",
     {
       title: "Alterar estado do item",
@@ -3113,6 +3541,70 @@ export function createMcpServer(
   );
 
   server.registerPrompt(
+    "ssdd_refine_backlog",
+    {
+      title: "Refinar backlog SSDD",
+      description: "Transforma uma necessidade em PBIs e tarefas verificáveis, preservando hierarquia, dependências e aprovação humana.",
+      argsSchema: z.object({
+        projectId: z.string().uuid(),
+        epicIdOrKey: z.string().trim().min(1).max(80).optional(),
+        outcome: z.string().trim().min(1).max(1_000).optional(),
+      }),
+    },
+    ({ projectId, epicIdOrKey, outcome }) => ({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: [
+            "Atue como Product Owner SSDD e refine o resultado desejado antes de propor implementação.",
+            `Projeto: ${projectId}.`,
+            ...(epicIdOrKey ? [`Épico em foco: ${epicIdOrKey}.`] : []),
+            ...(outcome ? [`Resultado solicitado: ${outcome}.`] : []),
+            "Leia project_get e work_item_list; localize itens existentes, estados, revisões publicadas, critérios e tarefas filhas. Use trace_query e task_context_get quando rastreabilidade, dependências ou baseline mudarem a decisão.",
+            "Separe necessidade do usuário, história/bug, critérios de aceite observáveis e tarefas técnicas testáveis. Proponha cobertura de cada critério por cenário publicado e identifique quais tarefas devem ser associadas ao cenário e aos runs que as validarem. Cubra sucesso, validações, falhas e autorização quando aplicável; identifique dependências em vez de duplicar trabalho.",
+            "Não invente chaves SSDD-###: ao criar itens por solicitação explícita, deixe work_item_create emitir as chaves. Sugira pontos somente para PBIs e horas somente para tarefas; nunca converta uma unidade na outra.",
+            "Sem solicitação explícita para gravar, entregue somente a proposta. Mesmo quando solicitada a gravação, mantenha itens novos em Draft e não publique revisões, confirme estimativas, altere escopo ou avance estados sem autorização humana e gates válidos.",
+            "Retorne fatos encontrados, hierarquia proposta, critérios, tarefas, dependências, estimativas com premissas, riscos e perguntas que bloqueiam o aceite.",
+          ].join("\n"),
+        },
+      }],
+    }),
+  );
+
+  server.registerPrompt(
+    "ssdd_refine_technical_design",
+    {
+      title: "Refinar desenho técnico SSDD",
+      description: "Transforma um PBI aceito em decisões técnicas, tarefas implementáveis e rastreabilidade verificável.",
+      argsSchema: z.object({
+        projectId: z.string().uuid(),
+        itemIdOrKey: z.string().trim().min(1).max(80),
+        outcome: z.string().trim().min(1).max(1_000).optional(),
+      }),
+    },
+    ({ projectId, itemIdOrKey, outcome }) => ({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: [
+            "Atue como Technical Lead SSDD e refine o desenho técnico sem redefinir a necessidade de negócio.",
+            `Projeto: ${projectId}; PBI ou tarefa em foco: ${itemIdOrKey}.`,
+            ...(outcome ? [`Resultado ou restrição adicional: ${outcome}.`] : []),
+            "Leia project_get, work_item_get, task_context_get com profile=dev, include=[hierarchy, acceptanceCriteria, businessRules, technicalDecisions, scenarios, testRuns, baseline], e work_item_gate_check; confira revisões publicadas, baseline, critérios, regras, decisões, cenários, runs por build, avisos de drift, dependências e papéis disponíveis. Use trace_query e specification_get/list para entender decisões relacionadas.",
+            "Separe requisito/critério de aceite de decisão técnica. Proponha componentes, contratos, fluxo de dados, limites de transação, autorização, isolamento por projeto, idempotência, migração/rollback, observabilidade, riscos e estratégia de testes conforme o escopo exigir.",
+            "Decomponha apenas trabalho implementável e verificável; descreva dependências e aceite por tarefa. Use horas para tarefas e pontos somente para PBIs, com premissas explícitas e sem converter unidades.",
+            "Quando houver especificação técnica publicada, proponha rastreabilidade work item → specification com trace_link_add do tipo implements e valide que task_context_get devolve a decisão esperada. Se faltar uma decisão duradoura, recomende criar/revisar uma specification; não trate texto do prompt ou comentário como especificação aprovada.",
+            "Sem solicitação explícita para gravar, entregue somente a proposta. Mesmo se solicitada gravação, mantenha revisões em Draft e não publique, confirme estimativas ou avance workflow sem pessoa autorizada e gates válidos. Não invente dados, chaves, métricas nem evidência de teste.",
+            "Entregue: fatos verificados; decisões e alternativas; tarefas/dependências; vínculos de rastreabilidade propostos; matriz requisito→regra/especificação→tarefa→cenário→build/run; riscos, rollout/rollback e perguntas bloqueantes.",
+          ].join("\n"),
+        },
+      }],
+    }),
+  );
+
+  server.registerPrompt(
     "ssdd_plan_sprint",
     {
       title: "Refinar o planejamento SSDD",
@@ -3133,10 +3625,10 @@ export function createMcpServer(
             `Projeto: ${projectId}.`,
             ...(epicIdOrKey ? [`Épico em foco: ${epicIdOrKey}.`] : []),
             ...(sprintGoal ? [`Objetivo informado: ${sprintGoal}.`] : []),
-            "Primeiro consulte project_get e work_item_list; use task_context_get/trace_query nos itens candidatos para confirmar critérios, baseline e dependências.",
-            "Proponha objetivo de sprint claro, itens pequenos e critérios observáveis. Verifique capacidade, DoD e itens bloqueados antes de fechar a seleção.",
-            "Preserve IDs SSDD-### e histórico. Não publique revisões, inicie sprint ou altere escopo sem solicitação explícita e aprovação humana exigida pelo gate.",
-            "Entregue uma proposta com premissas, dependências, riscos, capacidade e perguntas ainda abertas.",
+            "Consulte project_get, team_list, sprint_list, definition_of_done_get e work_item_list. Se houver vários times, peça ou use o teamId informado; consulte team_capacity_get para o intervalo exato proposto.",
+            "Para cada PBI candidato, consulte work_item_gate_check e task_context_get; use trace_query para dependências. Diferencie pontos de PBIs de horas de tarefas e explicite cobertura de capacidade, DoD, bloqueios e itens fora de Ready.",
+            "Proponha objetivo de sprint claro, seleção pequena e critérios observáveis. Preserve as chaves existentes; apresente lacunas e premissas sem inventar dados de capacidade ou velocidade.",
+            "Entregue proposta, total de pontos, horas de tarefas e capacidade em unidades separadas, dependências, riscos e perguntas abertas. Não grave sprint draft/escopo nem inicie sprint sem solicitação explícita e confirmação humana exigida pelo gate.",
           ].join("\n"),
         },
       }],
@@ -3161,7 +3653,10 @@ export function createMcpServer(
           text: [
             "Atue como Developer neste projeto SSDD.",
             `Projeto: ${projectId}; tarefa: ${taskIdOrKey}.`,
-            "Antes de editar, consulte work_item_get, task_context_get com profile=dev e work_item_gate_check. Leia critérios, revisões pinned, avisos de drift e dependências; registre o plano técnico e os arquivos prováveis.",
+            "Antes de editar, consulte work_item_get, task_context_get com profile=dev e include=[hierarchy, acceptanceCriteria, businessRules, technicalDecisions, scenarios, testRuns, baseline], e work_item_gate_check. Leia critérios, regras, decisões, cenários, execuções por build, revisões pinned, avisos de drift e dependências; registre o plano técnico e os arquivos prováveis.",
+            "Quando a pessoa pedir para iniciar, confirme a atribuição ao principal Developer autenticado. Se a tarefa ainda não estiver in_progress, use work_item_transition com a versão atual e motivo; em seguida use development_session_start para registrar o início e fixar as revisões técnicas/cenários do contexto. Guarde o sessionId e expectedVersion retornados.",
+            "Ao interromper, retome ou terminar o esforço de desenvolvimento, chame development_session_transition com pause/resume/complete e motivo; conclua a sessão mesmo que o item continue em revisão. O serviço registra timestamps UTC e duração ativa. Nunca invente nome, sessão, data ou horas.",
+            "Inspecione git status e os diffs existentes antes de editar. Preserve alterações preexistentes e não reverta trabalho alheio à tarefa.",
             "Implemente somente o escopo aceito e acrescente testes de regressão para o comportamento alterado. Execute npm run check quando o repositório usar esse comando e reporte a saída real.",
             "Atualize documentação e status na mesma mudança. Preserve IDs SSDD-###. Não invente evidência de build/QA nem certifique cenários; peça confirmação humana para transições ou operações gated.",
             "Ao concluir, resuma arquivos alterados, decisões, comandos executados, resultados e riscos restantes.",
@@ -3191,8 +3686,9 @@ export function createMcpServer(
             "Atue como QA deste projeto SSDD e valide o PBI sem presumir aprovação.",
             `Projeto: ${projectId}; item: ${itemIdOrKey}.`,
             ...(buildId ? [`Build candidata: ${buildId}.`] : []),
-            "Consulte work_item_get, baseline_get, scenario_criterion_search, test_run_record e work_item_gate_check conforme necessário. Verifique que cenários e revisões correspondem aos critérios e à baseline atuais.",
-            "Execute ou inspecione somente testes realmente disponíveis; associe cada resultado à build exata e anexe evidência reproduzível. Reporte falhas, cobertura ausente e drift.",
+            "Comece por work_item_quality_get para ver critérios, cobertura, cenário, execução mais recente por build, certificação e evidências na baseline/preview. Confira baseline_get e work_item_gate_check; use scenario_criterion_search e test_run_list para investigar lacunas ou filtrar a build candidata. Confirme que as revisões são as mesmas da baseline.",
+            "test_run_record é uma gravação, não uma consulta: use-o somente depois de executar ou observar de fato o teste, com cenário/revisão publicada, build exata, resultado e evidência reproduzível. Nunca crie um run para preencher lacunas de documentação.",
+            "Reporte falhas, cobertura ausente, revisão/build incompatível e drift. Se não houver build ou acesso aos testes, declare a validação bloqueada em vez de inferir aprovação.",
             "Nunca invente execução, build, evidência ou certificação. test_run_certify e a transição para Done exigem o papel QA/gates aplicáveis; deixe a certificação para uma pessoa QA autorizada.",
             "Entregue matriz critério→cenário→resultado→evidência e uma recomendação explícita: bloqueado, pronto para revisão humana ou validado com gate aplicável.",
           ].join("\n"),
@@ -3220,8 +3716,10 @@ export function createMcpServer(
             "Atue como release manager deste projeto SSDD.",
             `Projeto: ${projectId}.`,
             ...(milestoneIdOrKey ? [`Marco em análise: ${milestoneIdOrKey}.`] : []),
-            "Consulte project_get, metrics_get, milestone_get/list, work_item_list e work_item_gate_check para consolidar escopo e gates. Confira evidências locais, CI remota, pacote, guias operacionais e versão do manifesto.",
-            "Separe fatos verificados de itens não verificados; para cada gap, cite a ferramenta/arquivo/comando que pode resolvê-lo.",
+            "Consulte project_get, metrics_get, milestone_get ou milestone_list, work_item_list e work_item_gate_check para consolidar o escopo. Para cada item da release, confira o gate com build explícita e leia deployment_event_list para preservar o histórico.",
+            "Use milestone_forecast_history e milestone_forecast_recalculate para conferir snapshots e reprodutibilidade quando houver previsões. Use github_reference_list somente quando existir mapeamento GitHub e trate seu resultado como referências de PR/workflow recebidas pelo webhook; não infira o estado geral da CI. Verifique pacote, versão do manifesto, documentação e comandos locais apenas com evidência acessível.",
+            "Homologação e produção são eventos imutáveis, independentes do estado Done. Registre deployment_event_record somente após confirmar o resultado no ambiente; produção aprovada precisa usar o mesmo build que passou em homologação. Rollback é outro evento e referencia o deploy revertido.",
+            "Separe fatos verificados de itens não verificados e associe evidências ao commit/build candidato exatos. Para cada gap, cite a ferramenta, arquivo ou comando que pode resolvê-lo.",
             "Não publique artefato, crie tag ou faça deploy. Essas ações precisam de solicitação explícita do usuário e de aceite dos gates.",
             "Retorne decisão recomendada, itens bloqueantes, evidências, riscos residuais e próximo passo de menor custo.",
           ].join("\n"),

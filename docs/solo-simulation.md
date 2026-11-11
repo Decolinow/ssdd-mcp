@@ -43,7 +43,7 @@ Story points e horas permanecem unidades separadas: a história tem 5 pontos e a
 - `npm pack --dry-run --json` listou 89 arquivos e incluiu as quatro skills `skills/{ssdd-product-owner,ssdd-developer,ssdd-quality-assurance,ssdd-release-manager}/SKILL.md`.
 - A verificação via cliente MCP stdio leu a história, as tarefas, a capacidade, o DoD, o marco, a sprint, a retrospectiva, as evidências e os gates. Os gates de Done da história e das duas tarefas passaram.
 - `test_run_certify` ficou associado ao cenário publicado, à baseline da história e ao build `local-d89b251`; o gate retornou a certificação correspondente.
-- O catálogo MCP apresentou quatro prompts operacionais. `SkillsClient` listou e validou o digest dos quatro arquivos de skill.
+- No piloto de 10/11, o catálogo MCP apresentou quatro prompts e `SkillsClient` validou o digest das quatro skills então empacotadas. Esses números são evidência histórica daquela revisão; na revisão atual o MCP publica seis prompts e cinco skills, conforme o [contrato MCP](mcp.md#prompts-e-skills-para-agentes) e o [guia do instalador](agent-installer.md).
 - `doctor --workspace .` retornou `ok`, schema 23 atual, integridade SQLite válida e zero violações de chave estrangeira.
 
 Os logs locais usados como evidência estão sob `.ssdd/evidence/d89b251/`; esse diretório privado não é versionado. A execução não afirma que a CI remota passou. GitHub Actions segue bloqueado antes da inicialização dos jobs por cobrança da conta.

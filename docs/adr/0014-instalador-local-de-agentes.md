@@ -5,7 +5,7 @@
 
 ## Contexto
 
-O runtime do SSDD MCP e suas quatro skills já funcionam por MCP stdio, mas Claude Code, Codex e OpenCode esperam caminhos e formatos de projeto diferentes para servidores, skills e agentes. O pacote permanece privado, então um projeto alvo precisa receber uma instalação local sem depender de publicação no registry. Repositórios podem já ter configuração própria, que não deve ser substituída.
+Na data desta decisão (10/11/2026), o runtime do SSDD MCP e suas quatro skills funcionavam por MCP stdio, mas Claude Code, Codex e OpenCode esperavam caminhos e formatos de projeto diferentes para servidores, skills e agentes. O pacote permanece privado, então um projeto alvo precisa receber uma instalação local sem depender de publicação no registry. Repositórios podem já ter configuração própria, que não deve ser substituída. A revisão atual disponibiliza cinco skills e mantém o instalador alinhado à fonte canônica `skills/`.
 
 ## Decisão
 

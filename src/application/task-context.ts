@@ -40,6 +40,9 @@ export interface TaskContextSource {
   readonly key: string;
   readonly revisionNumber: number | null;
   readonly mode: "pinned" | "current";
+  readonly relationship?: "parent_baseline" | "hierarchy_link" | "task_direct_link" | "scenario_coverage" | "task_run_link";
+  readonly traceLinkType?: "implements" | "relates_to";
+  readonly pinSource?: "pbi_baseline" | "development_session";
   readonly uri: string | null;
 }
 
@@ -91,6 +94,8 @@ interface SpecificationReferenceRow {
   readonly spec_id: string;
   readonly spec_key: string;
   readonly kind: SpecificationKind;
+  readonly source_item_id: string;
+  readonly trace_link_type: "implements" | "relates_to";
 }
 
 interface ScenarioReferenceRow {
@@ -98,6 +103,7 @@ interface ScenarioReferenceRow {
   readonly scenario_key: string;
   readonly revision_number: number;
   readonly snapshot_json: string;
+  readonly relationship: "parent_baseline" | "scenario_coverage" | "task_direct_link";
 }
 
 const profileSections: Readonly<Record<TaskContextProfile, readonly TaskContextSection[]>> = {
@@ -156,7 +162,9 @@ export function getTaskContext(database: SqliteDatabase, input: TaskContextInput
   }
 
   const linkedSpecs = findLinkedSpecifications(database, input.projectId, hierarchy.map((item) => item.id));
-  const specifications = resolveSpecifications(database, input.projectId, input.principalId, linkedSpecs, baseline, warnings, requested);
+  const taskSpecPins = findLatestTaskSpecPins(database, input.projectId, task.id);
+  const hasTaskSession = hasDevelopmentSession(database, input.projectId, task.id);
+  const specifications = resolveSpecifications(database, input.projectId, input.principalId, linkedSpecs, task.id, taskSpecPins, hasTaskSession, baseline, warnings, requested);
   for (const specification of specifications) {
     const section: TaskContextSection = specification.kind === "business_rule" ? "businessRules" : "technicalDecisions";
     entries.push({
@@ -169,6 +177,9 @@ export function getTaskContext(database: SqliteDatabase, input: TaskContextInput
         key: specification.key,
         revisionNumber: specification.revisionNumber,
         mode: specification.mode,
+        relationship: specification.relationship,
+        ...(specification.traceLinkType === undefined ? {} : { traceLinkType: specification.traceLinkType }),
+        ...(specification.pinSource === undefined ? {} : { pinSource: specification.pinSource }),
         uri: specificationUri(input.projectId, specification.key, specification.revisionNumber),
       },
       content: specification.content,
@@ -182,7 +193,8 @@ export function getTaskContext(database: SqliteDatabase, input: TaskContextInput
     }
   }
 
-  const scenarios = resolveScenarios(database, input.projectId, input.principalId, criteria, specifications, baseline);
+  const taskScenarioPins = findLatestTaskScenarioPins(database, input.projectId, task.id);
+  const scenarios = resolveScenarios(database, input.projectId, input.principalId, task.id, criteria, specifications, taskScenarioPins, hasTaskSession, baseline, warnings, requested);
   for (const scenario of scenarios) {
     entries.push({
       section: "scenarios",
@@ -194,13 +206,15 @@ export function getTaskContext(database: SqliteDatabase, input: TaskContextInput
         key: scenario.key,
         revisionNumber: scenario.revisionNumber,
         mode: scenario.mode,
+        relationship: scenario.relationship,
+        ...(scenario.pinSource === undefined ? {} : { pinSource: scenario.pinSource }),
         uri: scenarioUri(input.projectId, scenario.key, scenario.revisionNumber),
       },
       content: scenario.snapshot,
     });
   }
 
-  for (const run of resolveTestRuns(database, input.projectId, scenarios)) {
+  for (const run of resolveTestRuns(database, input.projectId, task.id, scenarios)) {
     entries.push({
       section: "testRuns",
       key: `${run.scenarioKey}:${run.buildId}`,
@@ -211,6 +225,7 @@ export function getTaskContext(database: SqliteDatabase, input: TaskContextInput
         key: run.scenarioKey,
         revisionNumber: run.revisionNumber,
         mode: run.mode,
+        relationship: run.relationship,
         uri: `ssdd://projects/${encodeURIComponent(input.projectId)}/test-runs/${encodeURIComponent(run.runId)}`,
       },
       content: { buildId: run.buildId, result: run.result, notes: run.notes, evidenceUri: run.evidenceUri, executedAt: run.executedAt },
@@ -452,13 +467,61 @@ function findLinkedSpecifications(
 ): SpecificationReferenceRow[] {
   const placeholders = itemIds.map(() => "?").join(", ");
   return database.prepare(
-    `SELECT DISTINCT s.spec_id, s.spec_key, s.kind
+    `SELECT DISTINCT s.spec_id, s.spec_key, s.kind,
+            CASE WHEN source_node.node_type = 'work_item' THEN source_node.node_id ELSE target_node.node_id END AS source_item_id,
+            l.link_type AS trace_link_type
      FROM trace_links l
-     INNER JOIN specifications s ON s.project_id = l.project_id AND s.spec_id = l.target_id
-     WHERE l.project_id = ? AND l.link_type = 'implements' AND l.removed_at IS NULL
-       AND l.source_id IN (${placeholders})
-     ORDER BY s.spec_key COLLATE NOCASE`,
-  ).all(projectId, ...itemIds) as SpecificationReferenceRow[];
+     INNER JOIN trace_nodes source_node ON source_node.project_id = l.project_id AND source_node.node_id = l.source_id
+     INNER JOIN trace_nodes target_node ON target_node.project_id = l.project_id AND target_node.node_id = l.target_id
+     INNER JOIN specifications s ON s.project_id = l.project_id
+       AND s.spec_id = CASE WHEN source_node.node_type = 'specification' THEN source_node.node_id ELSE target_node.node_id END
+     WHERE l.project_id = ? AND l.link_type IN ('implements', 'relates_to') AND l.removed_at IS NULL
+       AND ((l.link_type = 'implements' AND source_node.node_type = 'work_item'
+             AND target_node.node_type = 'specification' AND source_node.node_id IN (${placeholders}))
+         OR (l.link_type = 'relates_to' AND source_node.node_type <> target_node.node_type
+             AND (CASE WHEN source_node.node_type = 'work_item' THEN source_node.node_id ELSE target_node.node_id END) IN (${placeholders})))
+     ORDER BY s.spec_key COLLATE NOCASE, source_item_id`,
+  ).all(projectId, ...itemIds, ...itemIds) as SpecificationReferenceRow[];
+}
+
+function findLatestTaskSpecPins(
+  database: SqliteDatabase,
+  projectId: string,
+  taskId: string,
+): Array<{ specId: string; revisionNumber: number }> {
+  return database.prepare(
+    `SELECT ref.spec_id, ref.revision_number FROM development_session_spec_refs ref
+     INNER JOIN development_sessions session ON session.project_id = ref.project_id AND session.session_id = ref.session_id
+     WHERE ref.project_id = ? AND ref.item_id = ?
+       AND ref.session_id = (SELECT session_id FROM development_sessions
+         WHERE project_id = ? AND item_id = ? ORDER BY started_at DESC, session_id DESC LIMIT 1)
+     ORDER BY ref.spec_id`,
+  ).all(projectId, taskId, projectId, taskId).map((value) => {
+    const row = value as { spec_id: string; revision_number: number };
+    return { specId: row.spec_id, revisionNumber: row.revision_number };
+  });
+}
+
+function findLatestTaskScenarioPins(
+  database: SqliteDatabase,
+  projectId: string,
+  taskId: string,
+): Array<{ scenarioId: string; revisionNumber: number }> {
+  return database.prepare(
+    `SELECT ref.scenario_id, ref.revision_number FROM development_session_scenario_refs ref
+     WHERE ref.project_id = ? AND ref.item_id = ?
+       AND ref.session_id = (SELECT session_id FROM development_sessions
+         WHERE project_id = ? AND item_id = ? ORDER BY started_at DESC, session_id DESC LIMIT 1)
+     ORDER BY ref.scenario_id`,
+  ).all(projectId, taskId, projectId, taskId).map((value) => {
+    const row = value as { scenario_id: string; revision_number: number };
+    return { scenarioId: row.scenario_id, revisionNumber: row.revision_number };
+  });
+}
+
+function hasDevelopmentSession(database: SqliteDatabase, projectId: string, taskId: string): boolean {
+  return database.prepare("SELECT 1 FROM development_sessions WHERE project_id = ? AND item_id = ? LIMIT 1")
+    .get(projectId, taskId) !== undefined;
 }
 
 interface ResolvedSpecification {
@@ -470,6 +533,9 @@ interface ResolvedSpecification {
   readonly currentRevision: number;
   readonly content: unknown;
   readonly mode: "pinned" | "current";
+  readonly relationship: "parent_baseline" | "hierarchy_link" | "task_direct_link";
+  readonly traceLinkType?: "implements" | "relates_to";
+  readonly pinSource?: "pbi_baseline" | "development_session";
 }
 
 function resolveSpecifications(
@@ -477,15 +543,19 @@ function resolveSpecifications(
   projectId: string,
   principalId: string,
   linked: readonly SpecificationReferenceRow[],
+  taskId: string,
+  taskPins: readonly { readonly specId: string; readonly revisionNumber: number }[],
+  hasTaskSession: boolean,
   baseline: WorkBaseline | undefined,
   warnings: TaskContextWarning[],
   requested: ReadonlySet<TaskContextSection>,
 ): ResolvedSpecification[] {
   const references = baseline?.references.filter((item) => item.entityType === "specification_revision") ?? [];
+  const taskPinById = new Map(taskPins.map((pin) => [pin.specId, pin.revisionNumber]));
   if (baseline !== undefined) {
     const pinnedIds = new Set(references.map((reference) => reference.entityId));
     for (const spec of linked) {
-      if (!pinnedIds.has(spec.spec_id)) {
+      if (!pinnedIds.has(spec.spec_id) && !taskPinById.has(spec.spec_id)) {
         const section = spec.kind === "business_rule" ? "businessRules" : "technicalDecisions";
         if (requested.has(section)) {
           warnings.push({
@@ -497,9 +567,42 @@ function resolveSpecifications(
       }
     }
   }
-  const candidates = baseline === undefined
-    ? linked.map((spec) => ({ entityId: spec.spec_id, revisionNumber: undefined as number | undefined }))
-    : references.map((ref) => ({ entityId: ref.entityId, revisionNumber: ref.revisionNumber }));
+  const candidatesById = new Map<string, {
+    entityId: string; revisionNumber: number | undefined; relationship: ResolvedSpecification["relationship"];
+    traceLinkType?: ResolvedSpecification["traceLinkType"];
+    pinSource?: ResolvedSpecification["pinSource"];
+  }>();
+  for (const reference of references) candidatesById.set(reference.entityId, {
+    entityId: reference.entityId, revisionNumber: reference.revisionNumber, relationship: "parent_baseline", pinSource: "pbi_baseline",
+  });
+  if (baseline === undefined) {
+    const specIds = [...new Set(linked.map((spec) => spec.spec_id))];
+    for (const specId of specIds) {
+      const links = linked.filter((candidate) => candidate.spec_id === specId);
+      const directLink = links.find((candidate) => candidate.source_item_id === taskId && candidate.trace_link_type === "implements")
+        ?? links.find((candidate) => candidate.source_item_id === taskId);
+      const selectedLink = directLink ?? links.find((candidate) => candidate.trace_link_type === "implements") ?? links[0]!;
+      const isDirect = directLink !== undefined;
+      const pin = taskPinById.get(selectedLink.spec_id);
+      if (isDirect && hasTaskSession && pin === undefined && requested.has(selectedLink.kind === "business_rule" ? "businessRules" : "technicalDecisions")) {
+        warnings.push({
+          code: "TASK_SPEC_LINK_AFTER_SESSION",
+          message: "This direct task specification link was not captured by the latest development session; current published content is shown.",
+          key: selectedLink.spec_key,
+        });
+      }
+      candidatesById.set(selectedLink.spec_id, {
+        entityId: selectedLink.spec_id, revisionNumber: pin,
+        relationship: isDirect ? "task_direct_link" : "hierarchy_link",
+        traceLinkType: selectedLink.trace_link_type,
+        ...(pin === undefined ? {} : { pinSource: "development_session" }),
+      });
+    }
+  }
+  for (const pin of taskPins) candidatesById.set(pin.specId, {
+    entityId: pin.specId, revisionNumber: pin.revisionNumber, relationship: "task_direct_link", pinSource: "development_session",
+  });
+  const candidates = [...candidatesById.values()];
   const resolved: ResolvedSpecification[] = [];
   for (const candidate of candidates) {
     const spec = getSpecification(database, projectId, principalId, candidate.entityId);
@@ -525,6 +628,9 @@ function resolveSpecifications(
       currentRevision: spec.publishedRevision ?? revisionNumber,
       content: revision.content,
       mode: candidate.revisionNumber === undefined ? "current" : "pinned",
+      relationship: candidate.relationship,
+      ...(candidate.traceLinkType === undefined ? {} : { traceLinkType: candidate.traceLinkType }),
+      ...(candidate.pinSource === undefined ? {} : { pinSource: candidate.pinSource }),
     });
   }
   return resolved;
@@ -536,36 +642,84 @@ interface ResolvedScenario {
   readonly revisionNumber: number;
   readonly snapshot: ScenarioSnapshot;
   readonly mode: "pinned" | "current";
+  readonly relationship: "parent_baseline" | "scenario_coverage" | "task_direct_link";
+  readonly pinSource?: "pbi_baseline" | "development_session";
 }
 
 function resolveScenarios(
   database: SqliteDatabase,
   projectId: string,
   principalId: string,
+  taskId: string,
   criteria: readonly AcceptanceCriterion[],
   specifications: readonly ResolvedSpecification[],
+  taskPins: readonly { readonly scenarioId: string; readonly revisionNumber: number }[],
+  hasTaskSession: boolean,
   baseline: WorkBaseline | undefined,
+  warnings: TaskContextWarning[],
+  requested: ReadonlySet<TaskContextSection>,
 ): ResolvedScenario[] {
   const refs = baseline?.references.filter((reference) => reference.entityType === "scenario_revision") ?? [];
-  const rows = baseline === undefined
-    ? findCurrentScenarios(database, projectId, criteria.map((criterion) => criterion.id), specifications.map((spec) => spec.id))
-    : refs.map((reference) => {
+  const rows: ScenarioReferenceRow[] = baseline === undefined
+    ? findCurrentScenarios(database, projectId, criteria.map((criterion) => criterion.id), specifications.map((spec) => spec.id), taskId)
+    : refs.flatMap((reference): ScenarioReferenceRow[] => {
       const scenario = getScenario(database, projectId, principalId, reference.entityId);
       const revision = scenario.revisions.find((item) => item.revisionNumber === reference.revisionNumber);
-      return revision === undefined ? undefined : {
+      return revision === undefined ? [] : [{
         scenario_id: scenario.id,
         scenario_key: scenario.key,
         revision_number: revision.revisionNumber,
         snapshot_json: JSON.stringify(revision.snapshot),
-      };
-    }).filter((item): item is ScenarioReferenceRow => item !== undefined);
-  return rows.map((row) => ({
+        relationship: "parent_baseline",
+      }];
+    });
+  const candidates = new Map<string, ResolvedScenario>();
+  for (const row of rows) candidates.set(row.scenario_id, {
     id: row.scenario_id,
     key: row.scenario_key,
     revisionNumber: row.revision_number,
     snapshot: JSON.parse(row.snapshot_json) as ScenarioSnapshot,
     mode: baseline === undefined ? "current" : "pinned",
-  }));
+    relationship: row.relationship,
+    ...(row.relationship === "parent_baseline" ? { pinSource: "pbi_baseline" as const } : {}),
+  });
+  for (const pin of taskPins) {
+    const scenario = getScenario(database, projectId, principalId, pin.scenarioId);
+    const revision = scenario.revisions.find((item) => item.revisionNumber === pin.revisionNumber);
+    if (revision !== undefined) candidates.set(scenario.id, {
+      id: scenario.id, key: scenario.key, revisionNumber: revision.revisionNumber, snapshot: revision.snapshot, mode: "pinned",
+      relationship: "task_direct_link", pinSource: "development_session",
+    });
+  }
+  if (baseline !== undefined) {
+    for (const row of findCurrentTaskScenarios(database, projectId, taskId)) {
+      if (!candidates.has(row.scenario_id)) candidates.set(row.scenario_id, {
+        id: row.scenario_id, key: row.scenario_key, revisionNumber: row.revision_number,
+        snapshot: JSON.parse(row.snapshot_json) as ScenarioSnapshot, mode: "current",
+        relationship: row.relationship,
+      });
+    }
+  }
+  for (const scenario of candidates.values()) {
+    if (scenario.relationship === "task_direct_link" && hasTaskSession && scenario.pinSource !== "development_session" && requested.has("scenarios")) {
+      warnings.push({
+        code: "TASK_SCENARIO_LINK_AFTER_SESSION",
+        message: "This task scenario link was not captured by the latest development session; its current published revision is shown.",
+        key: scenario.key,
+      });
+    }
+    if (scenario.mode === "pinned" && requested.has("scenarios")) {
+      const current = getScenario(database, projectId, principalId, scenario.id).publishedRevision;
+      if (current !== null && current !== scenario.revisionNumber) {
+        warnings.push({
+          code: "TASK_SCENARIO_REVISION_DRIFT",
+          message: `A newer published scenario revision (${current}) exists than the pinned revision (${scenario.revisionNumber}).`,
+          key: scenario.key,
+        });
+      }
+    }
+  }
+  return [...candidates.values()];
 }
 
 function findCurrentScenarios(
@@ -573,23 +727,40 @@ function findCurrentScenarios(
   projectId: string,
   criterionIds: readonly string[],
   specificationIds: readonly string[],
+  taskId: string,
 ): ScenarioReferenceRow[] {
   const targets: Array<{ type: "criterion" | "specification"; id: string }> = [
     ...criterionIds.map((id) => ({ type: "criterion" as const, id })),
     ...specificationIds.map((id) => ({ type: "specification" as const, id })),
   ];
-  if (targets.length === 0) return [];
-  const match = targets.map(() => "(c.target_type = ? AND c.target_id = ?)").join(" OR ");
-  const params = targets.flatMap(({ type, id }) => [type, id]);
-  return database.prepare(
-    `SELECT DISTINCT s.scenario_id, s.scenario_key, r.revision_number, r.snapshot_json
+  const coverageRows = targets.length === 0 ? [] : database.prepare(
+    `SELECT DISTINCT s.scenario_id, s.scenario_key, r.revision_number, r.snapshot_json, 'scenario_coverage' AS relationship
      FROM scenario_revision_coverage c
      INNER JOIN scenarios s ON s.project_id = c.project_id AND s.scenario_id = c.scenario_id
      INNER JOIN scenario_revisions r ON r.project_id = c.project_id AND r.scenario_id = c.scenario_id
        AND r.revision_number = c.revision_number AND r.status = 'published'
-     WHERE c.project_id = ? AND (${match})
+     WHERE c.project_id = ? AND (${targets.map(() => "(c.target_type = ? AND c.target_id = ?)").join(" OR ")})
      ORDER BY s.scenario_key COLLATE NOCASE`,
-  ).all(projectId, ...params) as ScenarioReferenceRow[];
+  ).all(projectId, ...targets.flatMap(({ type, id }) => [type, id])) as ScenarioReferenceRow[];
+  return mergeScenarioRows(coverageRows, findCurrentTaskScenarios(database, projectId, taskId));
+}
+
+function findCurrentTaskScenarios(database: SqliteDatabase, projectId: string, taskId: string): ScenarioReferenceRow[] {
+  return database.prepare(
+    `SELECT DISTINCT s.scenario_id, s.scenario_key, r.revision_number, r.snapshot_json, 'task_direct_link' AS relationship
+     FROM scenario_revision_work_items c
+     INNER JOIN scenarios s ON s.project_id = c.project_id AND s.scenario_id = c.scenario_id
+     INNER JOIN scenario_revisions r ON r.project_id = c.project_id AND r.scenario_id = c.scenario_id
+       AND r.revision_number = c.revision_number AND r.status = 'published'
+     WHERE c.project_id = ? AND c.item_id = ?
+     ORDER BY s.scenario_key COLLATE NOCASE`,
+  ).all(projectId, taskId) as ScenarioReferenceRow[];
+}
+
+function mergeScenarioRows(...groups: readonly ScenarioReferenceRow[][]): ScenarioReferenceRow[] {
+  const rows = new Map<string, ScenarioReferenceRow>();
+  for (const group of groups) for (const row of group) rows.set(row.scenario_id, row);
+  return [...rows.values()].sort((left, right) => left.scenario_key.localeCompare(right.scenario_key));
 }
 
 interface ResolvedRun {
@@ -602,17 +773,17 @@ interface ResolvedRun {
   readonly evidenceUri: string | null;
   readonly executedAt: string;
   readonly mode: "pinned" | "current";
+  readonly relationship: "scenario_coverage" | "task_run_link";
 }
 
 function resolveTestRuns(
   database: SqliteDatabase,
   projectId: string,
+  taskId: string,
   scenarios: readonly ResolvedScenario[],
 ): ResolvedRun[] {
-  if (scenarios.length === 0) return [];
   const tuples = scenarios.map(() => "(tr.scenario_id = ? AND tr.revision_number = ?)").join(" OR ");
-  const parameters = scenarios.flatMap((scenario) => [scenario.id, scenario.revisionNumber]);
-  return database.prepare(
+  const rows = scenarios.length === 0 ? [] : database.prepare(
     `WITH matching_runs AS (
        SELECT tr.*, s.scenario_key,
          ROW_NUMBER() OVER (PARTITION BY tr.scenario_id, tr.revision_number, tr.build_id ORDER BY tr.sequence DESC) AS run_rank
@@ -622,7 +793,7 @@ function resolveTestRuns(
      )
      SELECT run_id, scenario_id, scenario_key, revision_number, build_id, result, notes, evidence_uri, executed_at
      FROM matching_runs WHERE run_rank = 1 ORDER BY scenario_key COLLATE NOCASE, build_id`,
-  ).all(projectId, ...parameters).map((value) => {
+  ).all(projectId, ...scenarios.flatMap((scenario) => [scenario.id, scenario.revisionNumber])).map((value) => {
     const row = value as {
       run_id: string; scenario_id: string; scenario_key: string; revision_number: number; build_id: string;
       result: string; notes: string | null; evidence_uri: string | null; executed_at: string;
@@ -638,8 +809,31 @@ function resolveTestRuns(
       evidenceUri: row.evidence_uri,
       executedAt: row.executed_at,
       mode: scenario.mode,
+      relationship: "scenario_coverage" as const,
     } satisfies ResolvedRun;
   });
+  const directRuns = database.prepare(
+    `WITH matching_runs AS (
+       SELECT tr.*, s.scenario_key,
+         ROW_NUMBER() OVER (PARTITION BY tr.scenario_id, tr.revision_number, tr.build_id ORDER BY tr.sequence DESC) AS run_rank
+       FROM test_runs tr INNER JOIN scenarios s ON s.project_id = tr.project_id AND s.scenario_id = tr.scenario_id
+       INNER JOIN test_run_work_items link ON link.project_id = tr.project_id AND link.run_id = tr.run_id
+       WHERE tr.project_id = ? AND link.item_id = ?
+     )
+     SELECT run_id, scenario_id, scenario_key, revision_number, build_id, result, notes, evidence_uri, executed_at
+     FROM matching_runs WHERE run_rank = 1 ORDER BY scenario_key COLLATE NOCASE, build_id`,
+  ).all(projectId, taskId).map((value) => {
+    const row = value as {
+      run_id: string; scenario_id: string; scenario_key: string; revision_number: number; build_id: string;
+      result: string; notes: string | null; evidence_uri: string | null; executed_at: string;
+    };
+    return {
+      runId: row.run_id, scenarioKey: row.scenario_key, revisionNumber: row.revision_number, buildId: row.build_id,
+      result: row.result, notes: row.notes, evidenceUri: row.evidence_uri, executedAt: row.executed_at, mode: "pinned" as const,
+      relationship: "task_run_link" as const,
+    };
+  });
+  return [...new Map([...rows, ...directRuns].map((run) => [run.runId, run])).values()];
 }
 
 function compactLargeEntry(entry: TaskContextEntry, maxChars: number, warnings: TaskContextWarning[]): TaskContextEntry {

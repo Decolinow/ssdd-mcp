@@ -38,6 +38,10 @@ export const approvableMcpToolNames = [
   "evidence_add",
   "trace_link_add",
   "trace_link_remove",
+  "development_session_start",
+  "development_session_transition",
+  "deployment_event_record",
+  "roadmap_id_bind",
 ] as const;
 
 export type ApprovableMcpToolName = (typeof approvableMcpToolNames)[number];

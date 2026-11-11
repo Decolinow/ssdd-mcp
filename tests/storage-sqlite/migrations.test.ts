@@ -68,7 +68,7 @@ describe("schema migrations", () => {
       "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'team_config_versions'",
     ).get() as { name: string } | undefined;
 
-    assert.equal(version.version, 23);
+    assert.equal(version.version, 26);
     assert.deepEqual(preserved, { project_key: "MIG12", name: "Migration owner" });
     assert.ok(sequenceColumn.some((column) => column.name === "sequence" && column.pk === 1));
     assert.match(evidenceSql.sql, /AUTOINCREMENT/);
@@ -107,6 +107,19 @@ describe("schema migrations", () => {
       .some((column) => column.name === "current_generation"));
     assert.ok((database.prepare("PRAGMA table_info(team_config_versions)").all() as Array<{ name: string }>)
       .some((column) => column.name === "generation_number"));
+    const testRunIndexes = database.prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'index' AND name IN ('test_runs_by_project_sequence', 'test_runs_by_scenario_sequence') ORDER BY name",
+    ).all() as Array<{ name: string }>;
+    assert.deepEqual(testRunIndexes.map(({ name }) => name), [
+      "test_runs_by_project_sequence",
+      "test_runs_by_scenario_sequence",
+    ]);
+    assert.equal((database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'development_sessions'")
+      .get() as { name: string } | undefined)?.name, "development_sessions");
+    assert.equal((database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'deployment_events'")
+      .get() as { name: string } | undefined)?.name, "deployment_events");
+    assert.equal((database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'test_run_work_items'")
+      .get() as { name: string } | undefined)?.name, "test_run_work_items");
   });
 
   it("seeds deterministic version-zero teams for legacy projects without a team", () => {

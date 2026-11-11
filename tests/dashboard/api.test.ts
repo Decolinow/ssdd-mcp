@@ -62,6 +62,14 @@ test("dashboard API sessions and project authorization match MCP access", async 
     parentId: feature.id,
     title: "Confirm the purchase",
   }).value;
+  const task = createWorkItem(database, {
+    projectId,
+    principalId,
+    requestId: randomUUID(),
+    type: "task",
+    parentId: story.id,
+    title: "Implement purchase confirmation",
+  }).value;
   const capacity = setTeamCapacityConfiguration(database, {
     projectId,
     principalId,
@@ -201,11 +209,20 @@ test("dashboard API sessions and project authorization match MCP access", async 
   const landingPage = await fetch(`${address.origin}/`);
   assert.equal(landingPage.status, 200);
   assert.match(landingPage.headers.get("content-type") ?? "", /text\/html/u);
-  assert.match(await landingPage.text(), /Product Backlog/u);
+  const dashboardHtml = await landingPage.text();
+  assert.match(dashboardHtml, /Product Backlog/u);
+  assert.match(dashboardHtml, /Criar rascunho/u);
+  assert.match(dashboardHtml, /Registrar execução/u);
   const dashboardScript = await fetch(`${address.origin}/dashboard.js`);
   assert.equal(dashboardScript.status, 200);
   assert.match(dashboardScript.headers.get("content-type") ?? "", /javascript/u);
-  assert.match(await dashboardScript.text(), /X-SSDD-CSRF/u);
+  const dashboardJavascript = await dashboardScript.text();
+  assert.match(dashboardJavascript, /X-SSDD-CSRF/u);
+  assert.match(dashboardJavascript, /submitTestRun/u);
+  assert.match(dashboardJavascript, /publishWorkItemRevision/u);
+  assert.match(dashboardJavascript, /loadChildTasks/u);
+  assert.match(dashboardJavascript, /renderTaskContext/u);
+  assert.match(dashboardHtml, /Tarefas verificadas/u);
   const dashboardStyles = await fetch(`${address.origin}/dashboard.css`);
   assert.equal(dashboardStyles.status, 200);
   assert.match(dashboardStyles.headers.get("content-type") ?? "", /text\/css/u);
@@ -230,6 +247,81 @@ test("dashboard API sessions and project authorization match MCP access", async 
   assert.equal(sessionBody.principal.id, principalId);
   assert.deepEqual(sessionBody.projects.map((project) => project.id), [projectId]);
   assert.ok(sessionBody.csrfToken.length >= 32);
+  const postMutation = (path: string, body: unknown) => fetch(`${address.origin}${path}`, {
+    method: "POST",
+    headers: {
+      Cookie: cookie,
+      Origin: address.origin,
+      "X-SSDD-CSRF": sessionBody.csrfToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const scenarioCreate = await postMutation(`/api/v1/projects/${projectId}/scenarios`, {
+    requestId: "dashboard-task-linked-scenario",
+    key: "PAY-TC-TASK",
+    kind: "acceptance",
+    title: "Verify task implementation",
+    steps: [{ action: "Run the task test", expected: "The task behavior passes." }],
+    workItemIdOrKeys: [task.key],
+  });
+  assert.equal(scenarioCreate.status, 201);
+  const scenarioRevision = (await scenarioCreate.json()) as { revision: { scenarioId: string; key: string; revisionNumber: number } };
+  const linkedScenarioTasks = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/scenarios/${scenarioRevision.revision.key}/revisions/${scenarioRevision.revision.revisionNumber}/work-items`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(linkedScenarioTasks.status, 200);
+  assert.deepEqual(((await linkedScenarioTasks.json()) as { workItems: Array<{ key: string }> }).workItems.map((item) => item.key), [task.key]);
+  const scenarioPublish = await postMutation(
+    `/api/v1/projects/${projectId}/scenarios/${scenarioRevision.revision.key}/revisions/${scenarioRevision.revision.revisionNumber}/publish`,
+    { requestId: "dashboard-task-linked-scenario-publish", expectedVersion: 1 },
+  );
+  assert.equal(scenarioPublish.status, 200);
+  const scenarioAfterPublish = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/scenarios/${scenarioRevision.revision.key}`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(scenarioAfterPublish.status, 200);
+  const publishedScenario = (await scenarioAfterPublish.json()) as { scenario: { version: number } };
+  const scenarioRevisionProposal = await postMutation(
+    `/api/v1/projects/${projectId}/scenarios/${scenarioRevision.revision.key}/revisions`,
+    {
+      requestId: "dashboard-task-linked-scenario-revision",
+      expectedVersion: publishedScenario.scenario.version,
+      title: "Verify task implementation, revision 2",
+      steps: [{ action: "Run the task test again", expected: "The task behavior still passes." }],
+      workItemIdOrKeys: [task.key],
+    },
+  );
+  assert.equal(scenarioRevisionProposal.status, 200);
+  const linkedScenarioTasksAfterEdit = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/scenarios/${scenarioRevision.revision.key}/revisions/2/work-items`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(linkedScenarioTasksAfterEdit.status, 200);
+  assert.deepEqual(((await linkedScenarioTasksAfterEdit.json()) as { workItems: Array<{ key: string }> }).workItems.map((item) => item.key), [task.key]);
+  const testRunResponse = await postMutation(`/api/v1/projects/${projectId}/scenarios/${scenarioRevision.revision.key}/test-runs`, {
+    requestId: "dashboard-task-linked-run",
+    revisionNumber: scenarioRevision.revision.revisionNumber,
+    buildId: "dashboard-task-build-1",
+    result: "passed",
+    workItemIdOrKeys: [task.key],
+  });
+  assert.equal(testRunResponse.status, 201);
+  const taskContextResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/work-items/${task.key}/context?profile=dev&include=hierarchy&include=acceptanceCriteria&include=businessRules&include=technicalDecisions&include=scenarios&include=testRuns&include=baseline&maxChars=30000`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(taskContextResponse.status, 200);
+  const taskContext = await taskContextResponse.json() as {
+    sections: { hierarchy: Array<{ key: string }>; scenarios: Array<{ key: string; source: { relationship?: string } }>;
+      testRuns: Array<{ content: { buildId: string }; source: { relationship?: string } }> };
+  };
+  assert.ok(taskContext.sections.hierarchy.some((entry) => entry.key === story.key));
+  assert.ok(taskContext.sections.scenarios.some((entry) => entry.key === scenarioRevision.revision.key && entry.source.relationship === "task_direct_link"));
+  assert.ok(taskContext.sections.testRuns.some((entry) => entry.content.buildId === "dashboard-task-build-1" && entry.source.relationship === "task_run_link"));
 
   const ownProject = await fetch(`${address.origin}/api/v1/projects/${projectId}`, {
     headers: { Cookie: cookie, Origin: address.origin },
@@ -299,6 +391,43 @@ test("dashboard API sessions and project authorization match MCP access", async 
   const invalidMetricDateError = await invalidMetricDate.json() as { code: string };
   assert.equal(invalidMetricDateError.code, "VALIDATION_FAILED");
 
+  const developerMetrics = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/developer-execution-metrics?from=${projectToday().slice(0, 7)}-01&to=${projectToday()}`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(developerMetrics.status, 200);
+  const developerMetricsBody = await developerMetrics.json() as {
+    projectId: string; period: { from: string; to: string }; minimumSampleTasks: number; developers: unknown[];
+  };
+  assert.equal(developerMetricsBody.projectId, projectId);
+  assert.equal(developerMetricsBody.period.to, projectToday());
+  assert.equal(developerMetricsBody.minimumSampleTasks, 5);
+  assert.deepEqual(developerMetricsBody.developers, []);
+  const emptyTaskSessions = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/development-sessions?itemIdOrKey=${metricStory.id}`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(emptyTaskSessions.status, 200);
+  assert.deepEqual(((await emptyTaskSessions.json()) as { sessions: unknown[] }).sessions, []);
+  const emptyTaskDeploymentEvents = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/deployment-events?itemIdOrKey=${metricStory.id}`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(emptyTaskDeploymentEvents.status, 200);
+  assert.deepEqual(((await emptyTaskDeploymentEvents.json()) as { events: unknown[] }).events, []);
+  const invalidDeploymentFilter = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/deployment-events?environment=staging`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(invalidDeploymentFilter.status, 400);
+  assert.equal(((await invalidDeploymentFilter.json()) as { code: string }).code, "VALIDATION_FAILED");
+  const invalidDeveloperMetrics = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/developer-execution-metrics?from=2026-02-30`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(invalidDeveloperMetrics.status, 400);
+  assert.equal(((await invalidDeveloperMetrics.json()) as { code: string }).code, "VALIDATION_FAILED");
+
   await client.connect(transport);
   const mcpMetrics = await client.callTool({
     name: "metrics_get",
@@ -343,6 +472,126 @@ test("dashboard API sessions and project authorization match MCP access", async 
   });
   assert.equal(qualitySummary.status, 200);
   assert.equal(((await qualitySummary.json()) as { items: Array<{ itemId: string }> }).items.length, 2);
+
+  const scenarioList = await fetch(`${address.origin}/api/v1/projects/${projectId}/scenarios`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  assert.equal(scenarioList.status, 200);
+  assert.ok(((await scenarioList.json()) as { scenarios: Array<{ key: string; publishedRevision: number | null }> }).scenarios
+    .some((scenario) => scenario.key === "PAY-TC-METRICS" && scenario.publishedRevision === 1));
+
+  const invalidScenarioResponse = await postMutation(`/api/v1/projects/${projectId}/scenarios`, {
+    requestId: "dashboard-api-invalid-scenario",
+    key: "PAY-TC-INVALID",
+    kind: "acceptance",
+    title: "Invalid scenario",
+    steps: [],
+  });
+  assert.equal(invalidScenarioResponse.status, 400);
+  assert.equal(((await invalidScenarioResponse.json()) as { code: string }).code, "VALIDATION_FAILED");
+
+  const scenarioDraftResponse = await postMutation(`/api/v1/projects/${projectId}/scenarios`, {
+    requestId: "dashboard-api-scenario-create",
+    key: "PAY-TC-DASHBOARD",
+    kind: "acceptance",
+    title: "Create a scenario in the dashboard",
+    preconditions: ["A project is available."],
+    steps: [{ action: "Open the quality view", expected: "The scenario is listed." }],
+    coverage: [{ targetType: "criterion", reference: metricStory.criteria[0]!.id }],
+  });
+  assert.equal(scenarioDraftResponse.status, 201);
+  const scenarioDraft = (await scenarioDraftResponse.json()) as { revision: { scenarioId: string; revisionNumber: number; status: string } };
+  assert.equal(scenarioDraft.revision.revisionNumber, 1);
+  assert.equal(scenarioDraft.revision.status, "draft");
+
+  const draftRunResponse = await postMutation(`/api/v1/projects/${projectId}/scenarios/PAY-TC-DASHBOARD/test-runs`, {
+    requestId: "dashboard-api-run-draft-denied",
+    revisionNumber: 1,
+    buildId: "dashboard-build-1",
+    result: "passed",
+  });
+  assert.equal(draftRunResponse.status, 400);
+  assert.equal(((await draftRunResponse.json()) as { code: string }).code, "VALIDATION_FAILED");
+
+  const scenarioPublishedResponse = await postMutation(
+    `/api/v1/projects/${projectId}/scenarios/PAY-TC-DASHBOARD/revisions/1/publish`,
+    { requestId: "dashboard-api-scenario-publish", expectedVersion: 1 },
+  );
+  assert.equal(scenarioPublishedResponse.status, 200);
+  assert.equal(((await scenarioPublishedResponse.json()) as { revision: { status: string } }).revision.status, "published");
+
+  const runResponse = await postMutation(`/api/v1/projects/${projectId}/scenarios/PAY-TC-DASHBOARD/test-runs`, {
+    requestId: "dashboard-api-run-record",
+    revisionNumber: 1,
+    buildId: "dashboard-build-1",
+    result: "passed",
+    notes: "Executed from the dashboard API.",
+    evidenceUri: "https://example.test/evidence/1",
+  });
+  assert.equal(runResponse.status, 201);
+  const recordedRun = (await runResponse.json()) as { run: { id: string; scenarioId: string; scenarioKey: string; revisionNumber: number; buildId: string; result: string; evidenceUri: string | null } };
+  assert.equal(recordedRun.run.scenarioId, scenarioDraft.revision.scenarioId);
+  assert.equal(recordedRun.run.scenarioKey, "PAY-TC-DASHBOARD");
+  assert.equal(recordedRun.run.revisionNumber, 1);
+  assert.equal(recordedRun.run.buildId, "dashboard-build-1");
+  assert.equal(recordedRun.run.result, "passed");
+  assert.equal(recordedRun.run.evidenceUri, "https://example.test/evidence/1");
+
+  const runHistory = await fetch(`${address.origin}/api/v1/projects/${projectId}/test-runs?scenario=PAY-TC-DASHBOARD`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  assert.equal(runHistory.status, 200);
+  assert.deepEqual(((await runHistory.json()) as { runs: Array<{ id: string; scenarioKey: string; revisionNumber: number }> }).runs.map((run) => ({
+    id: run.id,
+    scenarioKey: run.scenarioKey,
+    revisionNumber: run.revisionNumber,
+  })), [{ id: recordedRun.run.id, scenarioKey: "PAY-TC-DASHBOARD", revisionNumber: 1 }]);
+
+  const createdItemResponse = await postMutation(`/api/v1/projects/${projectId}/work-items`, {
+    requestId: "dashboard-api-work-item-create",
+    type: "story",
+    parentId: feature.id,
+    title: "Created from the dashboard",
+    description: "Initial dashboard copy.",
+    priority: 2,
+    criteria: [{ description: "The created item is visible in the backlog." }],
+  });
+  assert.equal(createdItemResponse.status, 201);
+  const createdItem = (await createdItemResponse.json()) as { workItem: { id: string; key: string; version: number; criteria: Array<{ id: string; key: string }> } };
+  assert.ok(createdItem.workItem.key.startsWith("PAY-"));
+
+  const proposedItemRevisionResponse = await postMutation(`/api/v1/projects/${projectId}/work-items/${createdItem.workItem.key}/revisions`, {
+    requestId: "dashboard-api-work-item-revision",
+    expectedVersion: createdItem.workItem.version,
+    title: "Edited from the dashboard",
+    description: "Proposed revised content.",
+    priority: 1,
+    criteria: [{ id: createdItem.workItem.criteria[0]!.id, description: "The edited item is visible in the backlog." }],
+  });
+  assert.equal(proposedItemRevisionResponse.status, 200);
+  assert.equal(((await proposedItemRevisionResponse.json()) as { revision: { revisionNumber: number; status: string } }).revision.revisionNumber, 2);
+
+  const itemRevisionsResponse = await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${createdItem.workItem.key}/revisions`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  assert.equal(itemRevisionsResponse.status, 200);
+  assert.ok(((await itemRevisionsResponse.json()) as { revisions: Array<{ revisionNumber: number; status: string }> }).revisions
+    .some((revision) => revision.revisionNumber === 2 && revision.status === "draft"));
+  const proposedItemResponse = await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${createdItem.workItem.key}`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  assert.equal(proposedItemResponse.status, 200);
+  const proposedItem = (await proposedItemResponse.json()) as { workItem: { version: number } };
+  const itemPublishedResponse = await postMutation(
+    `/api/v1/projects/${projectId}/work-items/${createdItem.workItem.key}/revisions/2/publish`,
+    { requestId: "dashboard-api-work-item-publish", expectedVersion: proposedItem.workItem.version },
+  );
+  assert.equal(itemPublishedResponse.status, 200);
+  assert.equal(((await itemPublishedResponse.json()) as { revision: { status: string } }).revision.status, "published");
+  const publishedItemResponse = await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${createdItem.workItem.key}`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  assert.equal(((await publishedItemResponse.json()) as { workItem: { title: string } }).workItem.title, "Edited from the dashboard");
 
   const qualityDetail = await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${story.key}/quality`, {
     headers: { Cookie: cookie, Origin: address.origin },

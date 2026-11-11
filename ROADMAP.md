@@ -107,7 +107,7 @@ Planejamento inicial em sprints de duas semanas. Pontos Fibonacci representam co
 
 ## Evolução condicionada à adoção
 
-- PostgreSQL para múltiplas réplicas só entra em sprint quando benchmark reproduzível demonstrar que a arquitetura single-host SQLite excede os limites acordados; medir primeiro e registrar a decisão em ADR.
+- O modelo operacional é uma instância SSDD compartilhada por vários clientes no mesmo host, usando SQLite local. Multi-instância/HA está fora do escopo atual; se uma necessidade de produto mudar essa decisão, abra novo refinamento com limites de concorrência e recuperação mensurados.
 - Busca semântica só entra em sprint quando consultas representativas mostrarem lacunas do FTS5; qualquer resultado precisa trazer proveniência e preservar autorização por projeto.
 
 ## Backlog de habilitação de agentes
@@ -116,7 +116,7 @@ Entrega transversal ao roadmap. A hierarquia histórica fica Épico E4 → Featu
 
 | ID | Tarefa | Pontos | Depende de | Aceite |
 |---|---|---:|---|---|
-| SSDD-901 | Publicar prompts MCP e skills de agente por papel | 5 | 105, 303, 304 | Clientes stdio e Streamable HTTP listam e obtêm prompts PO, Developer, QA e Release; a extensão MCP Skills lista e lê as quatro skills com verificação de digest; prompts e skills seguem contexto, gates humanos e proibição de fabricar evidências; testes e documentação cobrem os dois transports e o pacote npm inclui as skills |
+| SSDD-901 | Publicar prompts MCP e skills de agente por papel | 5 | 105, 303, 304 | Clientes stdio e Streamable HTTP listam e obtêm seis prompts: refinamento de backlog/negócio, planejamento, início de desenvolvimento, QA, release e refinamento técnico; a extensão MCP Skills lista e lê as cinco skills com verificação de digest; prompts e skills seguem contexto, gates humanos e proibição de fabricar evidências; testes e documentação cobrem os dois transports e o pacote npm inclui as skills |
 
 ## Backlog de instalação para Claude Code, Codex e OpenCode
 
@@ -171,16 +171,16 @@ Registra o servidor stdio e publica skills e agentes nos caminhos nativos dos tr
 
 **Critérios de aceite:**
 
-- As quatro skills canônicas são copiadas com conteúdo e digest íntegros para `.claude/skills/<id>/SKILL.md`, `.agents/skills/<id>/SKILL.md` e `.opencode/skills/<id>/SKILL.md`, usando os caminhos nativos e compartilhados documentados pelos clientes.
-- Claude recebe quatro arquivos `.claude/agents/*.md`, Codex recebe quatro `.codex/agents/*.toml` e OpenCode recebe quatro `.opencode/agents/*.md`.
+- As cinco skills canônicas são copiadas com conteúdo e digest íntegros para `.claude/skills/<id>/SKILL.md`, `.agents/skills/<id>/SKILL.md` e `.opencode/skills/<id>/SKILL.md`, usando os caminhos nativos e compartilhados documentados pelos clientes.
+- Claude recebe cinco arquivos `.claude/agents/*.md`, Codex recebe cinco `.codex/agents/*.toml` e OpenCode recebe cinco `.opencode/agents/*.md`.
 - Cada perfil orienta a skill da mesma função e preserva os gates humanos, sem impor modelo, segredo ou permissão excessiva.
 - Colisões de caminho, IDs duplicados, frontmatter inválido e arquivos locais modificados são relatados antes da escrita.
 
 | ID | Tarefa | Horas | Depende de | Aceite |
 |---|---|---:|---|---|
 | SSDD-77 | Copiar skills canônicas para os diretórios nativos | 5 | SSDD-69 | Frontmatter e IDs são validados; cópias em `.claude/skills`, `.agents/skills` e `.opencode/skills` correspondem à origem e obedecem ao manifesto de hashes. |
-| SSDD-78 | Gerar agentes nativos de Claude Code e Codex | 5 | SSDD-77 | Quatro agentes de cada cliente usam formato nativo, instruções do papel e referência à skill correspondente, sem modelo fixo. |
-| SSDD-79 | Gerar agentes nativos de OpenCode | 4 | SSDD-77 | Quatro perfis Markdown têm frontmatter V2 válido, descrição e modo de subagente, sem modelo fixo. |
+| SSDD-78 | Gerar agentes nativos de Claude Code e Codex | 5 | SSDD-77 | Cinco agentes de cada cliente usam formato nativo, instruções do papel e referência à skill correspondente, sem modelo fixo. |
+| SSDD-79 | Gerar agentes nativos de OpenCode | 4 | SSDD-77 | Cinco perfis Markdown têm frontmatter V2 válido, descrição e modo de subagente, sem modelo fixo. |
 
 ### SSDD-80 · Conformidade, validação e documentação do instalador
 
@@ -203,6 +203,80 @@ Valida instalação em repositórios vazios e preexistentes e documenta operaç�
 | SSDD-83 | Validar configurações com processo MCP real | 4 | SSDD-70, SSDD-73, SSDD-74, SSDD-75 | Runtime instalado completa handshake stdio, lista ferramentas/skills e executa consulta read-only de projeto. |
 | SSDD-84 | Documentar instalação, atualização e compatibilidade oficial | 4 | SSDD-82, SSDD-83 | README, guia, status e ADR explicam uso, recuperação, limites e fontes oficiais verificadas em 10/11/2026. |
 
+## Backlog do dashboard operacional
+
+O dashboard já oferece métricas, consultas, transições de estado, retrospectivas e auditoria. Esta feature fecha a lacuna entre a interface e as operações de domínio disponíveis ao agente MCP, sempre usando os mesmos serviços de aplicação, autorização por papel, controle otimista de versão, idempotência e auditoria. As histórias continuam Draft até refinamento/aceite formal; os itens abaixo não iniciam uma sprint.
+
+### SSDD-85 · Operação completa pelo dashboard
+
+Levar ao dashboard os fluxos de cadastro, revisão, qualidade, planejamento e acompanhamento que hoje exigem um cliente MCP.
+
+#### SSDD-86 · Criar e editar itens do backlog pela interface (8 pontos)
+
+**História:** Como pessoa do projeto, quero cadastrar e revisar PBIs pelo dashboard sem perder histórico, critérios, autoria ou gates de publicação.
+
+**Critérios de aceite:**
+
+- Criar história e bug com pai válido, descrição, prioridade e critérios; erros de papel, pai e versão aparecem sem mutação parcial.
+- Editar conteúdo propõe snapshot imutável e publicar exige papel humano PO; itens atuais e revisões históricas são exibidos claramente.
+- Ações de atribuir, estimar, comentar, reordenar e criar/remover vínculos usam os mesmos comandos MCP e deixam auditoria consultável.
+- CSRF, idempotência, conflitos de versão e autorização têm testes HTTP negativos e positivos.
+
+| ID | Tarefa | Horas | Depende de | Aceite |
+|---|---|---:|---|---|
+| SSDD-87 | Expor criação e revisões de work item pela API local | 8 | — | POSTs validam payload e sessão/CSRF e chamam create/propose/publish do serviço de aplicação com requestId e expectedVersion; testes verificam auditoria, idempotência e papéis. |
+| SSDD-88 | Criar formulários acessíveis de cadastro e edição de PBI | 8 | SSDD-87 | Fluxo permite escolher pai, tipo, prioridade e critérios; revisão proposta distingue rascunho de conteúdo publicado e atualiza detalhes após sucesso. |
+| SSDD-89 | Disponibilizar operações de backlog restantes pela interface | 12 | SSDD-88 | Atribuição, comentários, estimativas, ordenação e trace links executam operações MCP equivalentes com papéis, versões, motivo e erros tratados. |
+
+#### SSDD-90 · Gerenciar cenários e execuções de QA pelo dashboard (8 pontos)
+
+**História:** Como QA ou Developer autorizado, quero criar e publicar cenários e registrar execuções na revisão exata para que cobertura e evidência sejam rastreáveis pela interface.
+
+**Critérios de aceite:**
+
+- Cenários podem ser listados, consultados, criados, revisados e publicados pela mesma regra de QA humano aplicada pelo MCP.
+- Cada execução referencia uma revisão publicada específica, build, resultado, notas e evidência; revisão rascunho não pode receber execução.
+- A interface exibe histórico imutável de execuções por cenário/revisão/build e deixa certificação compatível com baseline explícita.
+- Cobertura e resultados têm gráfico legível, tabela equivalente e testes para CSRF, autorização, vínculo de revisão e estados inválidos.
+
+| ID | Tarefa | Horas | Depende de | Aceite |
+|---|---|---:|---|---|
+| SSDD-91 | Expor listagem, criação, revisão e publicação de cenários | 8 | — | Rotas usam scenario-queries/commands; filtros, cobertura, controle de versão, idempotência, papel QA, CSRF e publicação humana são cobertos por testes. |
+| SSDD-92 | Registrar execução vinculada à revisão publicada e consultar histórico | 8 | SSDD-91 | UI exige cenário, revisão publicada, build e resultado; API persiste notes/evidenceUri e testes comprovam que cenário, revisão e run retornam associados sem permitir rascunho. |
+| SSDD-93 | Mostrar histórico QA e certificar execução compatível com baseline | 6 | SSDD-92 | Detalhe mostra execuções por build/revisão; certificação chama o gate MCP existente e explica divergências, run antigo, resultado reprovado ou baseline incompatível. |
+
+#### SSDD-94 · Explorar qualidade e fluxo com gráficos interativos (5 pontos)
+
+**História:** Como pessoa do projeto, quero comparar cobertura e resultados de QA no tempo e abrir os registros que compõem os gráficos.
+
+**Critérios de aceite:**
+
+- Gráfico de execuções separa passed, failed, blocked e skipped no intervalo selecionado e permite abrir os runs de cada grupo.
+- Gráfico de cobertura distingue critérios cobertos, descobertos, execução atual e baseline desatualizada; cores têm rótulos/tabela acessíveis.
+- Filtros de build, período, cenário e PBI são aplicados pelo serviço de consulta, com estado vazio e watermark visíveis.
+
+| ID | Tarefa | Horas | Depende de | Aceite |
+|---|---|---:|---|---|
+| SSDD-95 | Implementar gráfico de resultados QA com tabela acessível | 6 | SSDD-92 | Série agregada e drill-down reconciliam com as execuções filtradas, incluem estados sem dados e funcionam por teclado e leitor de tela. |
+| SSDD-96 | Implementar gráfico de cobertura com filtros e drill-down | 8 | SSDD-95 | Cobertura respeita baseline e revisão; abrir um segmento apresenta critérios, cenários e execuções que formam o total. |
+
+#### SSDD-97 · Completar operações de planejamento e especificação no dashboard (13 pontos)
+
+**História:** Como PO, Developer ou facilitador, quero preparar e consultar regras, marcos, times, capacidade e sprints sem trocar de cliente, respeitando cada gate humano.
+
+**Critérios de aceite:**
+
+- Especificações, revisões, rastreabilidade, baseline, impactos e revalidações podem ser consultados e alterados somente pelos papéis autorizados.
+- Times, calendário, capacidade, Definition of Done, marcos, escopo de sprint, abertura, encerramento e retrospectiva seguem os comandos MCP existentes.
+- Métricas, previsão, board, atividade e operações de planejamento compartilham filtros e resultados com o MCP, verificados por testes de contrato.
+- Uma matriz inventaria todas as ferramentas MCP de consulta e mutação, mapeando UI disponível ou tarefa explícita de paridade futura.
+
+| ID | Tarefa | Horas | Depende de | Aceite |
+|---|---|---:|---|---|
+| SSDD-98 | Gerenciar especificações, revisões e rastreabilidade | 16 | SSDD-87 | UI lista e consulta especificações e implementa proposta/publicação/vínculos e impactos com snapshots imutáveis, autorização e auditoria. |
+| SSDD-99 | Gerenciar times, capacidade, DoD, marcos e ciclo de sprint | 16 | SSDD-98 | Formulários aplicam filtros explícitos de time, snapshots, versão e confirmação humana; fixtures cobrem conflitos, gates e paridade MCP. |
+| SSDD-100 | Completar matriz de paridade MCP e validar o dashboard integrado | 10 | SSDD-89, SSDD-93, SSDD-96, SSDD-99 | Toda ferramenta MCP registrada é mapeada para leitura/ação de UI ou lacuna deliberada; testes de integração cobrem fluxos críticos e documentação explica o caminho equivalente. |
+
 ## Refinamento para a Sprint 7
 
 - **SSDD-701:** exportar a revisão publicada corrente de cada cenário para Gherkin válido, com tags rastreáveis e conteúdo de uma linha; executar o parser oficial para verificar recursos e passos gerados. Rascunhos e revisões supersedidas ficam fora da exportação.
@@ -220,6 +294,56 @@ Valida instalação em repositórios vazios e preexistentes e documenta operaç�
 ## Definition of Done da implementação
 
 Uma tarefa tem aceite verificável, migração reversível via backup/restore quando aplicável, teste no caminho normal, autorização e documentação do contrato alterado. Uma sprint entrega o fluxo da meta em fixture reproduzível. Release inclui notas de compatibilidade do protocolo, upgrade e instalação. Features que alteram o histórico têm fixture de regressão com base criada em versão anterior.
+
+## Auditoria e próximas melhorias do MCP
+
+Backlog técnico sem sprint comprometida, refinado após comparação entre serviços de aplicação, ferramentas MCP, dashboard, prompts e skills. O histórico de QA, relatório detalhado de qualidade e reprodução de forecast já foram adicionados nesta revisão. As tarefas seguintes tratam lacunas remanescentes e evitam ampliar o catálogo sem paginação, benchmark ou contrato verificável.
+
+| ID | Tarefa | Pontos | Depende de | Estado | Aceite |
+|---|---|---:|---|---|---|
+| SSDD-902 | Reconciliar IDs estáveis do roadmap com chaves geradas pelo MCP | 3 | 105, 901 | Implementada localmente; sincronizada ao MCP | O importador mantém mapeamento imutável entre ID estável, UUID e chave MCP em SQLite e `.ssdd/roadmap-id-map.json`; repetição valida identidade sem recriar tarefas. IDs estáveis resolvem corretamente quando a grafia colide com uma chave gerada; UUID endereça a chave ambígua. |
+| SSDD-903 | Expor timeline de auditoria paginada para agentes | 3 | 602, 603 | Pendente; sincronizada ao MCP | Tool read-only aplica autorização do projeto, filtros de entidade, limite e cursor por watermark; testes provam que principal/filtros inválidos falham, mutação concorrente invalida cursor e payloads não autorizados não são retornados. |
+| SSDD-904 | Paginar listas de cenários, especificações e resumos de qualidade | 5 | 202, 203, 301 | Pendente; sincronizada ao MCP | Consultas além de 100 registros não desaparecem; cursores estáveis e limites têm contrato comum, autorização/filtros fazem parte do cursor e a paginação não altera o resultado total. Clientes MCP e API recebem cobertura de fronteira em 0, 1, 100 e 101+ registros. |
+| SSDD-905 | Medir e reduzir consultas repetidas no relatório de qualidade | 5 | 301, 405 | Pendente; otimizar depois de estabelecer baseline; sincronizada ao MCP | Fixture representativa cobre até 50 critérios, múltiplos cenários/revisões/builds e histórico. Benchmark registra p50/p95 e quantidade de consultas; eventual consulta em lote preserva resultados de preview/pinned, baseline, última execução por build, certificações e evidências, com teste de equivalência e ganho medido. |
+| SSDD-906 | Manter matriz de paridade entre serviços, tools MCP e agentes | 3 | 902 | Parcial nesta revisão; sincronizada ao MCP | Inventário automatizado compara handlers e schemas dos dois transports com documentação; cada operação registra autorização, mutabilidade/aprovação, paginação, prompt/skill consumidora e alternativa deliberada. Mudança do catálogo sem contrato ou teste falha no check. |
+| SSDD-907 | Expor histórico QA, qualidade detalhada e reprodução de forecast no MCP | 5 | 301, 405, 803 | Implementada localmente; sincronizada ao MCP | `test_run_list` filtra e pagina por cursor keyset; `work_item_quality_get` expõe a projeção usada pelo dashboard; `milestone_forecast_history/recalculate` consultam snapshots sem gravar. Clientes stdio e Streamable HTTP listam as tools; teste MCP percorre os contratos e o fluxo QA/forecast. |
+
+**Reconciliação de IDs resolvida:** `roadmap_id_bind/resolve/list` persiste por projeto a associação imutável `SSDD-### → UUID/chave MCP`; o script valida o mapa antes/depois do sync e grava uma cópia local em `.ssdd/roadmap-id-map.json`. Referências pelo `SSDD-###` priorizam o alias estável mapeado. Se essa string também for chave gerada de outro item, use o UUID para essa chave. A migração v26 preserva as chaves e work items existentes.
+
+## Implantação de equipe, execução e governança enterprise
+
+Esta evolução separa capacidades implementadas das lacunas de operação. Uma instância atende vários clientes/projetos por Streamable HTTP com OIDC e RBAC por projeto; o armazenamento continua em SQLite local em um único host. Sessões de execução, eventos de homologação/produção e calibração básica por horas já existem. `in_validation` e `done` continuam distintos de um deployment observado.
+
+| ID | Tarefa | Pontos | Depende de | Estado | Aceite |
+|---|---|---:|---|---|---|
+| SSDD-908 | Adicionar agente e prompt de refinamento técnico | 3 | 901 | Implementada localmente; sincronizada ao MCP | `ssdd-technical-lead` e `ssdd_refine_technical_design` cobrem decomposição, segurança, transações, migração, testes e vínculo `implements`; clientes MCP e instalador listam a nova skill/prompt e têm teste de contrato. |
+| SSDD-909 | Documentar servidor Streamable HTTP para equipes e criar probes locais | 5 | 601, 602, 603 | Implementada localmente; sincronizada ao MCP | Runbook reproduzível cobre OIDC, proxy TLS, vários projetos, seleção por `projectId`, backup, serviço Linux, encerramento gracioso, probes e limites single-host; `/healthz` e `/readyz` têm contratos mínimos, teste HTTP e não são roteados publicamente. |
+| SSDD-910 | Registrar sessões de execução e timestamps de desenvolvimento | 8 | 105, 601, 902 | Implementada localmente; sincronizada ao MCP; recuperação após queda abrupta pendente | Sessões guardam tarefa, Developer autenticado e ID de domínio; start/pause/resume/complete/cancel são auditados, idempotentes e versionados. Datas são UTC, revisões técnicas/cenários ficam fixadas e reatribuição preserva autoria. A sessão ativa não fecha automaticamente após queda abrupta e exige revisão humana; não alegar precisão automática de tempo offline. |
+| SSDD-911 | Registrar eventos de homologação e produção | 8 | 603, 910 | Implementada localmente; sincronizada ao MCP | Eventos append-only registram ambiente/build/ator/data/resultado/rollback e vínculos a tarefas, PBIs e milestones. Datas do último sucesso por ambiente aparecem no detalhe; produção exige mesmo build homologado, Done, autorização e teste MCP/API. |
+| SSDD-912 | Calibrar estimativas e velocidade por desenvolvedor sem misturar unidades | 8 | 803, 910, 911 | Parcial; calibração de horas implementada localmente; ciclo estimado permanece pendente; sincronizada ao MCP | Forecast de time continua em story points. Painel individual mostra horas ativas, tarefas concluídas, estimativa versus execução, variação e fator `real/estimado` após cinco tarefas, divide tarefas colaborativas por esforço e não cria ranking. Tempo de ciclo e intervalos de previsão individual ainda não foram implementados. |
+| SSDD-913 | Fixar relação entre tarefas, revisões técnicas e cenários de teste | 5 | 202, 203, 301, 902 | Implementada localmente; sincronizada ao MCP | `implements` direto da tarefa e cenários/runs ligados por UUID ficam no contexto; sessão fixa revisões técnicas e de cenário ao início, diferencia herança/vínculo direto e alerta drift. Gates opcionais continuam configuráveis pelo vínculo existente. |
+| SSDD-914 | Avaliar persistência e alta disponibilidade multi-instância | 5 | 601, 603, 909 | Fora de escopo; cancelada por decisão de produto em 2026-11-11 | O produto seguirá com uma instância SSDD compartilhada entre clientes no mesmo host. Preservar o item e seu ID estável no histórico sem planejar backend multi-instância/HA. Uma necessidade futura exige novo refinamento. |
+| SSDD-915 | Completar observabilidade e políticas operacionais do servidor | 5 | 909 | Pendente; sincronizada ao MCP | Logs estruturados sem conteúdo/token, correlação, duração/código; métricas com cardinalidade limitada, export opt-in, rate limits, retenção e runbook de alertas ainda aguardam implementação e testes. |
+
+### SSDD-908 · Refinamento técnico como função explícita
+
+Já existem o refinamento de backlog do PO e prompts de planning, início de desenvolvimento, QA e release. Não havia um papel dedicado de Technical Lead. A implementação local adiciona uma skill e prompt próprios; ambos propõem o desenho e o grafo de tarefas sem publicar decisões ou gravar work items por conta própria. O prompt instrui `trace_link_add` na direção `work item → specification` e exige validar o resultado em `task_context_get`.
+
+### SSDD-909 · Operação remota e seleção de projeto
+
+O runbook em [docs/team-server.md](docs/team-server.md) documenta o comando `serve`, proxy de referência, OIDC, grants por projeto, probes locais e topologia suportada. A seleção ocorre no cliente: `project_list → escolha humana → projectId enviado a cada tool`. Não existe projeto ativo global, para evitar cruzamento entre clientes concorrentes. As probes locais foram implementadas porque o servidor ainda não tinha um endpoint de liveness/readiness.
+
+### SSDD-910–913 · Datas e produtividade baseadas em evidência
+
+- A sessão de desenvolvimento é um agregado do domínio, não o `Mcp-Session-Id`: clientes podem reconectar e uma tarefa pode ter sessões de mais de uma pessoa. O servidor deriva o ator autenticado, persiste horário UTC e emite UUID próprio; referência externa é opcional e não deve conter tokens ou conteúdo privado.
+- O início é registrado pelo primeiro start válido; pausas, retomada e conclusão acumulam tempo ativo e preservam autoria após reatribuição. Datas de início/fim são projeções das sessões, não campos editáveis retroativamente. Limitação atual: queda abrupta não fecha a sessão automaticamente; a equipe deve revisar sessões ativas ao recuperar o serviço. Recuperação por lease/heartbeat permanece pendente.
+- Homologação e produção são deployments, não estados de tarefa. Cada evento liga ambiente, build imutável, pipeline, executor, timestamp, resultado e rollback. Datas de aprovação por ambiente no item derivam de eventos bem-sucedidos e coexistem com novo deploy ou rollback.
+- Velocidade de equipe continua em story points por sprint. A visão de Developer usa horas ativas, tarefas concluídas, estimativa versus execução e fator de calibração após amostra mínima; tarefas colaborativas distribuem esforço. Não pontuar pessoas com story points nem usar a métrica isolada para avaliação de desempenho. Forecast/cycle time individual permanece pendente.
+- Forecast individual deve ser opt-in por papel/configuração e agregado por intervalo, nunca buscar sessões/conversas privadas. Definir retenção, visibilidade e auditoria de acesso antes de publicar a métrica.
+
+### SSDD-913 · Rastreabilidade técnica e de QA
+
+O domínio valida `implements` de tarefa para especificação e preserva revisões de baseline; `relates_to` também aparece no contexto como referência sem alegação de implementação. Na sessão de desenvolvimento, as revisões técnicas implementadas e de cenários associadas à tarefa são fixadas. `scenario_create/revise` aceita tarefas vinculadas; `test_run_record` aceita uma ou várias tarefas para que o contexto apresente cenário, revisão executada, build e resultado. Decisões herdadas continuam distintas de links diretos, e warnings sinalizam revisões publicadas depois da sessão. A relação é opcional; nenhum gate global Ready/Done exige artefatos que a equipe não configurou como aplicáveis.
 
 ## Refinamento para iniciar a Sprint 1
 

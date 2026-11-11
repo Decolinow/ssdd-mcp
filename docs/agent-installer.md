@@ -1,6 +1,6 @@
 # Instalação local para agentes de codificação
 
-O instalador conecta um repositório Git existente ao runtime local do SSDD MCP e prepara os perfis de PO, Developer, QA e Release para Claude Code, Codex e OpenCode. Ele vem neste repositório SSDD e instala um tarball local; o pacote permanece privado e não precisa ser publicado no npm.
+O instalador conecta um repositório Git existente ao runtime local do SSDD MCP e prepara os perfis de PO, Technical Lead, Developer, QA e Release para Claude Code, Codex e OpenCode. Ele vem neste repositório SSDD e instala um tarball local; o pacote permanece privado e não precisa ser publicado no npm.
 
 ## Uso
 
@@ -28,12 +28,12 @@ node .ssdd/agent-runtime/node_modules/ssdd-mcp/dist/src/cli.js init --workspace 
 | `.mcp.json` | Servidor stdio `ssdd_mcp` project-scope do Claude Code |
 | `.codex/config.toml` | Bloco TOML gerenciado `[mcp_servers.ssdd_mcp]` do Codex |
 | `opencode.json` ou `opencode.jsonc` | Servidor local em `mcp.servers.ssdd_mcp` na configuração V2 do OpenCode |
-| `.agents/skills/<id>/SKILL.md` | Quatro skills canônicas, descobertas pelo Codex e pelo OpenCode |
-| `.claude/skills/<id>/SKILL.md` | Cópias para a descoberta nativa de skills do Claude Code |
-| `.opencode/skills/<id>/SKILL.md` | Cópias para a descoberta nativa de skills do OpenCode |
-| `.claude/agents/*.md` | Quatro agentes nativos de Claude Code |
-| `.codex/agents/*.toml` | Quatro agentes nativos de Codex |
-| `.opencode/agents/*.md` | Quatro agentes nativos de OpenCode |
+| `.agents/skills/<id>/SKILL.md` | Cinco skills canônicas, descobertas pelo Codex e pelo OpenCode |
+| `.claude/skills/<id>/SKILL.md` | Cinco cópias para a descoberta nativa de skills do Claude Code |
+| `.opencode/skills/<id>/SKILL.md` | Cinco cópias para a descoberta nativa de skills do OpenCode |
+| `.claude/agents/*.md` | Cinco agentes nativos de Claude Code |
+| `.codex/agents/*.toml` | Cinco agentes nativos de Codex |
+| `.opencode/agents/*.md` | Cinco agentes nativos de OpenCode |
 
 O instalador preserva chaves, comentários e outros servidores existentes. JSONC é editado por caminho; o bloco do Codex fica entre marcadores SSDD para que alterações fora dele permaneçam intactas. Se o nome `ssdd_mcp` já estiver ocupado sem um manifesto SSDD que comprove sua propriedade, o instalador informa o conflito e interrompe a aplicação. Alterações locais em skills ou perfis gerados também são detectadas pelos hashes.
 

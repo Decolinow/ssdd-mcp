@@ -9,12 +9,19 @@ import { getOrCreateLocalPrincipal } from "../application/local-identity.js";
 import { getProject, listProjects } from "../application/project-queries.js";
 import { listAuditEvents } from "../application/audit-queries.js";
 import { getProjectDashboardMetrics } from "../application/dashboard-metrics.js";
+import { getDeveloperExecutionMetrics, listDeploymentEvents, listDevelopmentSessions } from "../application/development-lifecycle.js";
 import { listProjectTeams } from "../application/team-directory.js";
 import { getWorkItemQualityReport, listProjectQualitySummaries } from "../application/quality-queries.js";
+import { getTaskContext, taskContextProfiles, taskContextSections } from "../application/task-context.js";
 import { getSprint, listSprints } from "../application/sprint-queries.js";
 import { getSprintRetrospective, setSprintRetrospective } from "../application/sprint-retrospectives.js";
-import { getWorkItem, listWorkItems } from "../application/work-item-queries.js";
+import { getWorkItem, listWorkItemRevisions, listWorkItems } from "../application/work-item-queries.js";
+import { createWorkItem } from "../application/create-work-item.js";
+import { proposeWorkItemRevision, publishWorkItemRevision } from "../application/work-item-revisions.js";
+import { createScenario, proposeScenarioRevision, publishScenarioRevision, recordTestRun } from "../application/scenario-commands.js";
+import { getScenario, listScenarioRevisionWorkItems, listScenarios, listTestRuns } from "../application/scenario-queries.js";
 import { transitionWorkItem } from "../application/work-item-workflow.js";
+import { scenarioKinds, testRunResults } from "../domain/scenarios.js";
 import { sprintStates } from "../domain/sprints.js";
 import { workItemStates, workItemTypes } from "../domain/work-items.js";
 import { applyMigrations } from "../storage-sqlite/migrations.js";
@@ -134,6 +141,30 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
         return;
       }
 
+      const developerMetricsMatch = /^\/api\/v1\/projects\/([^/]+)\/developer-execution-metrics$/.exec(route);
+      if (request.method === "GET" && developerMetricsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(developerMetricsMatch[1]));
+        const filters = parseDeveloperExecutionMetricFilters(requestUrl.searchParams);
+        sendJson(response, 200, getDeveloperExecutionMetrics(database, { projectId, principalId: principal.id, ...filters }));
+        return;
+      }
+
+      const developmentSessionsMatch = /^\/api\/v1\/projects\/([^/]+)\/development-sessions$/.exec(route);
+      if (request.method === "GET" && developmentSessionsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(developmentSessionsMatch[1]));
+        const filters = parseDevelopmentSessionFilters(requestUrl.searchParams);
+        sendJson(response, 200, { sessions: listDevelopmentSessions(database, { projectId, principalId: principal.id, ...filters }) });
+        return;
+      }
+
+      const deploymentEventsMatch = /^\/api\/v1\/projects\/([^/]+)\/deployment-events$/.exec(route);
+      if (request.method === "GET" && deploymentEventsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(deploymentEventsMatch[1]));
+        const filters = parseDeploymentEventFilters(requestUrl.searchParams);
+        sendJson(response, 200, { events: listDeploymentEvents(database, { projectId, principalId: principal.id, ...filters }) });
+        return;
+      }
+
       const projectTeamsMatch = /^\/api\/v1\/projects\/([^/]+)\/teams$/.exec(route);
       if (request.method === "GET" && projectTeamsMatch !== null) {
         const projectId = parseUuid(decodePathSegment(projectTeamsMatch[1]));
@@ -174,6 +205,183 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
         sendJson(response, 200, page);
         return;
       }
+      if (request.method === "POST" && projectWorkItemsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(projectWorkItemsMatch[1]));
+        assertSameOriginMutation(request, origin, session);
+        const input = createWorkItemBodySchema.parse(await readJsonBody(request));
+        const receipt = createWorkItem(database, {
+          projectId,
+          principalId: principal.id,
+          requestId: input.requestId,
+          type: input.type,
+          title: input.title,
+          ...(input.parentId === undefined ? {} : { parentId: input.parentId }),
+          ...(input.relatedStoryId === undefined ? {} : { relatedStoryId: input.relatedStoryId }),
+          ...(input.description === undefined ? {} : { description: input.description }),
+          ...(input.priority === undefined ? {} : { priority: input.priority }),
+          ...(input.criteria === undefined ? {} : { criteria: input.criteria.map((criterion) => ({
+            description: criterion.description,
+            ...(criterion.id === undefined ? {} : { id: criterion.id }),
+            ...(criterion.required === undefined ? {} : { required: criterion.required }),
+          })) }),
+        });
+        sendJson(response, 201, { workItem: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
+      const projectScenariosMatch = /^\/api\/v1\/projects\/([^/]+)\/scenarios$/.exec(route);
+      if (request.method === "GET" && projectScenariosMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(projectScenariosMatch[1]));
+        sendJson(response, 200, { scenarios: listScenarios(database, projectId, principal.id) });
+        return;
+      }
+      if (request.method === "POST" && projectScenariosMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(projectScenariosMatch[1]));
+        assertSameOriginMutation(request, origin, session);
+        const input = createScenarioBodySchema.parse(await readJsonBody(request));
+        const receipt = createScenario(database, {
+          projectId,
+          principalId: principal.id,
+          requestId: input.requestId,
+          key: input.key,
+          kind: input.kind,
+          title: input.title,
+          steps: input.steps,
+          ...(input.preconditions === undefined ? {} : { preconditions: input.preconditions }),
+          ...(input.coverage === undefined ? {} : { coverage: input.coverage }),
+          ...(input.workItemIdOrKeys === undefined ? {} : { workItemIdOrKeys: input.workItemIdOrKeys }),
+        });
+        sendJson(response, 201, { revision: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
+      const projectTestRunsMatch = /^\/api\/v1\/projects\/([^/]+)\/test-runs$/.exec(route);
+      if (request.method === "GET" && projectTestRunsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(projectTestRunsMatch[1]));
+        const filters = parseTestRunFilters(requestUrl.searchParams);
+        sendJson(response, 200, { runs: listTestRuns(database, projectId, principal.id, filters) });
+        return;
+      }
+
+      const projectScenarioMatch = /^\/api\/v1\/projects\/([^/]+)\/scenarios\/([^/]+)$/.exec(route);
+      if (request.method === "GET" && projectScenarioMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(projectScenarioMatch[1]));
+        const scenarioIdOrKey = decodePathSegment(projectScenarioMatch[2]);
+        sendJson(response, 200, { scenario: getScenario(database, projectId, principal.id, scenarioIdOrKey) });
+        return;
+      }
+
+      const scenarioRevisionWorkItemsMatch = /^\/api\/v1\/projects\/([^/]+)\/scenarios\/([^/]+)\/revisions\/(\d+)\/work-items$/.exec(route);
+      if (request.method === "GET" && scenarioRevisionWorkItemsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(scenarioRevisionWorkItemsMatch[1]));
+        const scenarioIdOrKey = decodePathSegment(scenarioRevisionWorkItemsMatch[2]);
+        const revisionNumber = Number(scenarioRevisionWorkItemsMatch[3]);
+        sendJson(response, 200, { workItems: listScenarioRevisionWorkItems(database, projectId, principal.id, scenarioIdOrKey, revisionNumber) });
+        return;
+      }
+
+      const scenarioRevisionMatch = /^\/api\/v1\/projects\/([^/]+)\/scenarios\/([^/]+)\/revisions$/.exec(route);
+      if (request.method === "POST" && scenarioRevisionMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(scenarioRevisionMatch[1]));
+        const scenarioIdOrKey = decodePathSegment(scenarioRevisionMatch[2]);
+        assertSameOriginMutation(request, origin, session);
+        const input = proposeScenarioRevisionBodySchema.parse(await readJsonBody(request));
+        const receipt = proposeScenarioRevision(database, {
+          projectId,
+          principalId: principal.id,
+          scenarioIdOrKey,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          title: input.title,
+          steps: input.steps,
+          ...(input.preconditions === undefined ? {} : { preconditions: input.preconditions }),
+          ...(input.coverage === undefined ? {} : { coverage: input.coverage }),
+          ...(input.workItemIdOrKeys === undefined ? {} : { workItemIdOrKeys: input.workItemIdOrKeys }),
+        });
+        sendJson(response, 200, { revision: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
+      const scenarioPublishMatch = /^\/api\/v1\/projects\/([^/]+)\/scenarios\/([^/]+)\/revisions\/(\d+)\/publish$/.exec(route);
+      if (request.method === "POST" && scenarioPublishMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(scenarioPublishMatch[1]));
+        const scenarioIdOrKey = decodePathSegment(scenarioPublishMatch[2]);
+        assertSameOriginMutation(request, origin, session);
+        const input = publishScenarioRevisionBodySchema.parse(await readJsonBody(request));
+        const revisionNumber = Number(scenarioPublishMatch[3]);
+        const receipt = publishScenarioRevision(database, {
+          projectId, principalId: principal.id, scenarioIdOrKey, revisionNumber, ...input,
+        });
+        sendJson(response, 200, { revision: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
+      const scenarioTestRunsMatch = /^\/api\/v1\/projects\/([^/]+)\/scenarios\/([^/]+)\/test-runs$/.exec(route);
+      if (request.method === "POST" && scenarioTestRunsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(scenarioTestRunsMatch[1]));
+        const scenarioIdOrKey = decodePathSegment(scenarioTestRunsMatch[2]);
+        assertSameOriginMutation(request, origin, session);
+        const input = recordTestRunBodySchema.parse(await readJsonBody(request));
+        const receipt = recordTestRun(database, {
+          projectId,
+          principalId: principal.id,
+          scenarioIdOrKey,
+          requestId: input.requestId,
+          revisionNumber: input.revisionNumber,
+          buildId: input.buildId,
+          result: input.result,
+          ...(input.notes === undefined ? {} : { notes: input.notes }),
+          ...(input.evidenceUri === undefined ? {} : { evidenceUri: input.evidenceUri }),
+          ...(input.workItemIdOrKeys === undefined ? {} : { workItemIdOrKeys: input.workItemIdOrKeys }),
+        });
+        sendJson(response, 201, { run: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
+      const workItemRevisionsMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/revisions$/.exec(route);
+      if (request.method === "GET" && workItemRevisionsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(workItemRevisionsMatch[1]));
+        const itemIdOrKey = decodePathSegment(workItemRevisionsMatch[2]);
+        sendJson(response, 200, { revisions: listWorkItemRevisions(database, projectId, principal.id, itemIdOrKey) });
+        return;
+      }
+
+      const workItemRevisionProposalMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/revisions$/.exec(route);
+      if (request.method === "POST" && workItemRevisionProposalMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(workItemRevisionProposalMatch[1]));
+        const itemIdOrKey = decodePathSegment(workItemRevisionProposalMatch[2]);
+        assertSameOriginMutation(request, origin, session);
+        const input = proposeWorkItemRevisionBodySchema.parse(await readJsonBody(request));
+        const receipt = proposeWorkItemRevision(database, {
+          projectId,
+          principalId: principal.id,
+          itemIdOrKey,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          ...(input.title === undefined ? {} : { title: input.title }),
+          ...(input.description === undefined ? {} : { description: input.description }),
+          ...(input.priority === undefined ? {} : { priority: input.priority }),
+          ...(input.criteria === undefined ? {} : { criteria: input.criteria.map((criterion) => ({
+            description: criterion.description,
+            ...(criterion.id === undefined ? {} : { id: criterion.id }),
+            ...(criterion.required === undefined ? {} : { required: criterion.required }),
+          })) }),
+        });
+        sendJson(response, 200, { revision: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
+      const workItemRevisionPublishMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/revisions\/(\d+)\/publish$/.exec(route);
+      if (request.method === "POST" && workItemRevisionPublishMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(workItemRevisionPublishMatch[1]));
+        const itemIdOrKey = decodePathSegment(workItemRevisionPublishMatch[2]);
+        assertSameOriginMutation(request, origin, session);
+        const input = publishWorkItemRevisionBodySchema.parse(await readJsonBody(request));
+        const revisionNumber = Number(workItemRevisionPublishMatch[3]);
+        const receipt = publishWorkItemRevision(database, { projectId, principalId: principal.id, itemIdOrKey, revisionNumber, ...input });
+        sendJson(response, 200, { revision: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
 
       const workItemQualityMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/quality$/.exec(route);
       if (request.method === "GET" && workItemQualityMatch !== null) {
@@ -186,6 +394,19 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
           itemIdOrKey,
           ...filters,
         }) });
+        return;
+      }
+
+      const workItemContextMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/context$/.exec(route);
+      if (request.method === "GET" && workItemContextMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(workItemContextMatch[1]));
+        const taskIdOrKey = decodePathSegment(workItemContextMatch[2]);
+        sendJson(response, 200, getTaskContext(database, {
+          projectId,
+          principalId: principal.id,
+          taskIdOrKey,
+          ...parseTaskContextFilters(requestUrl.searchParams),
+        }));
         return;
       }
 
@@ -363,6 +584,118 @@ const sprintRetrospectiveBodySchema = z.object({
   reason: z.string().trim().min(1).max(1_000),
 });
 
+const workItemCriteriaBodySchema = z.array(z.object({
+  id: z.string().uuid().optional(),
+  description: z.string().trim().min(1).max(1_000),
+  required: z.boolean().optional(),
+})).max(100);
+
+const createWorkItemBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(128),
+  type: z.enum(workItemTypes),
+  parentId: z.string().trim().min(1).max(80).optional(),
+  relatedStoryId: z.string().trim().min(1).max(80).optional(),
+  title: z.string().trim().min(1).max(200),
+  description: z.string().max(10_000).optional(),
+  priority: z.number().int().min(1).max(4).optional(),
+  criteria: workItemCriteriaBodySchema.optional(),
+});
+
+const proposeWorkItemRevisionBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(128),
+  expectedVersion: z.number().int().positive(),
+  title: z.string().trim().min(1).max(200).optional(),
+  description: z.string().max(10_000).nullable().optional(),
+  priority: z.number().int().min(1).max(4).optional(),
+  criteria: workItemCriteriaBodySchema.optional(),
+});
+
+const publishWorkItemRevisionBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(128),
+  expectedVersion: z.number().int().positive(),
+});
+
+const scenarioContentBodySchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  preconditions: z.array(z.string().trim().min(1).max(1_000)).max(100).optional(),
+  steps: z.array(z.object({
+    action: z.string().trim().min(1).max(1_000),
+    expected: z.string().trim().min(1).max(1_000),
+  })).min(1).max(100),
+  coverage: z.array(z.object({
+    targetType: z.enum(["criterion", "specification"]),
+    reference: z.string().trim().min(1).max(128),
+  })).max(100).optional(),
+  workItemIdOrKeys: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+});
+
+const createScenarioBodySchema = scenarioContentBodySchema.extend({
+  requestId: z.string().trim().min(1).max(128),
+  key: z.string().trim().min(1).max(32),
+  kind: z.enum(scenarioKinds),
+});
+
+const proposeScenarioRevisionBodySchema = scenarioContentBodySchema.extend({
+  requestId: z.string().trim().min(1).max(128),
+  expectedVersion: z.number().int().positive(),
+});
+
+const publishScenarioRevisionBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(128),
+  expectedVersion: z.number().int().positive(),
+});
+
+const recordTestRunBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(128),
+  revisionNumber: z.number().int().positive(),
+  buildId: z.string().trim().min(1).max(128),
+  result: z.enum(testRunResults),
+  notes: z.string().max(2_000).optional(),
+  evidenceUri: z.string().trim().min(1).max(2_048).optional(),
+  workItemIdOrKeys: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+});
+
+function parseTaskContextFilters(searchParams: URLSearchParams): {
+  readonly profile?: typeof taskContextProfiles[number];
+  readonly include?: typeof taskContextSections[number][];
+  readonly maxChars?: number;
+  readonly cursor?: string;
+} {
+  const parsed = z.object({
+    profile: z.enum(taskContextProfiles).optional(),
+    include: z.array(z.enum(taskContextSections)).max(taskContextSections.length).optional(),
+    maxChars: z.coerce.number().int().min(2_000).max(30_000).optional(),
+    cursor: z.string().min(1).max(4_096).optional(),
+  }).safeParse({
+    ...(searchParams.has("profile") ? { profile: searchParams.get("profile") } : {}),
+    ...(searchParams.has("include") ? { include: searchParams.getAll("include") } : {}),
+    ...(searchParams.has("maxChars") ? { maxChars: searchParams.get("maxChars") } : {}),
+    ...(searchParams.has("cursor") ? { cursor: searchParams.get("cursor") } : {}),
+  });
+  if (!parsed.success) throw new ApplicationError("VALIDATION_FAILED", "Dashboard task context filters are invalid.");
+  return {
+    ...(parsed.data.profile === undefined ? {} : { profile: parsed.data.profile }),
+    ...(parsed.data.include === undefined ? {} : { include: parsed.data.include }),
+    ...(parsed.data.maxChars === undefined ? {} : { maxChars: parsed.data.maxChars }),
+    ...(parsed.data.cursor === undefined ? {} : { cursor: parsed.data.cursor }),
+  };
+}
+
+function parseTestRunFilters(searchParams: URLSearchParams): { readonly limit?: number; readonly scenarioIdOrKey?: string } {
+  const parsed = z.object({
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    scenario: z.string().trim().min(1).max(80).optional(),
+  }).safeParse({
+    ...(searchParams.has("limit") ? { limit: searchParams.get("limit") } : {}),
+    ...(searchParams.has("scenario") ? { scenario: searchParams.get("scenario") } : {}),
+  });
+  if (!parsed.success) throw new ApplicationError("VALIDATION_FAILED", "Dashboard test run filters are invalid.");
+  return {
+    ...(parsed.data.limit === undefined ? {} : { limit: parsed.data.limit }),
+    ...(parsed.data.scenario === undefined ? {} : { scenarioIdOrKey: parsed.data.scenario }),
+  };
+}
+
 function parseDashboardMetricsFilters(searchParams: URLSearchParams): {
   readonly teamId?: string;
   readonly asOfDate?: string;
@@ -392,6 +725,84 @@ function parseDashboardMetricsFilters(searchParams: URLSearchParams): {
     ...(parsed.data.asOfDate === undefined ? {} : { asOfDate: parsed.data.asOfDate }),
     ...(parsed.data.milestoneId === undefined ? {} : { milestoneId: parsed.data.milestoneId }),
     ...(parsed.data.sprintId === undefined ? {} : { sprintId: parsed.data.sprintId }),
+  };
+}
+
+function parseDeveloperExecutionMetricFilters(searchParams: URLSearchParams): {
+  readonly from?: string;
+  readonly to?: string;
+  readonly developerPrincipalId?: string;
+} {
+  const parsed = z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+    developerPrincipalId: z.string().uuid().optional(),
+  }).safeParse({
+    ...(searchParams.has("from") ? { from: searchParams.get("from") ?? "" } : {}),
+    ...(searchParams.has("to") ? { to: searchParams.get("to") ?? "" } : {}),
+    ...(searchParams.has("developerPrincipalId") ? { developerPrincipalId: searchParams.get("developerPrincipalId") ?? "" } : {}),
+  });
+  if (!parsed.success) throw new ApplicationError("VALIDATION_FAILED", "Developer execution metric filters are invalid.");
+  for (const date of [parsed.data.from, parsed.data.to]) {
+    if (date !== undefined) {
+      const parsedDate = new Date(`${date}T00:00:00.000Z`);
+      if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) {
+        throw new ApplicationError("VALIDATION_FAILED", "Developer execution metric dates must be valid calendar dates.");
+      }
+    }
+  }
+  return {
+    ...(parsed.data.from === undefined ? {} : { from: parsed.data.from }),
+    ...(parsed.data.to === undefined ? {} : { to: parsed.data.to }),
+    ...(parsed.data.developerPrincipalId === undefined ? {} : { developerPrincipalId: parsed.data.developerPrincipalId }),
+  };
+}
+
+function parseDevelopmentSessionFilters(searchParams: URLSearchParams): {
+  readonly itemIdOrKey?: string;
+  readonly developerPrincipalId?: string;
+  readonly status?: "active" | "paused" | "completed" | "cancelled";
+  readonly limit?: number;
+} {
+  const parsed = z.object({
+    itemIdOrKey: z.string().trim().min(1).max(80).optional(),
+    developerPrincipalId: z.string().uuid().optional(),
+    status: z.enum(["active", "paused", "completed", "cancelled"]).optional(),
+    limit: z.coerce.number().int().min(1).max(200).optional(),
+  }).safeParse({
+    ...(searchParams.has("itemIdOrKey") ? { itemIdOrKey: searchParams.get("itemIdOrKey") ?? "" } : {}),
+    ...(searchParams.has("developerPrincipalId") ? { developerPrincipalId: searchParams.get("developerPrincipalId") ?? "" } : {}),
+    ...(searchParams.has("status") ? { status: searchParams.get("status") ?? "" } : {}),
+    ...(searchParams.has("limit") ? { limit: searchParams.get("limit") ?? "" } : {}),
+  });
+  if (!parsed.success) throw new ApplicationError("VALIDATION_FAILED", "Development session filters are invalid.");
+  return {
+    ...(parsed.data.itemIdOrKey === undefined ? {} : { itemIdOrKey: parsed.data.itemIdOrKey }),
+    ...(parsed.data.developerPrincipalId === undefined ? {} : { developerPrincipalId: parsed.data.developerPrincipalId }),
+    ...(parsed.data.status === undefined ? {} : { status: parsed.data.status }),
+    ...(parsed.data.limit === undefined ? {} : { limit: parsed.data.limit }),
+  };
+}
+
+function parseDeploymentEventFilters(searchParams: URLSearchParams): {
+  readonly itemIdOrKey?: string;
+  readonly environment?: "homologation" | "production";
+  readonly limit?: number;
+} {
+  const parsed = z.object({
+    itemIdOrKey: z.string().trim().min(1).max(80).optional(),
+    environment: z.enum(["homologation", "production"]).optional(),
+    limit: z.coerce.number().int().min(1).max(200).optional(),
+  }).safeParse({
+    ...(searchParams.has("itemIdOrKey") ? { itemIdOrKey: searchParams.get("itemIdOrKey") ?? "" } : {}),
+    ...(searchParams.has("environment") ? { environment: searchParams.get("environment") ?? "" } : {}),
+    ...(searchParams.has("limit") ? { limit: searchParams.get("limit") ?? "" } : {}),
+  });
+  if (!parsed.success) throw new ApplicationError("VALIDATION_FAILED", "Deployment event filters are invalid.");
+  return {
+    ...(parsed.data.itemIdOrKey === undefined ? {} : { itemIdOrKey: parsed.data.itemIdOrKey }),
+    ...(parsed.data.environment === undefined ? {} : { environment: parsed.data.environment }),
+    ...(parsed.data.limit === undefined ? {} : { limit: parsed.data.limit }),
   };
 }
 
@@ -618,7 +1029,11 @@ function sendApplicationError(response: ServerResponse, error: unknown): void {
   }
   const applicationError = error instanceof ApplicationError
     ? error
-    : new ApplicationError("INTERNAL_ERROR", "An unexpected server error occurred.");
+    : error instanceof z.ZodError
+      ? new ApplicationError("VALIDATION_FAILED", "Dashboard request data is invalid.", {
+          details: error.issues.map((issue) => ({ path: issue.path, message: issue.message })),
+        })
+      : new ApplicationError("INTERNAL_ERROR", "An unexpected server error occurred.");
   const status = statusForError(applicationError.code);
   sendJson(response, status, {
     code: applicationError.code,

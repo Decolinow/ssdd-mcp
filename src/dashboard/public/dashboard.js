@@ -90,6 +90,42 @@
     buildIdField: document.querySelector("#build-id-field"),
     buildId: document.querySelector("#build-id"),
     submitTransition: document.querySelector("#submit-transition"),
+    createWorkItem: document.querySelector("#create-work-item"),
+    detailEdit: document.querySelector("#detail-edit-button"),
+    workItemDialog: document.querySelector("#work-item-form-dialog"),
+    workItemForm: document.querySelector("#work-item-form"),
+    workItemFormTitle: document.querySelector("#work-item-form-title"),
+    workItemType: document.querySelector("#work-item-type"),
+    workItemParent: document.querySelector("#work-item-parent"),
+    workItemTitle: document.querySelector("#work-item-title"),
+    workItemDescription: document.querySelector("#work-item-description"),
+    workItemPriority: document.querySelector("#work-item-priority"),
+    workItemCriteria: document.querySelector("#work-item-criteria"),
+    submitWorkItem: document.querySelector("#submit-work-item"),
+    qaRunChart: document.querySelector("#qa-run-chart"),
+    scenarioList: document.querySelector("#scenario-list"),
+    createScenario: document.querySelector("#create-scenario"),
+    scenarioDialog: document.querySelector("#scenario-form-dialog"),
+    scenarioForm: document.querySelector("#scenario-form"),
+    scenarioFormTitle: document.querySelector("#scenario-form-title"),
+    scenarioKey: document.querySelector("#scenario-key"),
+    scenarioKind: document.querySelector("#scenario-kind"),
+    scenarioTitle: document.querySelector("#scenario-title"),
+    scenarioPreconditions: document.querySelector("#scenario-preconditions"),
+    scenarioActions: document.querySelector("#scenario-actions"),
+    scenarioExpectations: document.querySelector("#scenario-expectations"),
+    scenarioCoverage: document.querySelector("#scenario-coverage"),
+    scenarioTasks: document.querySelector("#scenario-tasks"),
+    submitScenario: document.querySelector("#submit-scenario"),
+    testRunForm: document.querySelector("#test-run-form"),
+    testRunScenario: document.querySelector("#test-run-scenario"),
+    testRunBuild: document.querySelector("#test-run-build"),
+    testRunResult: document.querySelector("#test-run-result"),
+    testRunNotes: document.querySelector("#test-run-notes"),
+    testRunEvidence: document.querySelector("#test-run-evidence"),
+    testRunTasks: document.querySelector("#test-run-tasks"),
+    submitTestRun: document.querySelector("#submit-test-run"),
+    testRunHistory: document.querySelector("#test-run-history"),
   };
 
   const model = {
@@ -101,6 +137,9 @@
     project: null,
     items: [],
     qualitySummaries: [],
+    scenarios: [],
+    testRuns: [],
+    parentFeatures: [],
     activityEvents: [],
     activityCursor: null,
     activityWatermark: 0,
@@ -117,6 +156,10 @@
     metricsRefreshPending: false,
     currentItem: null,
     currentQuality: null,
+    currentTaskContext: null,
+    currentRevisions: [],
+    editingItem: null,
+    editingScenario: null,
     pendingMove: null,
     draggedItemId: null,
     loading: false,
@@ -216,6 +259,39 @@
     return [];
   }
 
+  async function loadParentFeatures(projectId) {
+    const params = new URLSearchParams({ type: "feature", limit: "100" });
+    return (await api(`/api/v1/projects/${encodeURIComponent(projectId)}/work-items?${params}`)).items;
+  }
+
+  async function loadChildTasks(projectId, parentId) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const tasks = [];
+      let cursor = null;
+      try {
+        do {
+          const params = new URLSearchParams({ type: "task", parentId, limit: "100" });
+          if (cursor) params.set("cursor", cursor);
+          const page = await api(`/api/v1/projects/${encodeURIComponent(projectId)}/work-items?${params}`);
+          tasks.push(...page.items);
+          cursor = page.nextCursor;
+        } while (cursor);
+        return tasks;
+      } catch (error) {
+        if (error.code !== "STALE_CURSOR" || attempt === 2) throw error;
+      }
+    }
+    return [];
+  }
+
+  async function loadTaskContext(projectId, taskId) {
+    const params = new URLSearchParams({ profile: "dev", maxChars: "30000" });
+    for (const section of ["hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "testRuns", "baseline"]) {
+      params.append("include", section);
+    }
+    return api(`/api/v1/projects/${encodeURIComponent(projectId)}/work-items/${encodeURIComponent(taskId)}/context?${params}`);
+  }
+
   async function loadProjectData() {
     if (!model.projectId) return;
     if (model.loading) {
@@ -240,13 +316,16 @@
       const closedSprints = model.selectedTeamId
         ? api(`/api/v1/projects/${encodeURIComponent(projectId)}/sprints?status=closed&limit=100${teamFilter}`)
         : Promise.resolve({ sprints: [] });
-      const [projectResult, sprintResult, items, qualityResult, activityPage, closedSprintResult] = await Promise.all([
+      const [projectResult, sprintResult, items, qualityResult, activityPage, closedSprintResult, scenariosResult, testRunsResult, parentFeatures] = await Promise.all([
         api(`/api/v1/projects/${encodeURIComponent(projectId)}`),
         activeSprints,
         loadWorkItems(projectId),
         api(`/api/v1/projects/${encodeURIComponent(projectId)}/quality`),
         loadActivityFirstPage(projectId),
         closedSprints,
+        api(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios`),
+        api(`/api/v1/projects/${encodeURIComponent(projectId)}/test-runs?limit=100`),
+        loadParentFeatures(projectId),
       ]);
       model.project = projectResult.project;
       model.sprint = sprintResult.sprints.length > 0
@@ -254,6 +333,9 @@
         : null;
       model.items = items;
       model.qualitySummaries = qualityResult.items;
+      model.scenarios = scenariosResult.scenarios;
+      model.testRuns = testRunsResult.runs;
+      model.parentFeatures = parentFeatures;
       model.activityEvents = activityPage.events;
       model.activityCursor = activityPage.nextCursor;
       model.activityWatermark = activityPage.watermark;
@@ -320,11 +402,15 @@
       if (model.selectedMetricsDate) params.set("asOfDate", model.selectedMetricsDate);
       const suffix = params.size ? `?${params}` : "";
       const result = await api(`/api/v1/projects/${encodeURIComponent(projectId)}/dashboard-metrics${suffix}`);
+      const developerParams = new URLSearchParams();
+      developerParams.set("from", `${result.asOfDate.slice(0, 7)}-01`);
+      developerParams.set("to", result.asOfDate);
+      const developerExecutionMetrics = await api(`/api/v1/projects/${encodeURIComponent(projectId)}/developer-execution-metrics?${developerParams}`);
       if (projectId !== model.projectId || teamId !== model.selectedTeamId) {
         model.metricsRefreshPending = true;
         return;
       }
-      model.dashboardMetrics = result;
+      model.dashboardMetrics = { ...result, developerExecutionMetrics };
       if (!model.metricsFiltersInitialized) {
         model.selectedMetricsMilestoneId = result.selectedMilestoneId ?? "none";
         model.selectedMetricsSprintId = result.selectedSprintId ?? "none";
@@ -464,6 +550,7 @@
   }
 
   function renderQuality() {
+    renderScenarioManager();
     const items = filteredQualitySummaries();
     elements.qualityCount.textContent = `${items.length} ${items.length === 1 ? "PBI" : "PBIs"}`;
     if (!items.length) {
@@ -485,6 +572,61 @@
         <button class="row-open" type="button" data-open-item="${escapeHtml(item.itemId)}" aria-label="Abrir qualidade de ${escapeHtml(item.itemKey)}">›</button>
       </article>`;
     }).join("");
+  }
+
+  function safeEvidenceUrl(value) {
+    if (!value) return null;
+    try {
+      const url = new URL(value);
+      return ["http:", "https:"].includes(url.protocol) ? url.href : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function renderScenarioManager() {
+    const resultOrder = ["passed", "failed", "blocked", "skipped"];
+    const resultLabels = { passed: "Aprovado", failed: "Reprovado", blocked: "Bloqueado", skipped: "Ignorado" };
+    const resultColors = { passed: "#24815b", failed: "#c54b43", blocked: "#c3831d", skipped: "#8090a6" };
+    const counts = Object.fromEntries(resultOrder.map((result) => [result, 0]));
+    for (const run of model.testRuns) counts[run.result] = (counts[run.result] ?? 0) + 1;
+    const total = model.testRuns.length;
+    elements.qaRunChart.innerHTML = total === 0
+      ? `<div class="empty-state"><strong>Sem execuções registradas.</strong><p>Crie e publique um cenário para registrar o primeiro resultado.</p></div>`
+      : `<svg class="qa-result-chart" viewBox="0 0 600 42" role="img" aria-label="${resultOrder.map((result) => `${resultLabels[result]}: ${counts[result]}`).join(", ")}">${resultOrder.map((result, index) => {
+        const prior = resultOrder.slice(0, index).reduce((sum, key) => sum + counts[key], 0);
+        const x = prior / total * 600;
+        const width = counts[result] / total * 600;
+        return counts[result] ? `<rect x="${x}" y="4" width="${Math.max(width, 1)}" height="34" fill="${resultColors[result]}" rx="${index === 0 || prior + counts[result] === total ? 5 : 0}"><title>${resultLabels[result]}: ${counts[result]}</title></rect>` : "";
+      }).join("")}</svg><div class="qa-chart-legend">${resultOrder.map((result) => `<span><i class="qa-swatch result-color-${result}" aria-hidden="true"></i>${resultLabels[result]} <strong>${counts[result]}</strong></span>`).join("")}</div>`;
+
+    elements.scenarioList.innerHTML = model.scenarios.length === 0
+      ? `<div class="empty-state"><strong>Nenhum cenário cadastrado.</strong><p>Crie um cenário e publique a primeira revisão para habilitar execuções.</p></div>`
+      : model.scenarios.map((scenario) => {
+        const hasDraft = scenario.latestRevision > (scenario.publishedRevision ?? 0);
+        const publishButton = hasDraft
+          ? `<button class="button button-secondary" type="button" data-publish-scenario="${escapeHtml(scenario.key)}" data-revision="${scenario.latestRevision}">Publicar r${scenario.latestRevision}</button>`
+          : "";
+        const reviseButton = scenario.publishedRevision !== null && !hasDraft
+          ? `<button class="button button-secondary" type="button" data-revise-scenario="${escapeHtml(scenario.key)}">Propor revisão</button>`
+          : "";
+        const published = scenario.publishedRevision === null ? "Sem revisão publicada" : `Publicada r${scenario.publishedRevision}`;
+        return `<article class="scenario-row"><div><strong>${escapeHtml(scenario.key)} · ${escapeHtml(scenario.title)}</strong><span>${escapeHtml(scenario.kind)} · ${escapeHtml(published)} · v${scenario.version}</span></div><div class="scenario-actions">${publishButton}${reviseButton}</div></article>`;
+      }).join("");
+
+    const publishedScenarios = model.scenarios.filter((scenario) => scenario.publishedRevision !== null);
+    elements.testRunScenario.innerHTML = publishedScenarios.length
+      ? publishedScenarios.map((scenario) => `<option value="${escapeHtml(scenario.id)}|${scenario.publishedRevision}">${escapeHtml(scenario.key)} · r${scenario.publishedRevision} · ${escapeHtml(scenario.title)}</option>`).join("")
+      : `<option value="">Publique um cenário para continuar</option>`;
+    elements.testRunScenario.disabled = publishedScenarios.length === 0;
+    elements.submitTestRun.disabled = publishedScenarios.length === 0;
+    elements.testRunHistory.innerHTML = total === 0
+      ? ""
+      : `<h4>Histórico recente</h4><div class="run-history-list">${model.testRuns.map((run) => {
+        const evidenceUrl = safeEvidenceUrl(run.evidenceUri);
+        const evidence = evidenceUrl ? `<a href="${escapeHtml(evidenceUrl)}" target="_blank" rel="noreferrer">Evidência</a>` : "";
+        return `<article class="run-history-row"><span class="run-result result-${escapeHtml(run.result)}">${escapeHtml(resultLabels[run.result] ?? run.result)}</span><strong>${escapeHtml(run.scenarioKey)} · r${run.revisionNumber}</strong><span>${escapeHtml(run.buildId)}</span><time datetime="${escapeHtml(run.executedAt)}">${escapeHtml(new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(run.executedAt)))}</time>${evidence}</article>`;
+      }).join("")}</div>`;
   }
 
   function eventTitle(event) {
@@ -703,6 +845,8 @@
       <article class="metric-kpi"><span>WIP atual</span><strong>${data.wip.totalWipCount}</strong><small>${data.wip.blockedByOpenImpactCount} com impacto aberto · watermark ${data.wip.watermarkSequence}</small></article>
       <article class="metric-kpi"><span>Cobertura certificada</span><strong>${coverage.certifiedCoveragePercent === null ? "—" : `${coverage.certifiedCoveragePercent}%`}</strong><small>${coverage.certifiedRequiredCriteria}/${coverage.requiredCriteria} critérios · build: todos</small></article>`;
     const velocityRows = data.velocity.sprints.slice(-8).reverse().map((sprint) => `<tr><td>${escapeHtml(sprint.sprintKey)}</td><td>${escapeHtml(metricDate(sprint.closedAt.slice(0, 10)))}</td><td>${escapeHtml(metricNumber(sprint.deliveredPoints))} pts</td><td>${escapeHtml(metricNumber(sprint.capacityHours))} h</td><td>${escapeHtml(metricNumber(sprint.pointsPerHour))} pts/h</td></tr>`).join("");
+    const developerMetrics = data.developerExecutionMetrics;
+    const developerRows = developerMetrics?.developers.map((developer) => `<tr><td>${escapeHtml(developer.name)}</td><td>${developer.completedTasks}</td><td>${escapeHtml(metricNumber(developer.activeHours))} h</td><td>${escapeHtml(metricNumber(developer.activeHoursOnCompletedTasks))} h</td><td>${escapeHtml(metricNumber(developer.estimatedHoursOnCompletedTasks))} h</td><td>${developer.effortCalibrationFactor === null ? "—" : `${escapeHtml(metricNumber(developer.effortCalibrationFactor))}×`}</td><td>${developer.estimateVariancePercent === null ? "—" : `${developer.estimateVariancePercent > 0 ? "+" : ""}${escapeHtml(metricNumber(developer.estimateVariancePercent))}%`}</td><td>${developer.sampleSufficient ? `${developer.completedTasks} tarefas` : `Amostra baixa · ${developer.completedTasks}/${developerMetrics.minimumSampleTasks}`}</td></tr>`).join("") ?? "";
     const wipRows = data.wip.items.slice(0, 20).map((item) => `<tr><td><button class="metric-item-link" type="button" data-open-item="${escapeHtml(item.itemId)}">${escapeHtml(item.itemKey)}</button><span>${escapeHtml(item.title)}</span></td><td>${escapeHtml(stateLabel(item.state))}</td><td>${item.ageDays} dias</td><td>${item.openImpactCount ? `<span class="blocker-pill">${item.openImpactCount} impacto(s)</span>` : "—"}</td></tr>`).join("");
     const coverageRows = coverage.items.slice(0, 20).map((item) => `<tr><td><button class="metric-item-link" type="button" data-open-item="${escapeHtml(item.itemId)}">${escapeHtml(item.itemKey)}</button><span>${escapeHtml(item.title)}</span></td><td>${item.coveredRequiredCriteria}/${item.requiredCriteria}</td><td>${item.certifiedRequiredCriteria}/${item.requiredCriteria}</td><td>${item.hasOpenImpact ? `<span class="blocker-pill">Impacto</span>` : "—"}</td></tr>`).join("");
     elements.metricsContent.innerHTML = `
@@ -716,6 +860,7 @@
         <article class="metrics-panel"><div class="metrics-panel-heading"><div><p class="eyebrow">TÉCNICO</p><h3>WIP e bloqueios</h3><p>Idade desde a entrada no estado; bloqueios por impacto de especificação.</p></div><span class="unit-tag">${data.wip.totalWipCount} itens</span></div><div class="metric-table-wrap"><table class="metric-table"><thead><tr><th>Item</th><th>Estado</th><th>Idade</th><th>Bloqueio</th></tr></thead><tbody>${wipRows || `<tr><td colspan="4">Nenhum item em andamento.</td></tr>`}</tbody></table></div>${data.wip.itemsTruncated ? `<p class="table-note">Lista limitada a ${data.wip.items.length} itens; o total considera todo o projeto.</p>` : ""}</article>
         <article class="metrics-panel"><div class="metrics-panel-heading"><div><p class="eyebrow">TÉCNICO</p><h3>Cobertura de critérios</h3><p>Critérios cobertos e certificações aprovadas por build.</p></div><span class="unit-tag">${coverage.coveragePercent === null ? "—" : `${coverage.coveragePercent}%`}</span></div><div class="metric-table-wrap"><table class="metric-table"><thead><tr><th>PBI</th><th>Cobertos</th><th>Certificados</th><th>Impacto</th></tr></thead><tbody>${coverageRows || `<tr><td colspan="4">Nenhum critério obrigatório para analisar.</td></tr>`}</tbody></table></div>${coverage.itemsTotal > 20 ? `<p class="table-note">Exibindo 20 de ${coverage.itemsTotal} PBIs; os detalhes estão limitados a ${coverage.items.length}. Totais consideram todo o projeto.</p>` : ""}</article>
         <article class="metrics-panel metrics-panel-wide"><div class="metrics-panel-heading"><div><p class="eyebrow">TÉCNICO</p><h3>Velocidade recente</h3><p>Pontos entregues por sprint e horas de capacidade registradas; amostra segmentada por time/geração.</p></div><span class="unit-tag">${data.velocity.sampleSize} sprints</span></div><div class="metric-table-wrap"><table class="metric-table"><thead><tr><th>Sprint</th><th>Fechada</th><th>Entregue</th><th>Capacidade</th><th>Taxa histórica</th></tr></thead><tbody>${velocityRows || `<tr><td colspan="5">Feche sprints para formar uma série de velocidade.</td></tr>`}</tbody></table></div></article>
+        <article class="metrics-panel metrics-panel-wide"><div class="metrics-panel-heading"><div><p class="eyebrow">FLUXO DE DESENVOLVIMENTO</p><h3>Esforço por desenvolvedor</h3><p>${developerMetrics ? `${escapeHtml(metricDate(developerMetrics.period.from))}–${escapeHtml(metricDate(developerMetrics.period.to))} · amostras com menos de ${developerMetrics.minimumSampleTasks} tarefas são sinalizadas` : "Dados de sessões de desenvolvimento"}</p></div><span class="unit-tag">Horas e tarefas</span></div><div class="metric-table-wrap"><table class="metric-table"><thead><tr><th>Desenvolvedor</th><th>Tarefas concluídas</th><th>Horas ativas</th><th>Horas nas tarefas concluídas</th><th>Estimativa dessas tarefas</th><th>Fator de calibração</th><th>Variação</th><th>Amostra</th></tr></thead><tbody>${developerRows || `<tr><td colspan="8">Nenhuma sessão concluída no período.</td></tr>`}</tbody></table></div><p class="table-note">O fator multiplica horas estimadas pela razão observada entre horas registradas e estimadas nas tarefas concluídas; só aparece com pelo menos ${developerMetrics?.minimumSampleTasks ?? 5} tarefas e estimativas confirmadas. É uma referência para planejar esforço, não uma alteração automática nem um ranking. A velocidade do time continua sendo calculada em pontos de história.</p></article>
       </div>`;
   }
 
@@ -769,6 +914,98 @@
   function renderItemTimeline(events) {
     if (!events.length) return "<p>Nenhuma mudança auditada encontrada para este item.</p>";
     return `<div class="detail-timeline">${events.map((event) => renderActivityEvent(event, true)).join("")}</div>`;
+  }
+
+  function renderTaskContext(context) {
+    if (!context) return "";
+    const labels = {
+      hierarchy: "Hierarquia e descrição",
+      acceptanceCriteria: "Critérios de aceite",
+      businessRules: "Regras de negócio",
+      technicalDecisions: "Especificações e decisões técnicas",
+      scenarios: "Cenários de teste",
+      testRuns: "Execuções de teste",
+      baseline: "Baseline",
+    };
+    const relationshipLabels = {
+      parent_baseline: "fixado na baseline do PBI",
+      hierarchy_link: "herdado da hierarquia",
+      task_direct_link: "vinculado diretamente à tarefa",
+      scenario_coverage: "cobertura de requisito",
+      task_run_link: "execução vinculada diretamente à tarefa",
+    };
+    const warnings = context.warnings.length
+      ? `<ul class="context-warnings">${context.warnings.map((warning) => `<li><strong>${escapeHtml(warning.code)}</strong>${warning.key ? ` · ${escapeHtml(warning.key)}` : ""}: ${escapeHtml(warning.message)}</li>`).join("")}</ul>`
+      : "<p>Sem alertas de baseline ou rastreabilidade.</p>";
+    const sections = Object.entries(labels).map(([key, label]) => {
+      const entries = context.sections[key] ?? [];
+      const content = entries.length ? entries.map((entry) => {
+        const source = entry.source;
+        const revision = source.revisionNumber === null ? "" : ` · r${source.revisionNumber}`;
+        const linkType = source.traceLinkType === "implements" ? " · implementa" : source.traceLinkType === "relates_to" ? " · relacionado" : "";
+        const relationship = source.relationship ? ` · ${relationshipLabels[source.relationship] ?? source.relationship}` : "";
+        const mode = source.mode === "pinned" ? " · versão fixada" : " · versão corrente";
+        return `<article class="task-context-entry"><div><strong>${escapeHtml(entry.key)} · ${escapeHtml(entry.title)}</strong><span>${escapeHtml(`${revision}${relationship}${linkType}${mode}`)}</span></div><pre>${escapeHtml(JSON.stringify(entry.content, null, 2))}</pre></article>`;
+      }).join("") : "<p>Nenhum registro relacionado.</p>";
+      return `<section class="detail-section"><h4>${escapeHtml(label)} · ${entries.length}</h4>${content}</section>`;
+    }).join("");
+    const more = context.nextCursor
+      ? `<button class="button button-secondary" type="button" data-load-task-context>Carregar mais contexto</button>`
+      : "";
+    return `<section id="task-context-report" class="detail-section"><h3>Contexto para desenvolvimento · ${escapeHtml(context.mode === "pinned" ? "baseline fixada" : "preview corrente")}</h3>${warnings}${sections}${context.truncated ? "<p>O contexto está paginado; carregue as próximas entradas para ver todos os vínculos.</p>" : ""}${more}</section>`;
+  }
+
+  async function loadMoreTaskContext(button) {
+    const context = model.currentTaskContext;
+    const item = model.currentItem;
+    if (!context?.nextCursor || !item) return;
+    button.disabled = true;
+    button.textContent = "Carregando…";
+    try {
+      const params = new URLSearchParams({ profile: "dev", maxChars: "30000", cursor: context.nextCursor });
+      for (const section of ["hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "testRuns", "baseline"]) {
+        params.append("include", section);
+      }
+      const next = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(item.id)}/context?${params}`);
+      const mergedSections = Object.fromEntries(Object.keys(context.sections).map((section) => [
+        section,
+        [...context.sections[section], ...next.sections[section]],
+      ]));
+      model.currentTaskContext = {
+        ...next,
+        sections: mergedSections,
+        warnings: [...new Map([...context.warnings, ...next.warnings].map((warning) => [`${warning.code}:${warning.key ?? ""}`, warning])).values()],
+      };
+      const report = document.querySelector("#task-context-report");
+      if (report) report.outerHTML = renderTaskContext(model.currentTaskContext);
+    } catch (error) {
+      toast(`${error.code ?? "ERRO"}: ${error.message}`, true);
+      button.disabled = false;
+      button.textContent = "Carregar mais contexto";
+    }
+  }
+
+  function renderTaskExecution(item, sessions, events) {
+    if (item.type !== "task") return "";
+    const latestSuccessful = (environment) => events
+      .filter((event) => event.environment === environment && event.outcome === "succeeded")
+      .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))[0] ?? null;
+    const firstSession = [...sessions].sort((left, right) => left.startedAt.localeCompare(right.startedAt))[0] ?? null;
+    const lastCompletedSession = sessions
+      .filter((session) => session.status === "completed" && session.endedAt)
+      .sort((left, right) => right.endedAt.localeCompare(left.endedAt))[0] ?? null;
+    const homologation = latestSuccessful("homologation");
+    const production = latestSuccessful("production");
+    const dateValue = (value) => value ? formatDate(value) : "Ainda não registrada";
+    const dateCards = [
+      ["Início do desenvolvimento", firstSession?.startedAt],
+      ["Fim do desenvolvimento", lastCompletedSession?.endedAt],
+      ["Última homologação aprovada", homologation?.occurredAt],
+      ["Última produção aprovada", production?.occurredAt],
+    ].map(([label, value]) => `<div class="detail-date-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(dateValue(value))}</strong></div>`).join("");
+    const sessionRows = sessions.map((session) => `<li><strong>${escapeHtml(session.developerName)}</strong> · ${escapeHtml(session.status)} · ${escapeHtml(formatDate(session.startedAt))}${session.endedAt ? `–${escapeHtml(formatDate(session.endedAt))}` : ""} · ${escapeHtml(metricNumber(session.activeSeconds / 3600))} h${session.sessionReference ? ` · ${escapeHtml(session.sessionReference)}` : ""}</li>`).join("");
+    const eventRows = events.map((event) => `<li><strong>${escapeHtml(event.environment === "homologation" ? "Homologação" : "Produção")}</strong> · ${escapeHtml(event.outcome)} · build ${escapeHtml(event.buildId)} · ${escapeHtml(formatDate(event.occurredAt))}${event.releaseVersion ? ` · ${escapeHtml(event.releaseVersion)}` : ""}${event.rollbackOfEventId ? " · rollback" : ""}</li>`).join("");
+    return `<section class="detail-section"><h3>Execução e releases</h3><div class="detail-date-grid">${dateCards}</div><p>As datas de homologação e produção mostram o evento aprovado mais recente. Falhas e rollbacks permanecem no histórico.</p><h4>Sessões de desenvolvimento</h4>${sessionRows ? `<ul>${sessionRows}</ul>` : "<p>Nenhuma sessão iniciada.</p>"}<h4>Histórico de implantação</h4>${eventRows ? `<ul>${eventRows}</ul>` : "<p>Nenhum evento de implantação registrado.</p>"}</section>`;
   }
 
   async function loadMoreEvidence(button) {
@@ -846,14 +1083,25 @@
   async function openItem(itemId) {
     try {
       const base = `/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(itemId)}`;
-      const [result, qualityResult, timeline] = await Promise.all([
-        api(base),
-        api(`${base}/quality?limit=100`),
-        api(`${base}/timeline?limit=100`),
-      ]);
+      const result = await api(base);
       const item = result.workItem;
+      const [qualityResult, timeline, revisionsResult, sessionsResult, deploymentResult, childTasks, taskContext] = await Promise.all([
+        item.type === "story" || item.type === "bug" ? api(`${base}/quality?limit=100`) : Promise.resolve(null),
+        api(`${base}/timeline?limit=100`),
+        api(`${base}/revisions`),
+        item.type === "task"
+          ? api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/development-sessions?itemIdOrKey=${encodeURIComponent(item.id)}&limit=200`)
+          : Promise.resolve({ sessions: [] }),
+        item.type === "task"
+          ? api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/deployment-events?itemIdOrKey=${encodeURIComponent(item.id)}&limit=200`)
+          : Promise.resolve({ events: [] }),
+        item.type === "story" || item.type === "bug" ? loadChildTasks(model.projectId, item.id) : Promise.resolve([]),
+        item.type === "task" ? loadTaskContext(model.projectId, item.id) : Promise.resolve(null),
+      ]);
       model.currentItem = item;
-      model.currentQuality = qualityResult.quality;
+      model.currentQuality = qualityResult?.quality ?? null;
+      model.currentTaskContext = taskContext;
+      model.currentRevisions = revisionsResult.revisions;
       elements.itemKicker.textContent = `${item.key} · ${itemTypeLabel(item.type)} · ${stateLabel(item.state)}`;
       elements.itemTitle.textContent = item.title;
       const criteria = item.criteria.length
@@ -862,20 +1110,263 @@
       const estimates = item.estimates.length
         ? `<div class="estimate-list">${item.estimates.map((estimate) => `<span class="estimate-chip">${escapeHtml(formatEstimate(estimate))}</span>`).join("")}</div>`
         : "<p>Sem estimativa confirmada.</p>";
-      const parent = item.parentId ? `<p>${escapeHtml(item.parentId)}</p>` : "<p>Sem item pai.</p>";
+      const parentReference = taskContext?.sections.hierarchy.find((entry) => entry.source.entityId === item.parentId);
+      const parent = item.parentId ? `<p>${escapeHtml(parentReference ? `${parentReference.key} · ${parentReference.title}` : item.parentId)}</p>` : "<p>Sem item pai.</p>";
+      const children = childTasks.length
+        ? `<ul class="child-task-list">${childTasks.map((task) => `<li><button class="link-button" type="button" data-open-item="${escapeHtml(task.id)}"><strong>${escapeHtml(task.key)}</strong> · ${escapeHtml(task.title)}</button><span>${escapeHtml(stateLabel(task.state))} · ${escapeHtml(task.assigneeId || "sem responsável")}</span></li>`).join("")}</ul>`
+        : "<p>Nenhuma tarefa filha cadastrada.</p>";
+      const draftRevision = model.currentRevisions.find((revision) => revision.status === "draft");
+      const revisions = model.currentRevisions.map((revision) => `<li>r${revision.revisionNumber} · ${escapeHtml(revision.status)} · ${escapeHtml(new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(revision.createdAt)))}</li>`).join("");
       elements.itemDetails.innerHTML = `
         <div class="detail-meta"><span class="state-badge ${escapeHtml(item.state)}">${escapeHtml(stateLabel(item.state))}</span><span class="count-label">Versão ${escapeHtml(item.version)}</span><span class="count-label">Revisão ${escapeHtml(item.revision)}</span><span class="count-label">Prioridade ${escapeHtml(item.priority)}</span></div>
         <section class="detail-section"><h3>Descrição</h3><p>${escapeHtml(item.description || "Sem descrição registrada.")}</p></section>
         <section class="detail-section"><h3>Critérios de aceite</h3>${criteria}</section>
         <section class="detail-section"><h3>Estimativas confirmadas</h3>${estimates}</section>
         <section class="detail-section"><h3>Item pai</h3>${parent}</section>
+        ${item.type === "story" || item.type === "bug" ? `<section class="detail-section"><h3>Tarefas de desenvolvimento · ${childTasks.length}</h3>${children}</section>` : ""}
         <section class="detail-section"><h3>Responsável</h3><p>${escapeHtml(item.assigneeId || "Não atribuído")}</p></section>
-        ${renderQualityDetail(qualityResult.quality)}
-        <section class="detail-section"><h3>Timeline do PBI · watermark ${timeline.watermark}</h3>${renderItemTimeline(timeline.events)}</section>`;
+        <section class="detail-section"><h3>Revisões de conteúdo</h3><ul>${revisions || "<li>Nenhuma revisão.</li>"}</ul>${draftRevision ? `<button class="button button-secondary" type="button" data-publish-item-revision="${draftRevision.revisionNumber}">Publicar rascunho r${draftRevision.revisionNumber}</button>` : ""}</section>
+        ${qualityResult ? renderQualityDetail(qualityResult.quality) : renderTaskContext(taskContext)}
+        ${renderTaskExecution(item, sessionsResult.sessions, deploymentResult.events)}
+        <section class="detail-section"><h3>Timeline · watermark ${timeline.watermark}</h3>${renderItemTimeline(timeline.events)}</section>`;
       elements.detailMove.hidden = (transitions[item.state] ?? []).length === 0;
+      elements.detailEdit.hidden = false;
       elements.itemDialog.showModal();
     } catch (error) {
       toast(`${error.code ?? "ERRO"}: ${error.message}`, true);
+    }
+  }
+
+  async function openWorkItemEditor(item = null) {
+    try {
+      if (model.parentFeatures.length === 0) model.parentFeatures = await loadParentFeatures(model.projectId);
+      model.editingItem = item;
+      elements.workItemForm.reset();
+      elements.workItemFormTitle.textContent = item ? `Editar ${item.key}` : "Novo PBI";
+      elements.submitWorkItem.textContent = item ? "Propor revisão" : "Criar PBI";
+      elements.workItemType.value = item?.type ?? "story";
+      elements.workItemType.disabled = Boolean(item);
+      elements.workItemParent.innerHTML = `<option value="">Selecione a feature</option>${model.parentFeatures.map((feature) => `<option value="${escapeHtml(feature.id)}">${escapeHtml(feature.key)} · ${escapeHtml(feature.title)}</option>`).join("")}`;
+      elements.workItemParent.disabled = Boolean(item);
+      elements.workItemParent.required = !item;
+      elements.workItemTitle.value = item?.title ?? "";
+      elements.workItemDescription.value = item?.description ?? "";
+      elements.workItemPriority.value = String(item?.priority ?? 3);
+      elements.workItemCriteria.value = item?.criteria.map((criterion) => `${criterion.key}: ${criterion.description}`).join("\n") ?? "";
+      if (elements.itemDialog.open) elements.itemDialog.close();
+      elements.workItemDialog.showModal();
+      elements.workItemTitle.focus();
+    } catch (error) {
+      toast(`${error.code ?? "ERRO"}: ${error.message}`, true);
+    }
+  }
+
+  function parseWorkItemCriteria(value, existing = []) {
+    return value.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean).map((line) => {
+      const match = /^([A-Z0-9._-]{1,32}):\s*(.+)$/iu.exec(line);
+      const criterion = match ? existing.find((entry) => entry.key.toLocaleLowerCase() === match[1].toLocaleLowerCase()) : undefined;
+      return {
+        ...(criterion ? { id: criterion.id, required: criterion.required, description: match[2].trim() } : { description: match ? match[2].trim() : line, required: true }),
+      };
+    });
+  }
+
+  async function submitWorkItemForm(event) {
+    event.preventDefault();
+    const item = model.editingItem;
+    const button = elements.submitWorkItem;
+    button.disabled = true;
+    try {
+      const criteria = parseWorkItemCriteria(elements.workItemCriteria.value, item?.criteria ?? []);
+      const shared = {
+        requestId: crypto.randomUUID(),
+        title: elements.workItemTitle.value.trim(),
+        description: elements.workItemDescription.value,
+        priority: Number(elements.workItemPriority.value),
+        criteria,
+      };
+      if (item) {
+        const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(item.key)}/revisions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
+          body: JSON.stringify({ ...shared, expectedVersion: item.version }),
+        });
+        elements.workItemDialog.close();
+        model.editingItem = null;
+        toast(`Revisão r${result.revision.revisionNumber} proposta. Um PO humano pode publicar pelo detalhe do item.`);
+        await loadProjectData();
+        await openItem(item.id);
+      } else {
+        const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
+          body: JSON.stringify({ ...shared, type: elements.workItemType.value, parentId: elements.workItemParent.value }),
+        });
+        elements.workItemDialog.close();
+        toast(`${result.workItem.key} criado como rascunho.`);
+        await loadProjectData();
+        await openItem(result.workItem.id);
+      }
+    } catch (error) {
+      const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
+      toast(`${error.code ?? "ERRO"}: ${error.message}${details}`, true);
+      if (["VERSION_CONFLICT", "STALE_CURSOR"].includes(error.code)) await loadProjectData();
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function openScenarioEditor(scenarioSummary = null) {
+    try {
+      model.editingScenario = null;
+      elements.scenarioForm.reset();
+      elements.scenarioFormTitle.textContent = scenarioSummary ? `Revisar ${scenarioSummary.key}` : "Novo cenário";
+      elements.submitScenario.textContent = scenarioSummary ? "Propor revisão" : "Criar rascunho";
+      elements.scenarioKey.disabled = Boolean(scenarioSummary);
+      elements.scenarioKind.disabled = Boolean(scenarioSummary);
+      if (scenarioSummary) {
+        const scenario = (await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/scenarios/${encodeURIComponent(scenarioSummary.key)}`)).scenario;
+        const revision = scenario.revisions.find((entry) => entry.revisionNumber === scenario.publishedRevision);
+        if (!revision) throw new Error("Publique a primeira revisão antes de propor outra.");
+        const linkedTasks = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/scenarios/${encodeURIComponent(scenario.key)}/revisions/${revision.revisionNumber}/work-items`);
+        model.editingScenario = scenario;
+        elements.scenarioKey.value = scenario.key;
+        elements.scenarioKind.value = scenario.kind;
+        elements.scenarioTitle.value = revision.snapshot.title;
+        elements.scenarioPreconditions.value = revision.snapshot.preconditions.join("\n");
+        elements.scenarioActions.value = revision.snapshot.steps.map((step) => step.action).join("\n");
+        elements.scenarioExpectations.value = revision.snapshot.steps.map((step) => step.expected).join("\n");
+        elements.scenarioCoverage.value = revision.snapshot.coverage.map((target) =>
+          target.targetType === "specification" ? `specification:${target.targetId}` : target.targetId,
+        ).join("\n");
+        elements.scenarioTasks.value = linkedTasks.workItems.map((task) => task.key).join("\n");
+      }
+      elements.scenarioDialog.showModal();
+      elements.scenarioTitle.focus();
+    } catch (error) {
+      toast(`${error.code ?? "ERRO"}: ${error.message}`, true);
+    }
+  }
+
+  function lines(value) {
+    return value.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+  }
+
+  async function submitScenarioForm(event) {
+    event.preventDefault();
+    const actions = lines(elements.scenarioActions.value);
+    const expectations = lines(elements.scenarioExpectations.value);
+    if (actions.length === 0 || actions.length !== expectations.length) {
+      toast("Informe a mesma quantidade de ações e resultados esperados, na mesma ordem.", true);
+      return;
+    }
+    const button = elements.submitScenario;
+    button.disabled = true;
+    try {
+      const shared = {
+        requestId: crypto.randomUUID(),
+        title: elements.scenarioTitle.value.trim(),
+        preconditions: lines(elements.scenarioPreconditions.value),
+        steps: actions.map((action, index) => ({ action, expected: expectations[index] })),
+        coverage: lines(elements.scenarioCoverage.value).map((value) => value.startsWith("specification:")
+          ? { targetType: "specification", reference: value.slice("specification:".length).trim() }
+          : { targetType: "criterion", reference: value }),
+        workItemIdOrKeys: lines(elements.scenarioTasks.value),
+      };
+      if (model.editingScenario) {
+        const scenario = model.editingScenario;
+        const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/scenarios/${encodeURIComponent(scenario.key)}/revisions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
+          body: JSON.stringify({ ...shared, expectedVersion: scenario.version }),
+        });
+        toast(`Revisão r${result.revision.revisionNumber} proposta para ${scenario.key}.`);
+      } else {
+        const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/scenarios`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
+          body: JSON.stringify({ ...shared, key: elements.scenarioKey.value.trim(), kind: elements.scenarioKind.value }),
+        });
+        toast(`Rascunho r${result.revision.revisionNumber} criado para ${result.revision.key}.`);
+      }
+      elements.scenarioDialog.close();
+      model.editingScenario = null;
+      await loadProjectData();
+    } catch (error) {
+      const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
+      toast(`${error.code ?? "ERRO"}: ${error.message}${details}`, true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function publishScenario(scenarioKey, revisionNumber) {
+    try {
+      const scenario = (await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/scenarios/${encodeURIComponent(scenarioKey)}`)).scenario;
+      await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/scenarios/${encodeURIComponent(scenarioKey)}/revisions/${revisionNumber}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
+        body: JSON.stringify({ requestId: crypto.randomUUID(), expectedVersion: scenario.version }),
+      });
+      toast(`${scenarioKey} r${revisionNumber} publicada.`);
+      await loadProjectData();
+    } catch (error) {
+      const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
+      toast(`${error.code ?? "ERRO"}: ${error.message}${details}`, true);
+    }
+  }
+
+  async function submitTestRun(event) {
+    event.preventDefault();
+    const [scenarioId, revisionText] = elements.testRunScenario.value.split("|");
+    const scenario = model.scenarios.find((entry) => entry.id === scenarioId);
+    if (!scenario || !revisionText) {
+      toast("Selecione um cenário com revisão publicada.", true);
+      return;
+    }
+    const button = elements.submitTestRun;
+    button.disabled = true;
+    try {
+      const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/scenarios/${encodeURIComponent(scenario.key)}/test-runs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
+        body: JSON.stringify({
+          requestId: crypto.randomUUID(),
+          revisionNumber: Number(revisionText),
+          buildId: elements.testRunBuild.value.trim(),
+          result: elements.testRunResult.value,
+          ...(elements.testRunNotes.value.trim() ? { notes: elements.testRunNotes.value.trim() } : {}),
+          ...(elements.testRunEvidence.value.trim() ? { evidenceUri: elements.testRunEvidence.value.trim() } : {}),
+          workItemIdOrKeys: lines(elements.testRunTasks.value),
+        }),
+      });
+      elements.testRunForm.reset();
+      toast(`Execução ${result.run.result} registrada para ${scenario.key} r${result.run.revisionNumber} · ${result.run.buildId}.`);
+      await loadProjectData();
+    } catch (error) {
+      const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
+      toast(`${error.code ?? "ERRO"}: ${error.message}${details}`, true);
+    } finally {
+      button.disabled = false;
+      renderScenarioManager();
+    }
+  }
+
+  async function publishWorkItemRevision(revisionNumber) {
+    const item = model.currentItem;
+    if (!item) return;
+    try {
+      await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(item.key)}/revisions/${revisionNumber}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
+        body: JSON.stringify({ requestId: crypto.randomUUID(), expectedVersion: item.version }),
+      });
+      toast(`Revisão r${revisionNumber} publicada para ${item.key}.`);
+      await loadProjectData();
+      await openItem(item.id);
+    } catch (error) {
+      const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
+      toast(`${error.code ?? "ERRO"}: ${error.message}${details}`, true);
     }
   }
 
@@ -1058,11 +1549,40 @@
   elements.detailMove.addEventListener("click", () => {
     if (model.currentItem) openTransition(model.currentItem);
   });
+  elements.detailEdit.addEventListener("click", () => {
+    if (model.currentItem) void openWorkItemEditor(model.currentItem);
+  });
+  elements.createWorkItem.addEventListener("click", () => { void openWorkItemEditor(); });
+  elements.workItemForm.addEventListener("submit", (event) => { void submitWorkItemForm(event); });
+  elements.createScenario.addEventListener("click", () => { void openScenarioEditor(); });
+  elements.scenarioForm.addEventListener("submit", (event) => { void submitScenarioForm(event); });
+  elements.testRunForm.addEventListener("submit", (event) => { void submitTestRun(event); });
   document.addEventListener("click", (event) => {
     if (event.target.closest(".retro-pbi")) event.preventDefault();
     const evidenceButton = event.target.closest("[data-load-evidence]");
     if (evidenceButton) {
       void loadMoreEvidence(evidenceButton);
+      return;
+    }
+    const taskContextButton = event.target.closest("[data-load-task-context]");
+    if (taskContextButton) {
+      void loadMoreTaskContext(taskContextButton);
+      return;
+    }
+    const scenarioPublish = event.target.closest("[data-publish-scenario]");
+    if (scenarioPublish) {
+      void publishScenario(scenarioPublish.getAttribute("data-publish-scenario"), Number(scenarioPublish.getAttribute("data-revision")));
+      return;
+    }
+    const scenarioRevise = event.target.closest("[data-revise-scenario]");
+    if (scenarioRevise) {
+      const scenario = model.scenarios.find((entry) => entry.key === scenarioRevise.getAttribute("data-revise-scenario"));
+      if (scenario) void openScenarioEditor(scenario);
+      return;
+    }
+    const itemPublish = event.target.closest("[data-publish-item-revision]");
+    if (itemPublish) {
+      void publishWorkItemRevision(Number(itemPublish.getAttribute("data-publish-item-revision")));
       return;
     }
     const target = event.target.closest("[data-open-item]");
@@ -1080,7 +1600,7 @@
   document.querySelectorAll(".close-dialog").forEach((button) => {
     button.addEventListener("click", () => button.closest("dialog").close());
   });
-  for (const dialog of [elements.itemDialog, elements.transitionDialog]) {
+  for (const dialog of [elements.itemDialog, elements.transitionDialog, elements.workItemDialog, elements.scenarioDialog]) {
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) dialog.close();
     });

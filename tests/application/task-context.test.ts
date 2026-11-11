@@ -103,6 +103,10 @@ describe("task context profiles, baselines and pagination", () => {
         sourceIdOrKey: pbi.id, targetIdOrKey: specId, type: "implements",
       });
     }
+    addTraceLink(database, {
+      projectId, principalId, requestId: `task-related-${randomUUID()}`,
+      sourceIdOrKey: taskId, targetIdOrKey: adrId, type: "relates_to",
+    });
 
     scenarioId = createScenario(database, {
       projectId,
@@ -144,6 +148,9 @@ describe("task context profiles, baselines and pagination", () => {
     assert.equal(dev.sections.acceptanceCriteria[0]?.content && (dev.sections.acceptanceCriteria[0].content as { id: string }).id, criterionId);
     assert.ok(dev.sections.businessRules.some((entry) => entry.key === "BR-01"));
     assert.ok(dev.sections.technicalDecisions.some((entry) => entry.key === "ADR-01"));
+    const relatedDecision = dev.sections.technicalDecisions.find((entry) => entry.key === "ADR-01");
+    assert.equal(relatedDecision?.source.relationship, "task_direct_link");
+    assert.equal(relatedDecision?.source.traceLinkType, "relates_to");
     assert.equal(dev.sections.testRuns.length, 0);
     assert.equal(qa.sections.technicalDecisions.length, 0);
     assert.equal(qa.sections.testRuns.length, 1);

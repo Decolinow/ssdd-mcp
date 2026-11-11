@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { testRunResults } from "../domain/scenarios.js";
 import type {
   Scenario,
   ScenarioCoverageMatch,
@@ -80,6 +82,29 @@ export function getScenario(
   };
 }
 
+export function listScenarioRevisionWorkItems(
+  database: SqliteDatabase,
+  projectId: string,
+  principalId: string,
+  scenarioIdOrKey: string,
+  revisionNumber: number,
+): readonly { readonly id: string; readonly key: string; readonly title: string }[] {
+  const scenario = getScenario(database, projectId, principalId, scenarioIdOrKey);
+  if (!Number.isSafeInteger(revisionNumber) || !scenario.revisions.some((revision) => revision.revisionNumber === revisionNumber)) {
+    throw new ApplicationError("NOT_FOUND", "Scenario revision was not found.");
+  }
+  return database.prepare(
+    `SELECT item.item_id, item.item_key, item.title
+     FROM scenario_revision_work_items link
+     INNER JOIN work_items item ON item.project_id = link.project_id AND item.item_id = link.item_id
+     WHERE link.project_id = ? AND link.scenario_id = ? AND link.revision_number = ?
+     ORDER BY item.item_key COLLATE NOCASE`,
+  ).all(projectId, scenario.id, revisionNumber).map((value) => {
+    const row = value as { item_id: string; item_key: string; title: string };
+    return { id: row.item_id, key: row.item_key, title: row.title };
+  });
+}
+
 export function listScenarios(
   database: SqliteDatabase,
   projectId: string,
@@ -115,6 +140,188 @@ export function listScenarios(
     latestRevision: row.latest_revision,
     publishedRevision: row.published_revision,
   }));
+}
+
+export function listTestRuns(
+  database: SqliteDatabase,
+  projectId: string,
+  principalId: string,
+  options: { readonly limit?: number; readonly scenarioIdOrKey?: string } = {},
+): readonly TestRun[] {
+  return listTestRunPage(database, projectId, principalId, {
+    limit: options.limit ?? 100,
+    ...(options.scenarioIdOrKey === undefined ? {} : { scenarioIdOrKey: options.scenarioIdOrKey }),
+  }).runs;
+}
+
+export interface ListTestRunsInput {
+  readonly limit?: number;
+  readonly scenarioIdOrKey?: string;
+  readonly buildId?: string;
+  readonly result?: TestRunResult;
+  readonly cursor?: string;
+}
+
+export interface TestRunPage {
+  readonly runs: readonly TestRun[];
+  readonly nextCursor: string | null;
+  readonly watermark: number;
+}
+
+interface TestRunCursor {
+  readonly version: 1;
+  readonly projectId: string;
+  readonly principalId: string;
+  readonly filterHash: string;
+  readonly watermark: number;
+  readonly beforeSequence: number;
+}
+
+export function listTestRunPage(
+  database: SqliteDatabase,
+  projectId: string,
+  principalId: string,
+  input: ListTestRunsInput = {},
+): TestRunPage {
+  assertProjectAuthorization(database, projectId, principalId);
+  const limit = input.limit ?? 25;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new ApplicationError("VALIDATION_FAILED", "Test run page size must be an integer between 1 and 100.");
+  }
+  const scenarioReference = input.scenarioIdOrKey?.trim() || null;
+  if (scenarioReference !== null && scenarioReference.length > 80) {
+    throw new ApplicationError("VALIDATION_FAILED", "Scenario reference must be at most 80 characters.");
+  }
+  const buildId = input.buildId?.trim() || null;
+  if (buildId !== null && buildId.length > 128) {
+    throw new ApplicationError("VALIDATION_FAILED", "Build identifier must be at most 128 characters.");
+  }
+  const result = input.result ?? null;
+  if (result !== null && !testRunResults.includes(result)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Test run result is invalid.");
+  }
+
+  const scenario = scenarioReference === null ? undefined : findScenario(database, projectId, scenarioReference);
+  const scenarioId = scenario?.scenario_id ?? null;
+  const where = ["tr.project_id = ?"];
+  const parameters: Array<string | number> = [projectId];
+  if (scenarioReference !== null) {
+    if (scenarioId === null) where.push("0 = 1");
+    else {
+      where.push("tr.scenario_id = ?");
+      parameters.push(scenarioId);
+    }
+  }
+  if (buildId !== null) {
+    where.push("tr.build_id = ?");
+    parameters.push(buildId);
+  }
+  if (result !== null) {
+    where.push("tr.result = ?");
+    parameters.push(result);
+  }
+  const filterHash = createHash("sha256").update(JSON.stringify({
+    scenarioId,
+    missingScenario: scenarioId === null ? scenarioReference?.toLowerCase() ?? null : null,
+    buildId,
+    result,
+    limit,
+  })).digest("hex");
+  const watermarkRow = database.prepare(
+    `SELECT COALESCE(MAX(tr.sequence), 0) AS watermark FROM test_runs tr WHERE ${where.join(" AND ")}`,
+  ).get(...parameters) as { watermark: number };
+  const watermark = watermarkRow.watermark;
+  const cursor = input.cursor === undefined ? undefined : decodeTestRunCursor(input.cursor);
+  if (cursor !== undefined) {
+    if (
+      cursor.projectId !== projectId || cursor.principalId !== principalId || cursor.filterHash !== filterHash
+    ) {
+      throw new ApplicationError("VALIDATION_FAILED", "The test run cursor belongs to another project, principal or filter set.");
+    }
+    if (cursor.watermark !== watermark) {
+      throw new ApplicationError("STALE_CURSOR", "Matching test runs changed after this page was read. Restart without a cursor.");
+    }
+  }
+
+  const pageWhere = [...where, "tr.sequence <= ?"];
+  const pageParameters: Array<string | number> = [...parameters, watermark];
+  if (cursor !== undefined) {
+    pageWhere.push("tr.sequence < ?");
+    pageParameters.push(cursor.beforeSequence);
+  }
+  const rows = database.prepare(
+    `SELECT tr.sequence, tr.run_id, tr.project_id, tr.scenario_id, s.scenario_key, tr.revision_number,
+            tr.build_id, tr.result, tr.notes, tr.evidence_uri, tr.executed_by_principal_id, tr.executed_at
+     FROM test_runs tr INNER JOIN scenarios s
+       ON s.project_id = tr.project_id AND s.scenario_id = tr.scenario_id
+     WHERE ${pageWhere.join(" AND ")}
+     ORDER BY tr.sequence DESC LIMIT ?`,
+  ).all(...pageParameters, limit + 1) as Array<{
+    sequence: number;
+    run_id: string;
+    project_id: string;
+    scenario_id: string;
+    scenario_key: string;
+    revision_number: number;
+    build_id: string;
+    result: TestRunResult;
+    notes: string | null;
+    evidence_uri: string | null;
+    executed_by_principal_id: string;
+    executed_at: string;
+  }>;
+  const hasMore = rows.length > limit;
+  const pageRows = rows.slice(0, limit);
+  const runs = pageRows.map((row) => ({
+    id: row.run_id,
+    projectId: row.project_id,
+    scenarioId: row.scenario_id,
+    scenarioKey: row.scenario_key,
+    revisionNumber: row.revision_number,
+    buildId: row.build_id,
+    result: row.result,
+    notes: row.notes,
+    evidenceUri: row.evidence_uri,
+    executedByPrincipalId: row.executed_by_principal_id,
+    executedAt: row.executed_at,
+  }));
+  const last = pageRows.at(-1);
+  return {
+    runs,
+    nextCursor: hasMore && last !== undefined ? encodeTestRunCursor({
+      version: 1,
+      projectId,
+      principalId,
+      filterHash,
+      watermark,
+      beforeSequence: last.sequence,
+    }) : null,
+    watermark,
+  };
+}
+
+function encodeTestRunCursor(cursor: TestRunCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeTestRunCursor(value: string): TestRunCursor {
+  if (value.length > 4_096 || !/^[A-Za-z0-9_-]+$/u.test(value)) {
+    throw new ApplicationError("VALIDATION_FAILED", "The test run cursor is invalid.");
+  }
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (parsed === null || typeof parsed !== "object") throw new Error("Invalid cursor shape");
+    const cursor = parsed as Record<string, unknown>;
+    if (
+      cursor.version !== 1 || typeof cursor.projectId !== "string" || typeof cursor.principalId !== "string" ||
+      typeof cursor.filterHash !== "string" || !/^[a-f0-9]{64}$/u.test(cursor.filterHash) ||
+      typeof cursor.watermark !== "number" || !Number.isSafeInteger(cursor.watermark) || cursor.watermark < 0 ||
+      typeof cursor.beforeSequence !== "number" || !Number.isSafeInteger(cursor.beforeSequence) || cursor.beforeSequence < 1
+    ) throw new Error("Invalid cursor fields");
+    return cursor as unknown as TestRunCursor;
+  } catch {
+    throw new ApplicationError("VALIDATION_FAILED", "The test run cursor is invalid.");
+  }
 }
 
 export function searchScenariosByCriterion(
