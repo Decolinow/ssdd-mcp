@@ -413,5 +413,8 @@ Resultado da [análise de qualidade](docs/analise-qualidade-e-melhorias.md). Sã
 | SSDD-952 | Avaliação automatizada de skills e prompts | 8 | C |
 | SSDD-953 | Dividir `src/mcp/server.ts` por domínio | 5 | C |
 | SSDD-954 | Modularizar e testar o dashboard | 8 | C |
-| SSDD-955 | Reduzir a leitura obrigatória (implementada localmente) | 3 | C |
+| SSDD-955 | Reduzir a leitura obrigatória (concluída no MCP como SSDD-158, sem QA independente) | 3 | C |
+| SSDD-956 | Distinguir entregue-local de pendente na fila (achado U3) | 5 | A |
+| SSDD-957 | Política de independência de revisão e validação (achado U4) | 3 | A |
+| SSDD-958 | Devolver `version` em escritas e uniformizar parâmetros (achado U5) | 3 | A |
 
