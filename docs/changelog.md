@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Versão devolvida nas escritas de item (2026-11-12, SSDD-958 parcial / MCP SSDD-161)
+
+- `work_item_estimate`, `work_item_revision_propose` e `work_item_revision_publish` incluem `version` no resultado (achado U5). Falta aceitar alias de parâmetro (`itemIdOrKey`/`taskIdOrKey`) e cobrir as demais escritas de item.
+
 ## Fila separa entregue-local de pendente (2026-11-12, SSDD-956 / MCP SSDD-159)
 
 - `upNext` exclui tarefas cuja descrição registra entrega local (marcador do sincronizador) e expõe `awaitingAcceptance`/`awaitingAcceptanceCount`. Heurística apoiada em um único produtor (`scripts/sync-roadmap-to-mcp.mjs`); o fechamento retroativo com evidência e revisão independente segue pendente.

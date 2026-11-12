@@ -1702,6 +1702,7 @@ export function createMcpServer(
       }),
       outputSchema: z.object({
         revision: workItemContentRevisionSchema,
+        version: z.number().int().positive(),
         auditEventIds: z.array(z.string().uuid()),
       }),
     },
@@ -1728,7 +1729,7 @@ export function createMcpServer(
                 })),
               }),
         });
-        const result = { revision: receipt.value, auditEventIds: receipt.auditEventIds };
+        const result = { revision: receipt.value, version: currentItemVersion(database, projectId, receipt.value.itemId), auditEventIds: receipt.auditEventIds };
         return {
           content: [{ type: "text", text: JSON.stringify(result) }],
           structuredContent: result,
@@ -1753,6 +1754,7 @@ export function createMcpServer(
       }),
       outputSchema: z.object({
         revision: workItemContentRevisionSchema,
+        version: z.number().int().positive(),
         auditEventIds: z.array(z.string().uuid()),
       }),
     },
@@ -1766,7 +1768,7 @@ export function createMcpServer(
           revisionNumber,
           expectedVersion,
         });
-        const result = { revision: receipt.value, auditEventIds: receipt.auditEventIds };
+        const result = { revision: receipt.value, version: currentItemVersion(database, projectId, receipt.value.itemId), auditEventIds: receipt.auditEventIds };
         return {
           content: [{ type: "text", text: JSON.stringify(result) }],
           structuredContent: result,
@@ -2142,6 +2144,7 @@ export function createMcpServer(
       }),
       outputSchema: z.object({
         proposal: workItemEstimateProposalSchema,
+        version: z.number().int().positive(),
         auditEventIds: z.array(z.string().uuid()),
       }),
     },
@@ -2157,7 +2160,7 @@ export function createMcpServer(
           rationale,
           expectedVersion,
         });
-        const result = { proposal: receipt.value, auditEventIds: receipt.auditEventIds };
+        const result = { proposal: receipt.value, version: currentItemVersion(database, projectId, receipt.value.itemId), auditEventIds: receipt.auditEventIds };
         return {
           content: [{ type: "text", text: JSON.stringify(result) }],
           structuredContent: result,
@@ -4642,6 +4645,12 @@ function mutationAuditEventIdsFrom(value: unknown): string[] {
     !Array.isArray(structuredContent.auditEventIds)
   ) return [];
   return structuredContent.auditEventIds.filter((eventId): eventId is string => typeof eventId === "string");
+}
+
+/** Versão otimista corrente do item, para encadear escritas sem releitura. */
+function currentItemVersion(database: ReturnType<typeof openSqliteDatabase>, projectId: string, itemId: string): number {
+  const row = database.prepare("SELECT version FROM work_items WHERE project_id = ? AND item_id = ?").get(projectId, itemId) as { version: number } | undefined;
+  return row?.version ?? 1;
 }
 
 function toToolError(error: unknown) {

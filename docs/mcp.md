@@ -50,6 +50,10 @@ Toda entrada de domínio inclui `projectId` após descoberta, exceto `project_li
 | `user_create`, `user_list`, `user_auth_key_rotate`, `user_auth_key_revoke` | Cria identidade com papéis por projeto, lista metadados, troca ou revoga authKeys | Administrador único da instância; chave secreta só é devolvida na emissão, nunca no replay |
 | `work_item_semantic_index`, `work_item_semantic_search` | Indexação vetorial paginada e busca por significado; aceita `assignedToMe`, tipos/estados e limite | Membro autorizado no projeto; requer embeddings configurados; indexar só atualiza cache derivado |
 
+### Versão nas escritas
+
+`work_item_estimate`, `work_item_revision_propose` e `work_item_revision_publish` devolvem `version`: a versão otimista corrente do item após a escrita, para encadear a próxima chamada com `expectedVersion` sem reler o item. Uniformizar o nome dos parâmetros de item (`itemIdOrKey` vs `taskIdOrKey`) segue pendente na SSDD-958.
+
 ### Anotações das tools
 
 Toda tool declara `readOnlyHint`, `destructiveHint`, `idempotentHint` e `openWorldHint` em `tools/list`, classificadas em `src/mcp/tool-annotations.ts`. São dicas para o cliente decidir auto-aprovação e confirmação; não substituem RBAC, aprovações delegadas nem gates.

@@ -465,6 +465,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
     },
   });
   assert.notEqual(estimate.isError, true);
+  assert.equal((estimate.structuredContent as { version: number }).version, 4);
   const proposalId = (estimate.structuredContent as { proposal: { id: string } }).proposal.id;
   const estimateConfirmation = await client.callTool({
     name: "work_item_estimate_confirm",
@@ -501,6 +502,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
     },
   });
   assert.notEqual(revisionProposal.isError, true);
+  assert.equal((revisionProposal.structuredContent as { version: number }).version, 6);
   const proposedRevision = (revisionProposal.structuredContent as {
     revision: { revisionNumber: number; status: string; snapshot: { criteria: Array<{ id: string }> } };
   }).revision;
