@@ -300,6 +300,12 @@ test("dashboard API sessions and project authorization match MCP access", async 
   assert.match(dashboardHtml, /metrics-effort-from/u);
   assert.match(dashboardHtml, /metrics-effort-to/u);
   assert.match(dashboardHtml, /metrics-developer/u);
+  assert.match(dashboardHtml, /first-use-guidance/u);
+  assert.match(dashboardHtml, /Especificações/u);
+  assert.match(dashboardHtml, /specifications-view/u);
+  assert.match(dashboardHtml, /id="specification-kind"/u);
+  assert.match(dashboardHtml, /id="specification-search"/u);
+  assert.match(dashboardHtml, /Catálogo somente leitura/u);
   const dashboardScript = await fetch(`${address.origin}/dashboard.js`);
   assert.equal(dashboardScript.status, 200);
   assert.match(dashboardScript.headers.get("content-type") ?? "", /javascript/u);
@@ -319,6 +325,14 @@ test("dashboard API sessions and project authorization match MCP access", async 
   assert.match(dashboardJavascript, /developerMetricsRangeCustomized/u);
   assert.match(dashboardJavascript, /activeHoursOnEstimatedCompletedTasks/u);
   assert.match(dashboardJavascript, /elements\.metricsDate\.value = model\.selectedMetricsDate \?\? data\.asOfDate/u);
+  assert.match(dashboardJavascript, /renderFirstUseGuidance/u);
+  assert.match(dashboardJavascript, /const homeViewButton = event\.target\.closest\("\[data-home-view\]"\)/u);
+  assert.match(dashboardJavascript, /function openSpecification\(key\)/u);
+  assert.match(dashboardJavascript, /renderSpecificationValue/u);
+  assert.match(dashboardJavascript, /data-open-specification/u);
+  assert.match(dashboardJavascript, /Revisão não publicada/u);
+  assert.match(dashboardJavascript, /ainda não tem revisão publicada/u);
+  assert.match(dashboardJavascript, /specificationKindLabel\(specification\.kind\)/u);
   assert.match(dashboardJavascript, /function scenarioKindLabel\(kind\)/u);
   assert.match(dashboardJavascript, /scenarioKindLabel\(scenario\.kind\)/u);
   assert.match(dashboardJavascript, /start-readiness/u);
@@ -905,6 +919,66 @@ test("dashboard API sessions and project authorization match MCP access", async 
   assert.equal(scenarioSecondPage.scenarios.length, 1);
   assert.notEqual(scenarioSecondPage.scenarios[0]?.key, scenarioFirstPage.scenarios[0]?.key);
 
+  const specificationListResponse = await fetch(`${address.origin}/api/v1/projects/${projectId}/specifications`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  assert.equal(specificationListResponse.status, 200);
+  const specificationPage = await specificationListResponse.json() as {
+    specifications: Array<{ key: string; kind: string; latestRevision: number; publishedRevision: number | null }>;
+    watermark: number;
+  };
+  assert.ok(specificationPage.specifications.some((specification) => (
+    specification.key === "PAY-ADR-DRAFT"
+    && specification.kind === "adr"
+    && specification.latestRevision === 1
+    && specification.publishedRevision === null
+  )));
+  assert.ok(specificationPage.watermark > 0);
+
+  const filteredSpecificationsResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/specifications?kind=adr&search=payment`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(filteredSpecificationsResponse.status, 200);
+  const filteredSpecifications = await filteredSpecificationsResponse.json() as {
+    specifications: Array<{ key: string; kind: string }>;
+  };
+  assert.ok(filteredSpecifications.specifications.length > 0);
+  assert.ok(filteredSpecifications.specifications.every((specification) => specification.kind === "adr"));
+  assert.ok(filteredSpecifications.specifications.some((specification) => specification.key === "PAY-ADR-DRAFT"));
+
+  const specificationDetailResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/specifications/PAY-ADR-DRAFT`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(specificationDetailResponse.status, 200);
+  const specificationDetail = await specificationDetailResponse.json() as {
+    specification: {
+      key: string;
+      publishedRevision: number | null;
+      revisions: Array<{ revisionNumber: number; status: string; content: { decision?: string } }>;
+    };
+  };
+  assert.equal(specificationDetail.specification.key, "PAY-ADR-DRAFT");
+  assert.equal(specificationDetail.specification.publishedRevision, null);
+  assert.equal(specificationDetail.specification.revisions.length, 1);
+  assert.equal(specificationDetail.specification.revisions[0]?.status, "draft");
+  assert.equal(specificationDetail.specification.revisions[0]?.content.decision, "DRAFT_DECISION_MUST_NOT_BE_EXPOSED");
+
+  const missingSpecificationResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/specifications/PAY-ADR-MISSING`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(missingSpecificationResponse.status, 404);
+  assert.equal(((await missingSpecificationResponse.json()) as { code: string }).code, "NOT_FOUND");
+
+  const invalidSpecificationFilterResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/specifications?kind=unknown`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(invalidSpecificationFilterResponse.status, 400);
+  assert.equal(((await invalidSpecificationFilterResponse.json()) as { code: string }).code, "VALIDATION_FAILED");
+
   const invalidScenarioResponse = await postMutation(`/api/v1/projects/${projectId}/scenarios`, {
     requestId: "dashboard-api-invalid-scenario",
     key: "PAY-TC-INVALID",
@@ -1077,6 +1151,11 @@ test("dashboard API sessions and project authorization match MCP access", async 
   });
   assert.equal(restrictedAudit.status, 403);
   assert.equal(((await restrictedAudit.json()) as { code: string }).code, "FORBIDDEN");
+  const restrictedSpecifications = await fetch(`${address.origin}/api/v1/projects/${restrictedProjectId}/specifications`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  assert.equal(restrictedSpecifications.status, 403);
+  assert.equal(((await restrictedSpecifications.json()) as { code: string }).code, "FORBIDDEN");
   const restrictedMetrics = await fetch(`${address.origin}/api/v1/projects/${restrictedProjectId}/dashboard-metrics`, {
     headers: { Cookie: cookie, Origin: address.origin },
   });

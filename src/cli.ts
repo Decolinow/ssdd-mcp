@@ -43,12 +43,130 @@ Uso:
   ssdd-mcp backup [--workspace <diretório>] [--output <arquivo.sqlite>]
   ssdd-mcp restore --backup <arquivo.sqlite> [--workspace <workspace limpo>]
   ssdd-mcp export [--workspace <diretório>] --format <json|markdown|gherkin> [--output <arquivo>]
-  ssdd-mcp --help
+  ssdd-mcp --help | -h
+  ssdd-mcp <comando> --help
   ssdd-mcp --version
 
 Exemplo:
   ssdd-mcp init --key PAY --name Pagamentos --goal "Pagamentos confiáveis" --timezone America/Sao_Paulo
 `;
+
+const commandHelp = new Map<string, string>([
+  ["init", `Uso: ssdd-mcp init --key <KEY> --name <nome> --goal <objetivo> --timezone <IANA> [--workspace <diretório>]
+
+Cria o workspace SSDD e o projeto inicial.
+
+Opções:
+  --key <KEY>            Identificador curto do projeto (por exemplo, PAY).
+  --name <nome>          Nome legível do projeto.
+  --goal <objetivo>      Objetivo do produto.
+  --timezone <IANA>      Fuso horário IANA (por exemplo, America/Sao_Paulo).
+  --workspace <diretório>  Diretório do workspace (padrão: diretório atual).
+`],
+  ["stdio", `Uso: ssdd-mcp stdio [--workspace <diretório>]
+
+Inicia o servidor MCP pelo transporte stdio.
+
+Opções:
+  --workspace <diretório>  Diretório do workspace (padrão: diretório atual).
+`],
+  ["serve", `Uso: ssdd-mcp serve [--workspace <diretório>] [--port <porta>] [--oidc-issuer <URL> --resource-url <URL>]
+
+Inicia o servidor MCP em Streamable HTTP e os probes GET /healthz e /readyz.
+
+Opções:
+  --workspace <diretório>  Diretório do workspace (padrão: diretório atual).
+  --port <porta>           Porta HTTP (padrão: 4319).
+  --oidc-issuer <URL>      Issuer OIDC para validar tokens.
+  --resource-url <URL>     URL pública do recurso protegido.
+  --allowed-origin <origem>  Origem CORS permitida (pode repetir).
+`],
+  ["dashboard", `Uso: ssdd-mcp dashboard [--workspace <diretório>] [--port <porta>]
+
+Inicia o dashboard local em loopback.
+
+Opções:
+  --workspace <diretório>  Diretório do workspace (padrão: diretório atual).
+  --port <porta>           Porta HTTP (padrão: 4318).
+`],
+  ["doctor", `Uso: ssdd-mcp doctor [--workspace <diretório>]
+
+Verifica a saúde do workspace sem alterar o banco.
+
+Opções:
+  --workspace <diretório>  Diretório do workspace (padrão: diretório atual).
+`],
+  ["backup", `Uso: ssdd-mcp backup [--workspace <diretório>] [--output <arquivo.sqlite>]
+
+Cria um backup online consistente do workspace.
+
+Opções:
+  --workspace <diretório>  Diretório do workspace (padrão: diretório atual).
+  --output <arquivo>       Caminho do backup (padrão: arquivo com timestamp).
+`],
+  ["restore", `Uso: ssdd-mcp restore --backup <arquivo.sqlite> [--workspace <workspace limpo>]
+
+Valida um backup e restaura o workspace em um diretório sem dados SSDD.
+
+Opções:
+  --backup <arquivo>       Backup a restaurar (obrigatório).
+  --workspace <diretório>  Workspace de destino (padrão: diretório atual).
+`],
+  ["export", `Uso: ssdd-mcp export [--workspace <diretório>] --format <json|markdown|gherkin> [--output <arquivo>]
+
+Exporta dados do projeto ou cenários publicados sem credenciais.
+
+Opções:
+  --workspace <diretório>  Diretório do workspace (padrão: diretório atual).
+  --format <formato>       json, markdown ou gherkin (obrigatório).
+  --output <arquivo>       Grava a exportação no arquivo em vez do stdout.
+`],
+]);
+
+function accessHelpText(action: string | undefined): string {
+  if (action === "grant") {
+    return `Uso: ssdd-mcp access grant --project <KEY> --issuer <URL> --subject <SUB> --display-name <nome> --type <human|agent|service> --roles <lista> --reason <motivo> [--workspace <diretório>] [--request-id <id>]
+
+Concede papéis a uma identidade externa no projeto.
+
+Opções:
+  --project <KEY>        Chave do projeto.
+  --issuer <URL>         Issuer OIDC da identidade.
+  --subject <SUB>        Subject da identidade.
+  --display-name <nome>  Nome legível da identidade.
+  --type <tipo>          human, agent ou service.
+  --roles <lista>        Papéis separados por vírgula.
+  --reason <motivo>      Justificativa auditável.
+  --workspace <diretório>  Diretório do workspace (padrão: diretório atual).
+  --request-id <id>      Identificador da requisição (padrão: UUID gerado).
+`;
+  }
+  if (action === "revoke") {
+    return `Uso: ssdd-mcp access revoke --project <KEY> --issuer <URL> --subject <SUB> --roles <lista> --reason <motivo> [--workspace <diretório>] [--request-id <id>]
+
+Revoga papéis de uma identidade externa no projeto.
+
+Opções:
+  --project <KEY>        Chave do projeto.
+  --issuer <URL>         Issuer OIDC da identidade.
+  --subject <SUB>        Subject da identidade.
+  --roles <lista>        Papéis separados por vírgula.
+  --reason <motivo>      Justificativa auditável.
+  --workspace <diretório>  Diretório do workspace (padrão: diretório atual).
+  --request-id <id>      Identificador da requisição (padrão: UUID gerado).
+`;
+  }
+  return `Uso: ssdd-mcp access <grant|revoke> [opções]
+
+Gerencia identidades externas do projeto.
+
+Subcomandos:
+  grant   Concede papéis a uma identidade.
+  revoke  Revoga papéis de uma identidade.
+
+Use 'ssdd-mcp access grant --help' ou 'ssdd-mcp access revoke --help' para as opções.
+`;
+}
 
 export async function runCli(
   args: readonly string[],
@@ -57,13 +175,20 @@ export async function runCli(
 ): Promise<number> {
   const [command, ...commandArgs] = args;
 
-  if (command === undefined || command === "--help" || command === "help") {
+  if (command === undefined || command === "--help" || command === "-h" || command === "help") {
     stdout.write(helpText);
     return 0;
   }
   if (command === "--version" || command === "-v") {
     stdout.write(`${packageVersion}\n`);
     return 0;
+  }
+  if (commandArgs.includes("--help") || commandArgs.includes("-h")) {
+    const text = command === "access" ? accessHelpText(commandArgs[0]) : commandHelp.get(command);
+    if (text !== undefined) {
+      stdout.write(text);
+      return 0;
+    }
   }
   if (command !== "init") {
     if (command === "access") {

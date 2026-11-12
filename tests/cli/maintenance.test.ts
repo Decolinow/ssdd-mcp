@@ -66,6 +66,32 @@ describe("ssdd-mcp maintenance CLI", () => {
     assert.match(invalidFormat.error(), /json.*markdown.*gherkin/u);
   });
 
+  it("prints command-specific help without validating other options", async () => {
+    for (const command of ["init", "stdio", "serve", "dashboard", "doctor", "backup", "restore", "export"]) {
+      const output = createOutput();
+      assert.equal(await runCli([command, "--help"], output.stdout, output.stderr), 0);
+      assert.match(output.value(), new RegExp(`^Uso: ssdd-mcp ${command}\\b`, "u"));
+      assert.equal(output.error(), "");
+    }
+
+    const grant = createOutput();
+    assert.equal(await runCli(["access", "grant", "-h"], grant.stdout, grant.stderr), 0);
+    assert.match(grant.value(), /^Uso: ssdd-mcp access grant/u);
+    assert.match(grant.value(), /--display-name/u);
+
+    const access = createOutput();
+    assert.equal(await runCli(["access", "--help"], access.stdout, access.stderr), 0);
+    assert.match(access.value(), /ssdd-mcp access grant --help/u);
+
+    const shortFlag = createOutput();
+    assert.equal(await runCli(["-h"], shortFlag.stdout, shortFlag.stderr), 0);
+    assert.match(shortFlag.value(), /^SSDD MCP/u);
+
+    const invalidOption = createOutput();
+    assert.equal(await runCli(["dashboard", "--help", "--port", "not-a-port"], invalidOption.stdout, invalidOption.stderr), 0);
+    assert.match(invalidOption.value(), /^Uso: ssdd-mcp dashboard/u);
+  });
+
   it("returns a failing exit code when the dashboard port is already occupied", async () => {
     const root = mkdtempSync(join(tmpdir(), "ssdd-mcp-dashboard-cli-"));
     workspaces.push(root);

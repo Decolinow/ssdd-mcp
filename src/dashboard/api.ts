@@ -28,8 +28,10 @@ import { createWorkItem } from "../application/create-work-item.js";
 import { proposeWorkItemRevision, publishWorkItemRevision } from "../application/work-item-revisions.js";
 import { createScenario, proposeScenarioRevision, publishScenarioRevision, recordTestRun } from "../application/scenario-commands.js";
 import { getScenario, listScenarioRevisionWorkItems, listScenarios, listTestRuns } from "../application/scenario-queries.js";
+import { getSpecification, listSpecifications } from "../application/specification-queries.js";
 import { getTaskStartReadiness, transitionWorkItem } from "../application/work-item-workflow.js";
 import { scenarioKinds, testRunResults } from "../domain/scenarios.js";
+import { specificationKinds } from "../domain/specifications.js";
 import { sprintStates } from "../domain/sprints.js";
 import { workItemStates, workItemTypes } from "../domain/work-items.js";
 import { applyMigrations } from "../storage-sqlite/migrations.js";
@@ -265,6 +267,22 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
           principalId: principal.id,
           ...parseAuditFilters(requestUrl.searchParams),
         }));
+        return;
+      }
+
+      const projectSpecificationsMatch = /^\/api\/v1\/projects\/([^/]+)\/specifications$/.exec(route);
+      if (request.method === "GET" && projectSpecificationsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(projectSpecificationsMatch[1]));
+        const filters = parseSpecificationFilters(requestUrl.searchParams);
+        sendJson(response, 200, listSpecifications(database, projectId, principal.id, filters));
+        return;
+      }
+
+      const projectSpecificationMatch = /^\/api\/v1\/projects\/([^/]+)\/specifications\/([^/]+)$/.exec(route);
+      if (request.method === "GET" && projectSpecificationMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(projectSpecificationMatch[1]));
+        const specIdOrKey = decodePathSegment(projectSpecificationMatch[2]);
+        sendJson(response, 200, { specification: getSpecification(database, projectId, principal.id, specIdOrKey) });
         return;
       }
 
@@ -1135,6 +1153,32 @@ function parseListPageFilters(searchParams: URLSearchParams): { readonly limit?:
   });
   if (!parsed.success) throw new ApplicationError("VALIDATION_FAILED", "Dashboard list page filters are invalid.");
   return {
+    ...(parsed.data.limit === undefined ? {} : { limit: parsed.data.limit }),
+    ...(parsed.data.cursor === undefined ? {} : { cursor: parsed.data.cursor }),
+  };
+}
+
+function parseSpecificationFilters(searchParams: URLSearchParams): {
+  readonly kind?: typeof specificationKinds[number];
+  readonly search?: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+} {
+  const parsed = z.object({
+    kind: z.enum(specificationKinds).optional(),
+    search: z.string().trim().min(2).max(160).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    cursor: z.string().min(1).max(4_096).optional(),
+  }).safeParse({
+    ...(searchParams.has("kind") ? { kind: searchParams.get("kind") ?? "" } : {}),
+    ...(searchParams.has("search") ? { search: searchParams.get("search") ?? "" } : {}),
+    ...(searchParams.has("limit") ? { limit: searchParams.get("limit") } : {}),
+    ...(searchParams.has("cursor") ? { cursor: searchParams.get("cursor") } : {}),
+  });
+  if (!parsed.success) throw new ApplicationError("VALIDATION_FAILED", "Dashboard specification filters are invalid.");
+  return {
+    ...(parsed.data.kind === undefined ? {} : { kind: parsed.data.kind }),
+    ...(parsed.data.search === undefined ? {} : { search: parsed.data.search }),
     ...(parsed.data.limit === undefined ? {} : { limit: parsed.data.limit }),
     ...(parsed.data.cursor === undefined ? {} : { cursor: parsed.data.cursor }),
   };

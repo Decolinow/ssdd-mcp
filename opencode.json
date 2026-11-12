@@ -1,1 +1,2 @@
-{"mcp": {"servers": {"ssdd_mcp": {"type":"local","command":["node",".ssdd/agent-runtime/node_modules/ssdd-mcp/dist/src/cli.js","stdio","--workspace","."],"cwd":"."}}}}
+{
+  "$schema": "https://opencode.ai/config.json","mcp": {"servers": {"ssdd_mcp": {"type":"local","command":["node",".ssdd/agent-runtime/node_modules/ssdd-mcp/dist/src/cli.js","stdio","--workspace","."],"cwd":"."}}}}

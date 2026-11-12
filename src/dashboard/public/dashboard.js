@@ -58,6 +58,7 @@
     homeTitle: document.querySelector("#quick-access-title"),
     homeDescription: document.querySelector("#quick-access-description"),
     homeProfile: document.querySelector("#work-profile"),
+    firstUseGuidance: document.querySelector("#first-use-guidance"),
     homeSummary: document.querySelector("#quick-access-summary"),
     homeActions: document.querySelector("#quick-access-actions"),
     filters: document.querySelector(".filters"),
@@ -78,6 +79,16 @@
     historyMeta: document.querySelector("#history-meta"),
     historyError: document.querySelector("#history-error"),
     historyContent: document.querySelector("#history-content"),
+    specificationsTab: document.querySelector("#specifications-tab"),
+    specificationsView: document.querySelector("#specifications-view"),
+    specificationKind: document.querySelector("#specification-kind"),
+    specificationSearch: document.querySelector("#specification-search"),
+    applySpecificationFilter: document.querySelector("#apply-specification-filter"),
+    specificationsCount: document.querySelector("#specifications-count"),
+    specificationsMeta: document.querySelector("#specifications-meta"),
+    specificationsError: document.querySelector("#specifications-error"),
+    specificationList: document.querySelector("#specification-list"),
+    specificationDetail: document.querySelector("#specification-detail"),
     metricsMilestone: document.querySelector("#metrics-milestone"),
     metricsSprint: document.querySelector("#metrics-sprint"),
     metricsDate: document.querySelector("#metrics-date"),
@@ -210,6 +221,14 @@
     historyCursor: null,
     historyLoading: false,
     historyRequestId: 0,
+    specifications: [],
+    specificationKind: "",
+    specificationSearch: "",
+    specificationLoading: false,
+    specificationRequestId: 0,
+    specificationSearchTimer: null,
+    currentSpecification: null,
+    selectedSpecificationRevisionNumber: null,
     items: [],
     qualitySummaries: [],
     scenarios: [],
@@ -318,6 +337,7 @@
     elements.activityView.hidden = true;
     elements.retrospectiveView.hidden = true;
     elements.historyView.hidden = true;
+    elements.specificationsView.hidden = true;
     elements.metricsView.hidden = true;
     elements.roadmapView.hidden = true;
   }
@@ -333,9 +353,10 @@
     elements.activityView.hidden = selectedTab !== "activity-tab";
     elements.retrospectiveView.hidden = selectedTab !== "retrospective-tab";
     elements.historyView.hidden = selectedTab !== "history-tab";
+    elements.specificationsView.hidden = selectedTab !== "specifications-tab";
     elements.metricsView.hidden = selectedTab !== "metrics-tab";
     elements.roadmapView.hidden = selectedTab !== "roadmap-tab";
-    elements.filters.hidden = selectedTab === "home-tab" || selectedTab === "metrics-tab" || selectedTab === "history-tab" || selectedTab === "roadmap-tab";
+    elements.filters.hidden = selectedTab === "home-tab" || selectedTab === "metrics-tab" || selectedTab === "history-tab" || selectedTab === "roadmap-tab" || selectedTab === "specifications-tab";
   }
 
   async function loadWorkItems(projectId) {
@@ -439,6 +460,55 @@
     return api(`/api/v1/projects/${encodeURIComponent(projectId)}/work-items/${encodeURIComponent(taskId)}/context?${params}`);
   }
 
+  async function fetchSpecifications(projectId, filters = {}) {
+    const specifications = [];
+    let cursor = null;
+    do {
+      const params = new URLSearchParams({ limit: "100" });
+      if (filters.kind) params.set("kind", filters.kind);
+      if (filters.search) params.set("search", filters.search);
+      if (cursor) params.set("cursor", cursor);
+      const page = await api(`/api/v1/projects/${encodeURIComponent(projectId)}/specifications?${params}`);
+      specifications.push(...page.specifications);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return specifications;
+  }
+
+  function specificationFilters() {
+    const search = model.specificationSearch.trim();
+    return {
+      ...(model.specificationKind ? { kind: model.specificationKind } : {}),
+      ...(search.length >= 2 ? { search } : {}),
+    };
+  }
+
+  async function loadSpecifications() {
+    if (!model.projectId) return;
+    const projectId = model.projectId;
+    const requestId = ++model.specificationRequestId;
+    model.specificationLoading = true;
+    elements.specificationsError.hidden = true;
+    elements.specificationsMeta.textContent = "Carregando especificações…";
+    try {
+      const specifications = await fetchSpecifications(projectId, specificationFilters());
+      if (requestId !== model.specificationRequestId || projectId !== model.projectId) return;
+      model.specifications = specifications;
+      if (model.currentSpecification && !specifications.some((specification) => specification.key === model.currentSpecification.key)) {
+        model.currentSpecification = null;
+      }
+      renderSpecifications();
+    } catch (error) {
+      if (requestId !== model.specificationRequestId || projectId !== model.projectId) return;
+      elements.specificationsError.textContent = `${error.code ?? "ERRO"}: ${error.message}`;
+      elements.specificationsError.hidden = false;
+      elements.specificationsMeta.textContent = "Não foi possível carregar as especificações.";
+      elements.specificationList.innerHTML = "";
+    } finally {
+      if (requestId === model.specificationRequestId) model.specificationLoading = false;
+    }
+  }
+
   async function loadProjectData() {
     if (!model.projectId) return;
     if (model.loading) {
@@ -463,7 +533,7 @@
       const closedSprints = model.selectedTeamId
         ? api(`/api/v1/projects/${encodeURIComponent(projectId)}/sprints?status=closed&limit=100${teamFilter}`)
         : Promise.resolve({ sprints: [] });
-      const [projectResult, sprintResult, items, qualityResult, activityPage, closedSprintResult, scenariosResult, testRunsResult, parentFeatures, quickAccess] = await Promise.all([
+      const [projectResult, sprintResult, items, qualityResult, activityPage, closedSprintResult, scenariosResult, testRunsResult, parentFeatures, quickAccess, specifications] = await Promise.all([
         api(`/api/v1/projects/${encodeURIComponent(projectId)}`),
         activeSprints,
         loadWorkItems(projectId),
@@ -474,9 +544,11 @@
         api(`/api/v1/projects/${encodeURIComponent(projectId)}/test-runs?limit=100`),
         loadParentFeatures(projectId),
         api(`/api/v1/projects/${encodeURIComponent(projectId)}/quick-access`),
+        fetchSpecifications(projectId, specificationFilters()),
       ]);
       model.project = projectResult.project;
       model.quickAccess = quickAccess;
+      model.specifications = specifications;
       syncWorkProfileOptions();
       const minimumHistoryDate = projectLocalDate(new Date(model.project.createdAt), model.project.timezone);
       const maximumHistoryDate = projectLocalDate(new Date(), model.project.timezone);
@@ -942,10 +1014,21 @@
     return `<section class="quick-panel"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(description)}</p>${content}</section>`;
   }
 
+  function renderFirstUseGuidance() {
+    const isFirstUse = model.items.length === 0 && model.parentFeatures.length === 0;
+    elements.firstUseGuidance.hidden = !isFirstUse;
+    if (!isFirstUse) {
+      elements.firstUseGuidance.innerHTML = "";
+      return;
+    }
+    elements.firstUseGuidance.innerHTML = `<section class="first-use-card" aria-labelledby="first-use-title"><p class="eyebrow">PRIMEIRO USO</p><h3 id="first-use-title">Este projeto ainda não tem backlog</h3><p>O dashboard acompanha o trabalho; a autoria principal acontece pelas ferramentas MCP. Comece pelo backlog e depois configure a execução.</p><ol><li>Crie épicos, Features, histórias e tarefas com <code>work_item_create</code>. Publique revisões de PBI quando o conteúdo estiver estável.</li><li>Registre regras e ADRs com <code>spec_create</code> e cenários de aceite com <code>scenario_create</code>.</li><li>Crie o time, defina capacidade/DoD e prepare uma sprint com <code>team_create</code>, <code>team_capacity_set</code> e <code>sprint_draft</code>.</li></ol><p class="first-use-note">As abas mostram um estado vazio até existir dado compatível. Use o botão Atualizar no topo após cadastrar pelo MCP.</p><div class="quick-task-actions"><button class="button button-primary" type="button" data-home-view="backlog">Abrir Product Backlog</button><button class="button button-secondary" type="button" data-home-view="roadmap">Abrir Roadmap</button></div></section>`;
+  }
+
   function renderQuickAccess() {
     const quickAccess = model.quickAccess;
     if (quickAccess === null) return;
     syncWorkProfileOptions();
+    renderFirstUseGuidance();
     const profile = model.workProfile;
     const profileLabel = workProfileLabels[profile] ?? profile ?? "Perfil";
     const displayName = model.session?.principal?.displayName ?? "pessoa usuária";
@@ -1017,6 +1100,7 @@
     renderQuality();
     renderActivity();
     renderRetrospective();
+    renderSpecifications();
     renderMetrics();
     renderProjectRoadmap();
     renderProjectHistory();
@@ -1425,6 +1509,204 @@
         <p class="retro-meta">Registrada em ${escapeHtml(new Date(retrospective.createdAt).toLocaleString("pt-BR"))} · ${escapeHtml(retrospective.reason)}</p>
       </article>
       <section class="retro-history"><h3>Histórico imutável</h3>${history}</section>`;
+  }
+
+  const specificationRevisionStatusLabels = {
+    draft: "Rascunho",
+    in_review: "Em revisão",
+    published: "Publicada",
+    superseded: "Substituída",
+    withdrawn: "Retirada",
+  };
+  const specificationContentLabels = {
+    summary: "Resumo",
+    description: "Descrição",
+    context: "Contexto",
+    decision: "Decisão",
+    consequences: "Consequências",
+    alternatives: "Alternativas",
+    rationale: "Justificativa",
+    status: "Status",
+    rules: "Regras",
+    rule: "Regra",
+    terms: "Termos",
+    term: "Termo",
+    definition: "Definição",
+    contract: "Contrato",
+    endpoints: "Endpoints",
+    request: "Requisição",
+    response: "Resposta",
+    errors: "Erros",
+    requirements: "Requisitos",
+    requirement: "Requisito",
+    category: "Categoria",
+    target: "Alvo",
+    metric: "Métrica",
+    constraints: "Restrições",
+    assumptions: "Premissas",
+    references: "Referências",
+    sourceReferences: "Referências de origem",
+    version: "Versão",
+    schemaVersion: "Versão do schema",
+    title: "Título",
+    name: "Nome",
+    id: "ID",
+    key: "Chave",
+    type: "Tipo",
+    priority: "Prioridade",
+    owner: "Responsável",
+    transport: "Transporte",
+    identity: "Identidade",
+    profiles: "Perfis",
+    toolContracts: "Contratos de ferramentas",
+    taskContext: "Contexto de tarefa",
+    dashboard: "Dashboard",
+    traceability: "Rastreabilidade",
+    filtering: "Filtragem",
+    authorization: "Autorização",
+    projectSelection: "Seleção de projeto",
+    stdio: "stdio",
+    streamableHttp: "HTTP",
+    scope: "Escopo",
+    purpose: "Propósito",
+    behavior: "Comportamento",
+    notes: "Notas",
+    example: "Exemplo",
+    examples: "Exemplos",
+    values: "Valores",
+    fields: "Campos",
+    attributes: "Atributos",
+    ownerRole: "Papel responsável",
+    linkedTasks: "Tarefas vinculadas",
+    implementation: "Implementação",
+    validation: "Validação",
+    limits: "Limites",
+    openQuestions: "Questões abertas",
+    glossary: "Glossário",
+  };
+
+  function specificationRevisionStatusLabel(status) {
+    return specificationRevisionStatusLabels[status] ?? status;
+  }
+
+  function specificationFieldLabel(key) {
+    if (specificationContentLabels[key]) return specificationContentLabels[key];
+    const spaced = String(key)
+      .replace(/([a-z0-9])([A-Z])/gu, "$1 $2")
+      .replace(/[_-]+/gu, " ")
+      .trim();
+    return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : String(key);
+  }
+
+  function renderSpecificationScalar(value) {
+    if (value === null || value === undefined) return '<span class="specification-empty">—</span>';
+    if (typeof value === "boolean") return value ? "Sim" : "Não";
+    if (typeof value === "object") return JSON.stringify(value);
+    return escapeHtml(String(value));
+  }
+
+  function renderSpecificationValue(value) {
+    if (value === null || value === undefined) return '<span class="specification-empty">—</span>';
+    if (typeof value !== "object") return `<span class="specification-scalar">${renderSpecificationScalar(value)}</span>`;
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '<span class="specification-empty">Nenhum item.</span>';
+      const isPrimitive = value.every((item) => item === null || typeof item !== "object");
+      if (isPrimitive) {
+        return `<ul class="specification-inline-list">${value.map((item) => `<li>${renderSpecificationScalar(item)}</li>`).join("")}</ul>`;
+      }
+      return `<ol class="specification-array">${value.map((item) => `<li>${renderSpecificationValue(item)}</li>`).join("")}</ol>`;
+    }
+    const entries = Object.entries(value);
+    if (entries.length === 0) return '<span class="specification-empty">Sem conteúdo.</span>';
+    return `<dl class="specification-fields">${entries.map(([childKey, childValue]) => `<div class="specification-field"><dt>${escapeHtml(specificationFieldLabel(childKey))}</dt><dd>${renderSpecificationValue(childValue)}</dd></div>`).join("")}</dl>`;
+  }
+
+  function renderSpecifications() {
+    const specifications = model.specifications;
+    const filtered = Boolean(model.specificationKind || model.specificationSearch.trim());
+    elements.specificationsCount.textContent = `${specifications.length} ${specifications.length === 1 ? "especificação" : "especificações"}`;
+    elements.specificationsMeta.textContent = specifications.length
+      ? `${specifications.length} ${specifications.length === 1 ? "especificação" : "especificações"}${filtered ? " no filtro atual" : ""} · catálogo somente leitura · autoria pelo MCP`
+      : filtered ? "Nenhuma especificação corresponde ao filtro atual." : "Nenhuma especificação registrada no projeto.";
+    if (!specifications.length) {
+      elements.specificationList.innerHTML = `<div class="empty-state"><strong>${filtered ? "Nenhuma especificação corresponde ao filtro." : "Ainda não há especificações registradas."}</strong><p>${filtered ? "Ajuste o tipo ou a busca para consultar o catálogo." : "Registre regras, glossários, contratos, ADRs e requisitos pelo MCP com spec_create e publique as revisões lá."}</p></div>`;
+      renderSpecificationDetail();
+      return;
+    }
+    elements.specificationList.innerHTML = specifications.map((specification) => {
+      const published = specification.publishedRevision === null
+        ? "Sem revisão publicada"
+        : `Publicada r${specification.publishedRevision}`;
+      const hasDraft = specification.latestRevision > (specification.publishedRevision ?? 0);
+      const selected = model.currentSpecification?.key === specification.key;
+      return `<article class="specification-row${selected ? " is-selected" : ""}">
+        <div class="specification-row-main">
+          <span class="specification-key">${escapeHtml(specification.key)}</span>
+          <strong>${escapeHtml(specification.title)}</strong>
+          <span class="specification-row-meta">${escapeHtml(specificationKindLabel(specification.kind))} · ${escapeHtml(published)} · r${specification.latestRevision}${hasDraft ? " · rascunho pendente" : ""}</span>
+        </div>
+        <button class="row-open" type="button" data-open-specification="${escapeHtml(specification.key)}" aria-label="Abrir ${escapeHtml(specification.key)}">›</button>
+      </article>`;
+    }).join("");
+    renderSpecificationDetail();
+  }
+
+  function renderSpecificationDetail() {
+    const specification = model.currentSpecification;
+    if (!specification) {
+      elements.specificationDetail.hidden = true;
+      elements.specificationDetail.innerHTML = "";
+      return;
+    }
+    const revisions = specification.revisions ?? [];
+    const selectedRevision = revisions.find((revision) => revision.revisionNumber === model.selectedSpecificationRevisionNumber)
+      ?? revisions.at(-1)
+      ?? null;
+    const isUnpublished = selectedRevision !== null && selectedRevision.status !== "published";
+    const unpublishedExplanation = specification.publishedRevision === null
+      ? "Esta especificação ainda não tem revisão publicada; o conteúdo exibido é apenas a revisão selecionada."
+      : `Esse conteúdo não substitui a última revisão publicada (r${specification.publishedRevision}).`;
+    const publishedLabel = specification.publishedRevision === null
+      ? "Sem revisão publicada"
+      : `Última publicação r${specification.publishedRevision}`;
+    const revisionRows = revisions.length
+      ? revisions.map((revision) => `<li><button class="specification-revision${revision.revisionNumber === selectedRevision?.revisionNumber ? " is-selected" : ""}" type="button" data-spec-revision="${revision.revisionNumber}" aria-pressed="${revision.revisionNumber === selectedRevision?.revisionNumber}"><span class="specification-revision-number">r${revision.revisionNumber}</span><span class="specification-revision-status status-${escapeHtml(revision.status)}">${escapeHtml(specificationRevisionStatusLabel(revision.status))}</span><time datetime="${escapeHtml(revision.createdAt)}">${escapeHtml(formatDate(revision.createdAt))}</time></button></li>`).join("")
+      : "<li class=\"specification-empty\">Nenhuma revisão registrada.</li>";
+    elements.specificationDetail.hidden = false;
+    elements.specificationDetail.innerHTML = `
+      <div class="specification-detail-header">
+        <div>
+          <p class="eyebrow">${escapeHtml(specificationKindLabel(specification.kind))}</p>
+          <h3>${escapeHtml(specification.key)} · ${escapeHtml(specification.title)}</h3>
+          <p class="specification-detail-meta">Versão ${escapeHtml(specification.version)} · ${escapeHtml(publishedLabel)} · criada em ${escapeHtml(formatDate(specification.createdAt))}</p>
+        </div>
+        <button class="icon-button" type="button" data-close-specification aria-label="Fechar detalhe da especificação">×</button>
+      </div>
+      ${isUnpublished ? `<p class="specification-warning" role="status"><strong>Revisão não publicada.</strong> Você está lendo r${selectedRevision.revisionNumber} (${escapeHtml(specificationRevisionStatusLabel(selectedRevision.status))}). ${escapeHtml(unpublishedExplanation)}</p>` : ""}
+      <div class="specification-content">${renderSpecificationValue(selectedRevision?.content ?? {})}</div>
+      <section class="specification-revisions-list" aria-label="Revisões da especificação"><h4>Revisões (${revisions.length})</h4><ul>${revisionRows}</ul></section>`;
+  }
+
+  async function openSpecification(key) {
+    if (!model.projectId) return;
+    const projectId = model.projectId;
+    elements.specificationDetail.hidden = false;
+    elements.specificationDetail.innerHTML = `<div class="empty-state"><span class="loading-dot" aria-hidden="true"></span><p>Carregando ${escapeHtml(key)}…</p></div>`;
+    try {
+      const result = await api(`/api/v1/projects/${encodeURIComponent(projectId)}/specifications/${encodeURIComponent(key)}`);
+      if (projectId !== model.projectId) return;
+      model.currentSpecification = result.specification;
+      model.selectedSpecificationRevisionNumber = result.specification.revisions.at(-1)?.revisionNumber ?? null;
+      renderSpecifications();
+      elements.specificationDetail.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    } catch (error) {
+      if (projectId !== model.projectId) return;
+      model.currentSpecification = null;
+      model.selectedSpecificationRevisionNumber = null;
+      renderSpecifications();
+      elements.specificationDetail.hidden = false;
+      elements.specificationDetail.innerHTML = `<div class="empty-state error-state"><strong>Não foi possível abrir ${escapeHtml(key)}.</strong><p>${escapeHtml(error.code ?? "ERRO")}: ${escapeHtml(error.message)}</p></div>`;
+    }
   }
 
   function metricNumber(value) {
@@ -2518,6 +2800,7 @@
       metrics: [elements.metricsTab, elements.metricsView],
       roadmap: [elements.roadmapTab, elements.roadmapView],
       history: [elements.historyTab, elements.historyView],
+      specifications: [elements.specificationsTab, elements.specificationsView],
       backlog: [elements.backlogTab, elements.backlogView],
       board: [elements.boardTab, elements.boardView],
       quality: [elements.qualityTab, elements.qualityView],
@@ -2530,11 +2813,12 @@
       tab.setAttribute("aria-selected", String(selected));
       panel.hidden = !selected;
     }
-    elements.filters.hidden = view === "home" || view === "metrics" || view === "history" || view === "roadmap";
+    elements.filters.hidden = view === "home" || view === "metrics" || view === "history" || view === "roadmap" || view === "specifications";
     if (view === "home") renderQuickAccess();
     if (view === "metrics") void loadDashboardMetrics();
     if (view === "roadmap") void loadProjectRoadmap();
     if (view === "history") void loadProjectHistory();
+    if (view === "specifications") void loadSpecifications();
   }
 
   elements.loginForm.addEventListener("submit", (event) => { void submitLogin(event); });
@@ -2553,6 +2837,13 @@
     model.historySnapshot = null;
     model.historyDate = null;
     model.historyCursor = null;
+    model.specifications = [];
+    model.specificationKind = "";
+    model.specificationSearch = "";
+    model.currentSpecification = null;
+    model.selectedSpecificationRevisionNumber = null;
+    elements.specificationKind.value = "";
+    elements.specificationSearch.value = "";
     model.selectedMetricsMilestoneId = null;
     model.selectedMetricsSprintId = null;
     model.selectedMetricsDate = null;
@@ -2594,13 +2885,31 @@
   elements.roadmapTab.addEventListener("click", () => setView("roadmap"));
   elements.roadmapDate.addEventListener("change", () => { void loadProjectRoadmap(); });
   elements.historyTab.addEventListener("click", () => setView("history"));
+  elements.specificationsTab.addEventListener("click", () => setView("specifications"));
+  elements.specificationKind.addEventListener("change", () => {
+    model.specificationKind = elements.specificationKind.value;
+    void loadSpecifications();
+  });
+  elements.specificationSearch.addEventListener("input", () => {
+    model.specificationSearch = elements.specificationSearch.value;
+    if (model.specificationSearchTimer !== null) window.clearTimeout(model.specificationSearchTimer);
+    model.specificationSearchTimer = window.setTimeout(() => {
+      model.specificationSearchTimer = null;
+      void loadSpecifications();
+    }, 300);
+  });
+  elements.applySpecificationFilter.addEventListener("click", () => {
+    model.specificationKind = elements.specificationKind.value;
+    model.specificationSearch = elements.specificationSearch.value;
+    void loadSpecifications();
+  });
   elements.backlogTab.addEventListener("click", () => setView("backlog"));
   elements.boardTab.addEventListener("click", () => setView("board"));
   elements.qualityTab.addEventListener("click", () => setView("quality"));
   elements.activityTab.addEventListener("click", () => setView("activity"));
   elements.retrospectiveTab.addEventListener("click", () => setView("retrospective"));
-  const tabs = [elements.homeTab, elements.metricsTab, elements.roadmapTab, elements.historyTab, elements.backlogTab, elements.boardTab, elements.qualityTab, elements.activityTab, elements.retrospectiveTab];
-  const tabViews = ["home", "metrics", "roadmap", "history", "backlog", "board", "quality", "activity", "retrospective"];
+  const tabs = [elements.homeTab, elements.metricsTab, elements.roadmapTab, elements.historyTab, elements.specificationsTab, elements.backlogTab, elements.boardTab, elements.qualityTab, elements.activityTab, elements.retrospectiveTab];
+  const tabViews = ["home", "metrics", "roadmap", "history", "specifications", "backlog", "board", "quality", "activity", "retrospective"];
   for (const [index, tab] of tabs.entries()) {
     tab.addEventListener("keydown", (event) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -2765,16 +3074,17 @@
   elements.createScenario.addEventListener("click", () => { void openScenarioEditor(); });
   elements.scenarioForm.addEventListener("submit", (event) => { void submitScenarioForm(event); });
   elements.testRunForm.addEventListener("submit", (event) => { void submitTestRun(event); });
-  document.querySelectorAll("[data-home-view]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const view = button.getAttribute("data-home-view");
-      if (!view) return;
-      setView(view);
-      document.getElementById(`${view}-tab`)?.focus();
-    });
-  });
   document.addEventListener("click", (event) => {
     if (event.target.closest(".retro-pbi")) event.preventDefault();
+    const homeViewButton = event.target.closest("[data-home-view]");
+    if (homeViewButton) {
+      const view = homeViewButton.getAttribute("data-home-view");
+      if (view) {
+        setView(view);
+        document.getElementById(`${view}-tab`)?.focus();
+      }
+      return;
+    }
     const evidenceButton = event.target.closest("[data-load-evidence]");
     if (evidenceButton) {
       void loadMoreEvidence(evidenceButton);
@@ -2813,6 +3123,24 @@
     const itemPublish = event.target.closest("[data-publish-item-revision]");
     if (itemPublish) {
       void publishWorkItemRevision(Number(itemPublish.getAttribute("data-publish-item-revision")));
+      return;
+    }
+    const specificationOpen = event.target.closest("[data-open-specification]");
+    if (specificationOpen) {
+      const specificationKey = specificationOpen.getAttribute("data-open-specification");
+      if (specificationKey) void openSpecification(specificationKey);
+      return;
+    }
+    const specificationRevision = event.target.closest("[data-spec-revision]");
+    if (specificationRevision) {
+      model.selectedSpecificationRevisionNumber = Number(specificationRevision.getAttribute("data-spec-revision"));
+      renderSpecificationDetail();
+      return;
+    }
+    if (event.target.closest("[data-close-specification]")) {
+      model.currentSpecification = null;
+      model.selectedSpecificationRevisionNumber = null;
+      renderSpecifications();
       return;
     }
     const target = event.target.closest("[data-open-item]");

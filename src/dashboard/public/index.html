@@ -64,6 +64,7 @@
               <button id="metrics-tab" class="tab" role="tab" aria-selected="false" aria-controls="metrics-view" type="button">Métricas</button>
               <button id="roadmap-tab" class="tab" role="tab" aria-selected="false" aria-controls="roadmap-view" type="button">Roadmap</button>
               <button id="history-tab" class="tab" role="tab" aria-selected="false" aria-controls="history-view" type="button">Histórico</button>
+              <button id="specifications-tab" class="tab" role="tab" aria-selected="false" aria-controls="specifications-view" type="button">Especificações</button>
               <button id="backlog-tab" class="tab" role="tab" aria-selected="false" aria-controls="backlog-view" type="button">Product Backlog</button>
               <button id="board-tab" class="tab" role="tab" aria-selected="false" aria-controls="board-view" type="button">Board <span id="board-tab-count" class="tab-count">0</span></button>
               <button id="quality-tab" class="tab" role="tab" aria-selected="false" aria-controls="quality-view" type="button">Qualidade</button>
@@ -110,6 +111,7 @@
                 <small id="work-profile-help">A seleção muda a visão. Suas permissões permanecem as mesmas.</small>
               </label>
             </div>
+            <div id="first-use-guidance" class="first-use-guidance" hidden></div>
             <div id="quick-access-summary" class="quick-access-summary" aria-live="polite"></div>
             <div id="quick-access-actions" class="quick-access-actions"></div>
             <nav class="quick-access-links" aria-label="Atalhos do projeto">
@@ -186,6 +188,35 @@
             <p id="history-meta" class="history-meta" aria-live="polite">Selecione uma data para consultar o histórico.</p>
             <div id="history-error" class="metrics-error" role="alert" hidden></div>
             <div id="history-content" class="history-content"></div>
+          </section>
+
+          <section id="specifications-view" class="view specifications-view" role="tabpanel" aria-labelledby="specifications-tab" hidden>
+            <div class="view-heading">
+              <div><h2>Especificações e decisões</h2><p>Catálogo somente leitura de regras, glossários, contratos, ADRs e requisitos não funcionais. A autoria e a publicação continuam no MCP.</p></div>
+              <span id="specifications-count" class="count-label">0 itens</span>
+            </div>
+            <div class="specification-filters">
+              <label for="specification-kind">Tipo
+                <select id="specification-kind">
+                  <option value="">Todos os tipos</option>
+                  <option value="business_rule">Regra de negócio</option>
+                  <option value="glossary">Glossário</option>
+                  <option value="api_contract">Contrato de API</option>
+                  <option value="adr">Decisão de arquitetura</option>
+                  <option value="non_functional">Requisito não funcional</option>
+                </select>
+              </label>
+              <label for="specification-search">Busca
+                <input id="specification-search" type="search" maxlength="160" placeholder="Chave, título ou conteúdo" autocomplete="off">
+              </label>
+              <button id="apply-specification-filter" class="button button-secondary" type="button">Filtrar</button>
+            </div>
+            <p id="specifications-meta" class="metrics-meta" aria-live="polite">Carregando especificações…</p>
+            <div id="specifications-error" class="metrics-error" role="alert" hidden></div>
+            <div class="specification-layout">
+              <div id="specification-list" class="specification-list"></div>
+              <div id="specification-detail" class="specification-detail" hidden></div>
+            </div>
           </section>
 
           <section id="backlog-view" class="view" role="tabpanel" aria-labelledby="backlog-tab">
