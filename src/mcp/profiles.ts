@@ -56,7 +56,7 @@ const technicalLeadReadTools = [
   ...new Set([
     ...refinementReadTools, ...specificationReadTools, ...testDesignReadTools, ...developerReadTools,
     "developer_execution_metrics_get",
-    "project_feature_roadmap_get",
+    "project_feature_roadmap_get", "audit_event_list",
   ]),
 ] as const;
 
@@ -91,12 +91,12 @@ const releaseReadTools = [
 const adminReadTools = [
   ...projectReadTools,
   "task_context_get", "work_item_get", "work_item_revision_list", "work_item_list",
-  "baseline_get", "test_run_list", "work_item_gate_check", "work_item_quality_get", "evidence_list",
+  "baseline_get", "test_run_list", "work_item_gate_check", "work_item_quality_get", "evidence_list", "audit_event_list",
 ] as const;
 
 const securityReviewReadTools = [
   ...specificationReadTools,
-  "development_session_list", "deployment_event_list", "team_list", "team_capacity_get",
+  "development_session_list", "deployment_event_list", "team_list", "team_capacity_get", "audit_event_list",
 ] as const;
 
 const developerTools = [

@@ -138,13 +138,13 @@ test("stage profiles stay within their reviewed MCP context budgets", () => {
     dev: 39, // Includes the task execution queue, workflow progress, and atomic task start.
     test_design: 28,
     qa: 29,
-    tech_lead: 58, // ADR authoring, draft withdrawal, task workflow, execution ordering, and feature forecasts are part of the role.
-    security_review: 27,
+    tech_lead: 59, // Timeline de auditoria somente leitura, ADR authoring, draft withdrawal, task workflow, execution ordering, and feature forecasts are part of the role.
+    security_review: 28, // Inclui a timeline de auditoria somente leitura.
     po: 58, // Includes backlog discovery, draft withdrawal, task queue, feature roadmap and sprint planning.
     facilitator: 27,
     release: 26,
     devops: 26,
-    admin: 18,
+    admin: 19, // Inclui a timeline de auditoria somente leitura.
   };
   for (const [profile, maximum] of Object.entries(reviewedMaximum)) {
     const visibleCount = registered.filter((name) => mcpProfileAllowsTool(profile as McpProfile, name, true)).length;

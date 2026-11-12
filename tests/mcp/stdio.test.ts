@@ -49,6 +49,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "adr_search",
       "approval_issue",
       "approval_revoke",
+      "audit_event_list",
       "azure_work_item_import_apply",
       "azure_work_item_import_preview",
       "baseline_fix",
@@ -340,6 +341,21 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   assert.equal(roadmap.velocitySampleSize, 0);
   assert.equal(roadmap.minimumVelocitySamples, 3);
     assert.equal(roadmap.forecastUnavailableReason, "team_required");
+
+  const auditPage = await client.callTool({
+    name: "audit_event_list",
+    arguments: { projectId, entityType: "work_item", entityId: story.workItem.id, limit: 1 },
+  });
+  assert.notEqual(auditPage.isError, true);
+  const audit = auditPage.structuredContent as {
+    events: Array<{ eventType: string; entityId: string; payloadRedacted: boolean }>;
+    nextCursor: string | null;
+    watermark: number;
+  };
+  assert.equal(audit.events.length, 1);
+  assert.equal(audit.events[0]?.entityId, story.workItem.id);
+  assert.equal(audit.events[0]?.payloadRedacted, false);
+  assert.ok(audit.watermark > 0);
 
   const readResult = await client.callTool({
     name: "work_item_get",

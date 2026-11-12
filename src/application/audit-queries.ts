@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { SqliteDatabase } from "../storage-sqlite/database.js";
 import { ApplicationError } from "./errors.js";
-import { assertProjectAuthorization } from "./local-identity.js";
+import { assertProjectAuthorization, getProjectRoles } from "./local-identity.js";
 
 export interface AuditEventView {
   readonly id: string;
@@ -16,6 +16,8 @@ export interface AuditEventView {
   readonly reason: string | null;
   readonly occurredAt: string;
   readonly payload: unknown;
+  /** True quando o payload foi omitido por exigir papel de administrador. */
+  readonly payloadRedacted: boolean;
   readonly entityReference: AuditEntityReference;
   readonly relatedEntities: readonly AuditEntityReference[];
 }
@@ -27,6 +29,9 @@ export interface AuditEntityReference {
   readonly title: string | null;
   readonly label: string;
 }
+
+/** Entidades cujo payload expõe aprovações de ferramenta e identidades externas; só administradores o leem. */
+const sensitiveAuditEntityTypes: ReadonlySet<string> = new Set(["tool_approval", "principal"]);
 
 interface AuditCursor {
   readonly version: 1;
@@ -50,6 +55,7 @@ export function listAuditEvents(
     readonly principalId: string;
     readonly entityType?: string;
     readonly entityId?: string;
+    readonly actorPrincipalId?: string;
     readonly limit?: number;
     readonly cursor?: string;
   },
@@ -57,6 +63,7 @@ export function listAuditEvents(
   assertProjectAuthorization(database, input.projectId, input.principalId);
   const entityType = input.entityType?.trim() || null;
   const entityId = input.entityId?.trim() || null;
+  const actorPrincipalId = input.actorPrincipalId?.trim() || null;
   const limit = input.limit ?? 50;
   if (entityType !== null && entityType.length > 80) {
     throw new ApplicationError("VALIDATION_FAILED", "Audit entity type exceeds 80 characters.");
@@ -64,11 +71,14 @@ export function listAuditEvents(
   if (entityId !== null && entityId.length > 200) {
     throw new ApplicationError("VALIDATION_FAILED", "Audit entity ID exceeds 200 characters.");
   }
+  if (actorPrincipalId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(actorPrincipalId)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Audit actor filter must be a principal UUID.");
+  }
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
     throw new ApplicationError("VALIDATION_FAILED", "Audit page size must be an integer between 1 and 100.");
   }
 
-  const filterHash = hash(JSON.stringify({ entityType, entityId, limit }));
+  const filterHash = hash(JSON.stringify({ entityType, entityId, actorPrincipalId, limit }));
   const watermarkRow = database.prepare(
     "SELECT COALESCE(MAX(sequence), 0) AS watermark FROM audit_events WHERE project_id = ?",
   ).get(input.projectId) as { watermark: number };
@@ -94,6 +104,7 @@ export function listAuditEvents(
      WHERE event.project_id = ? AND event.sequence <= ?
        AND (? IS NULL OR event.entity_type = ?)
        AND (? IS NULL OR event.entity_id = ?)
+       AND (? IS NULL OR event.principal_id = ?)
        AND (? IS NULL OR event.sequence < ?)
      ORDER BY event.sequence DESC LIMIT ?`,
   ).all(
@@ -103,6 +114,8 @@ export function listAuditEvents(
     entityType,
     entityId,
     entityId,
+    actorPrincipalId,
+    actorPrincipalId,
     cursor?.beforeSequence ?? null,
     cursor?.beforeSequence ?? null,
     limit + 1,
@@ -123,6 +136,7 @@ export function listAuditEvents(
   const hasMore = rows.length > limit;
   const pageRows = rows.slice(0, limit);
   const payloads = pageRows.map((row) => JSON.parse(row.payload_json) as unknown);
+  const isAdministrator = getProjectRoles(database, input.projectId, input.principalId).includes("admin");
   const resolved = resolveAuditReferences(database, input.projectId, pageRows, payloads);
   const events = pageRows.map((row, index): AuditEventView => ({
     id: row.event_id,
@@ -136,7 +150,8 @@ export function listAuditEvents(
     correlationId: row.correlation_id,
     reason: row.reason,
     occurredAt: row.occurred_at,
-    payload: payloads[index],
+    payload: !isAdministrator && sensitiveAuditEntityTypes.has(row.entity_type) ? null : payloads[index],
+    payloadRedacted: !isAdministrator && sensitiveAuditEntityTypes.has(row.entity_type),
     entityReference: resolved.entities.get(referenceMapKey(row.entity_type, row.entity_id)) ??
       createAuditReference(row.entity_type, row.entity_id, null, null),
     relatedEntities: resolved.related.get(row.event_id) ?? [],

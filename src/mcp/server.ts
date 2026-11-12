@@ -101,6 +101,7 @@ import {
   publishScenarioRevision,
   recordTestRun,
 } from "../application/scenario-commands.js";
+import { listAuditEvents } from "../application/audit-queries.js";
 import { getScenario, listScenarios, listTestRunPage, searchScenariosByCriterion } from "../application/scenario-queries.js";
 import { ApplicationError } from "../application/errors.js";
 import {
@@ -3026,6 +3027,50 @@ export function createMcpServer(
           ...(rollbackOfEventId === undefined ? {} : { rollbackOfEventId }), ...(notes === undefined ? {} : { notes }),
         });
         const result = { event: receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "audit_event_list",
+    {
+      title: "Consultar timeline de auditoria",
+      description: "Lê, sem alterar nada, a timeline de auditoria do projeto, do evento mais recente ao mais antigo, com filtros por entidade e por principal executor, limite e cursor estável. Aprovações de ferramenta e identidades externas só mostram payload a administradores (payloadRedacted).",
+      inputSchema: z.object({
+        projectId: z.string().uuid().describe("UUID do projeto retornado por project_list."),
+        entityType: z.string().trim().min(1).max(80).optional()
+          .describe("Filtra pelo tipo da entidade auditada, por exemplo work_item, scenario ou test_run."),
+        entityId: z.string().trim().min(1).max(200).optional()
+          .describe("Filtra pelo ID exato da entidade; combine com entityType."),
+        actorPrincipalId: z.string().uuid().optional()
+          .describe("Filtra pelos eventos executados por este principal (UUID de user_list)."),
+        limit: z.number().int().min(1).max(100).optional()
+          .describe("Quantidade máxima de eventos na página; padrão 50 e máximo 100."),
+        cursor: z.string().max(4_096).optional()
+          .describe("Cursor opaco nextCursor da página anterior; reinicie sem cursor após STALE_CURSOR."),
+      }),
+      outputSchema: z.object({
+        events: z.array(z.object({
+          id: z.string(), sequence: z.number().int(), projectId: z.string(), principalId: z.string(),
+          principalName: z.string(), eventType: z.string(), entityType: z.string(), entityId: z.string(),
+          correlationId: z.string(), reason: z.string().nullable(), occurredAt: z.string(),
+          payload: z.unknown(), payloadRedacted: z.boolean(),
+          entityReference: z.object({ entityType: z.string(), id: z.string(), key: z.string().nullable(), title: z.string().nullable(), label: z.string() }),
+          relatedEntities: z.array(z.object({ entityType: z.string(), id: z.string(), key: z.string().nullable(), title: z.string().nullable(), label: z.string() })),
+        })),
+        nextCursor: z.string().nullable(),
+        watermark: z.number().int(),
+      }),
+    },
+    ({ projectId, entityType, entityId, actorPrincipalId, limit, cursor }) => {
+      try {
+        const result = listAuditEvents(database, {
+          projectId, principalId,
+          ...(entityType === undefined ? {} : { entityType }), ...(entityId === undefined ? {} : { entityId }),
+          ...(actorPrincipalId === undefined ? {} : { actorPrincipalId }),
+          ...(limit === undefined ? {} : { limit }), ...(cursor === undefined ? {} : { cursor }),
+        });
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) { return toToolError(error); }
     },

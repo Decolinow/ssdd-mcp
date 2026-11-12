@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Timeline de auditoria para agentes (2026-11-12, SSDD-903 / MCP SSDD-104)
+
+Nova tool `audit_event_list`, nos perfis tech lead, security e admin (dev, QA e release ficam fora para respeitar o orçamento de contexto), sobre `listAuditEvents`, que ganhou o filtro `actorPrincipalId` (incluído no hash do cursor) e o campo `payloadRedacted`: eventos de `tool_approval` e `principal` ocultam o payload de quem não é administrador, inclusive no dashboard. Aceite retroativo, com autovalidação, de SSDD-11, 31, 44, 45 e 46 e das histórias SSDD-28 e SSDD-43 para destravar a cadeia.
+
 ## Execuções de teste paginadas no dashboard (2026-11-12, SSDD-904 / MCP SSDD-105)
 
 `GET /api/v1/projects/{id}/test-runs` deixou de cortar em 100 registros sem sinalizar: passa a usar `listTestRunPage`, devolve `nextCursor` e `watermark` e aceita `cursor`, `build` e `result`. Teste do dashboard cobre continuação do cursor, filtro por resultado e resultado inválido.
