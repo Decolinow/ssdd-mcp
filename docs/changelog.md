@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Aviso de autovalidação nos gates (2026-11-12, SSDD-957 / MCP SSDD-160)
+
+- `work_item_gate_check` para Done de tarefa devolve `warnings: [{code: "self_validation"}]` quando quem verifica é o responsável ou quem iniciou a tarefa. Não bloqueia (agentes operam com a identidade do humano, então um bloqueio impediria todo fechamento); torna a falta de revisor independente visível e rastreável. Bloqueio por política do projeto fica como evolução.
+
 ## Fila mostra trabalho em andamento (2026-11-12, achado U8)
 
 - `task_execution_queue_get` ganhou `inFlight` (tarefas in_progress/in_review/in_validation) e `upNext` deixou de listá-las como próximas candidatas.

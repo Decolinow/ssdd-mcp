@@ -288,6 +288,11 @@ describe("work item workflow, evidence and QA gates", () => {
       projectId, principalId: developerId, itemIdOrKey: task.id, targetState: "done", buildId: "candidate-42",
     });
     assert.equal(taskDone.canProceed, true);
+    assert.deepEqual(taskDone.warnings.map((warning) => warning.code), ["self_validation"]);
+    const independentCheck = getWorkItemGateReport(database, {
+      projectId, principalId, itemIdOrKey: task.id, targetState: "done", buildId: "candidate-42",
+    });
+    assert.deepEqual(independentCheck.warnings, []);
     assert.equal(transitionItem(task.id, "done", "candidate-42", developerId).toState, "done");
   });
 

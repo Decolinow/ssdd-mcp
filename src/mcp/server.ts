@@ -388,6 +388,7 @@ const workItemGateReportSchema = z.object({
   gates: z.array(workflowGateSchema),
   canProceed: z.boolean(),
   transitionPath: z.array(z.string()),
+  warnings: z.array(z.object({ code: z.string(), message: z.string() })),
 });
 const workItemEvidenceSchema = z.object({
   id: z.string().uuid(),

@@ -694,7 +694,32 @@ function evaluateGates(
     gates,
     canProceed: gates.every((gate) => gate.passed),
     transitionPath: shortestTransitionPath(item.state as WorkItemState, targetState),
+    warnings: independenceWarnings(database, item, principalId, targetState),
   };
+}
+
+/**
+ * Aviso não bloqueante: o mesmo principal que implementou a tarefa também a revisou/validou.
+ * Agentes costumam operar com a identidade do humano; o aviso torna a falta de revisor independente visível.
+ */
+function independenceWarnings(
+  database: SqliteDatabase,
+  item: ReturnType<typeof getWorkItem>,
+  principalId: string,
+  targetState: "ready" | "done",
+): WorkItemGateReport["warnings"] {
+  if (targetState !== "done" || item.type !== "task") return [];
+  const executors = database.prepare(
+    `SELECT DISTINCT transitioned_by_principal_id AS principal FROM work_item_state_transitions
+     WHERE project_id = ? AND item_id = ? AND to_state = 'in_progress'`,
+  ).all(item.projectId, item.id) as Array<{ principal: string }>;
+  const executedBySamePrincipal = item.assigneeId === principalId || executors.some((row) => row.principal === principalId);
+  return executedBySamePrincipal
+    ? [{
+        code: "self_validation",
+        message: "O principal que conclui a tarefa é o mesmo que a executou; não há revisão ou validação independente. Registre isso no motivo ou peça revisão de outro principal.",
+      }]
+    : [];
 }
 
 /** Estados intermediários e finais a percorrer para chegar ao alvo, sem passar por cancelled. */
