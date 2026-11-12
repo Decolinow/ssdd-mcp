@@ -157,8 +157,8 @@ export function listProjectQualitySummaries(
     projectId: input.projectId, principalId: input.principalId, filterHash, watermark,
   });
   const cursorFilter = cursor === undefined ? "" : `
-     WHERE quality.item_key COLLATE NOCASE > ?
-        OR (quality.item_key COLLATE NOCASE = ? AND quality.item_id > ?)`;
+     AND (wi.item_key COLLATE NOCASE > ?
+          OR (wi.item_key COLLATE NOCASE = ? AND wi.item_id > ?))`;
   const parameters: Array<string | number> = [input.projectId];
   if (cursor !== undefined) parameters.push(cursor.afterKey, cursor.afterKey, cursor.afterId);
   parameters.push(limit + 1);
@@ -168,7 +168,7 @@ export function listProjectQualitySummaries(
               (SELECT b.baseline_id FROM work_baselines b
                WHERE b.project_id = wi.project_id AND b.item_id = wi.item_id
                ORDER BY b.sequence DESC LIMIT 1) AS baseline_id
-       FROM work_items wi WHERE wi.project_id = ? AND wi.type IN ('story', 'bug')
+       FROM work_items wi WHERE wi.project_id = ? AND wi.type IN ('story', 'bug') ${cursorFilter}
      ), criteria AS (
        SELECT ci.project_id, ci.item_id, ci.baseline_id,
               json_extract(criterion.value, '$.id') AS criterion_id,
@@ -218,7 +218,6 @@ export function listProjectQualitySummaries(
          ON cq.project_id = ci.project_id AND cq.item_id = ci.item_id
        GROUP BY ci.project_id, ci.item_id
      ) AS quality
-     ${cursorFilter}
      ORDER BY quality.item_key COLLATE NOCASE, quality.item_id
      LIMIT ?`,
   ).all(...parameters).map((row) => {

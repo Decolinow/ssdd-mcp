@@ -247,6 +247,36 @@ describe("project metrics projections", () => {
     assert.equal(buildCoverage.certifiedCoveragePercent, 50);
   });
 
+  it("does not count a certification superseded by a newer run in another build", () => {
+    const [certifiedPbi] = pbis;
+    assert.ok(certifiedPbi);
+    markDone(certifiedPbi);
+
+    const certified = getProjectCoverageMetrics(database, { projectId, principalId });
+    assert.equal(certified.coveredRequiredCriteria, 2);
+    assert.equal(certified.certifiedRequiredCriteria, 1);
+
+    recordTestRun(database, {
+      projectId, principalId, requestId: requestId("newer-build-run"),
+      scenarioIdOrKey: certifiedPbi.scenarioId, revisionNumber: 1,
+      buildId: "metrics-build-later", result: "failed",
+    });
+
+    const superseded = getProjectCoverageMetrics(database, { projectId, principalId });
+    assert.equal(superseded.coveredRequiredCriteria, 2);
+    assert.equal(superseded.certifiedRequiredCriteria, 0);
+
+    const originalBuild = getProjectCoverageMetrics(database, {
+      projectId, principalId, buildId: `metrics-build-${certifiedPbi.id}`,
+    });
+    assert.equal(originalBuild.certifiedRequiredCriteria, 1);
+
+    const laterBuild = getProjectCoverageMetrics(database, {
+      projectId, principalId, buildId: "metrics-build-later",
+    });
+    assert.equal(laterBuild.certifiedRequiredCriteria, 0);
+  });
+
   it("enforces project access and bounded metric query sizes", () => {
     assert.throws(() => getProjectWipMetrics(database, { projectId, principalId: randomUUID() }),
       (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "FORBIDDEN");

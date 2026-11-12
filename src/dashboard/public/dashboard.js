@@ -18,6 +18,9 @@
   };
   const typeLabels = { epic: "Épico", feature: "Feature", story: "História", bug: "Bug", task: "Tarefa" };
   const typeMarks = { epic: "E", feature: "F", story: "H", bug: "B", task: "T" };
+  const metricNumberFormatter = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 });
+  const metricDateFormatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeZone: "UTC" });
+  const localDateFormatters = new Map();
   const workProfileLabels = {
     admin: "Administração", po: "Product Owner", developer: "Developer", qa: "QA",
     tech_lead: "Tech Lead", facilitator: "Facilitador", stakeholder: "Stakeholder",
@@ -851,7 +854,15 @@
     model.quickAccess = null;
     syncWorkProfileOptions();
     await loadProjectData();
-    if (model.refreshTimer !== null) window.clearInterval(model.refreshTimer);
+    scheduleRefresh();
+  }
+
+  function scheduleRefresh() {
+    if (model.refreshTimer !== null) {
+      window.clearInterval(model.refreshTimer);
+      model.refreshTimer = null;
+    }
+    if (document.hidden || model.session === null) return;
     model.refreshTimer = window.setInterval(() => { void loadProjectData(); }, 30_000);
   }
 
@@ -1107,11 +1118,22 @@
   }
 
   function projectLocalDate(value, timezone) {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
-    }).formatToParts(value);
+    let formatter = localDateFormatters.get(timezone);
+    if (formatter === undefined) {
+      formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+      });
+      localDateFormatters.set(timezone, formatter);
+    }
+    const parts = formatter.formatToParts(value);
     const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
     return `${fields.year}-${fields.month}-${fields.day}`;
+  }
+
+  function metricTimestampDate(value) {
+    if (!value) return null;
+    const timezone = model.project?.timezone;
+    return timezone ? projectLocalDate(new Date(value), timezone) : value.slice(0, 10);
   }
 
   function isHistoryDateSelectable(value = elements.historyDate.value) {
@@ -1635,20 +1657,49 @@
     }
     elements.specificationList.innerHTML = specifications.map((specification) => {
       const published = specification.publishedRevision === null
-        ? "Sem revisão publicada"
+        ? "Sem publicação vigente"
         : `Publicada r${specification.publishedRevision}`;
-      const hasDraft = specification.latestRevision > (specification.publishedRevision ?? 0);
+      const latestNote = specification.latestStatus === "draft"
+        ? "rascunho pendente"
+        : specification.latestStatus === "in_review"
+          ? "em revisão"
+          : specification.latestStatus === "superseded"
+            ? "última revisão substituída"
+            : specification.latestStatus === "withdrawn"
+              ? "última revisão retirada"
+              : "";
       const selected = model.currentSpecification?.key === specification.key;
       return `<article class="specification-row${selected ? " is-selected" : ""}">
         <div class="specification-row-main">
           <span class="specification-key">${escapeHtml(specification.key)}</span>
           <strong>${escapeHtml(specification.title)}</strong>
-          <span class="specification-row-meta">${escapeHtml(specificationKindLabel(specification.kind))} · ${escapeHtml(published)} · r${specification.latestRevision}${hasDraft ? " · rascunho pendente" : ""}</span>
+          <span class="specification-row-meta">${escapeHtml(specificationKindLabel(specification.kind))} · ${escapeHtml(published)} · r${specification.latestRevision}${latestNote ? ` · ${escapeHtml(latestNote)}` : ""}</span>
         </div>
         <button class="row-open" type="button" data-open-specification="${escapeHtml(specification.key)}" aria-label="Abrir ${escapeHtml(specification.key)}">›</button>
       </article>`;
     }).join("");
     renderSpecificationDetail();
+  }
+
+  function renderSpecificationNotice(specification, selectedRevision) {
+    if (!selectedRevision || selectedRevision.status === "published") return "";
+    const revisionLabel = `r${selectedRevision.revisionNumber} (${specificationRevisionStatusLabel(selectedRevision.status)})`;
+    if (selectedRevision.status === "superseded") {
+      const replacement = specification.publishedRevision === null
+        ? "Consulte o catálogo para identificar a publicação vigente."
+        : `A publicação vigente é r${specification.publishedRevision}.`;
+      return `<p class="specification-warning specification-notice-historical" role="status"><strong>Revisão histórica (substituída).</strong> Você está lendo ${escapeHtml(revisionLabel)}, que já foi publicada e depois substituída. ${escapeHtml(replacement)} O conteúdo é mantido apenas para consulta.</p>`;
+    }
+    if (selectedRevision.status === "withdrawn") {
+      const current = specification.publishedRevision === null
+        ? "Não há publicação vigente nesta especificação."
+        : `A publicação vigente continua sendo r${specification.publishedRevision}.`;
+      return `<p class="specification-warning specification-notice-historical" role="status"><strong>Revisão retirada.</strong> Você está lendo ${escapeHtml(revisionLabel)}, retirada do catálogo. ${escapeHtml(current)}</p>`;
+    }
+    const unpublishedExplanation = specification.publishedRevision === null
+      ? "Esta especificação ainda não tem revisão publicada; o conteúdo exibido é apenas a revisão selecionada."
+      : `Esse conteúdo não substitui a última revisão publicada (r${specification.publishedRevision}).`;
+    return `<p class="specification-warning" role="status"><strong>Revisão não publicada.</strong> Você está lendo ${escapeHtml(revisionLabel)}. ${escapeHtml(unpublishedExplanation)}</p>`;
   }
 
   function renderSpecificationDetail() {
@@ -1662,13 +1713,9 @@
     const selectedRevision = revisions.find((revision) => revision.revisionNumber === model.selectedSpecificationRevisionNumber)
       ?? revisions.at(-1)
       ?? null;
-    const isUnpublished = selectedRevision !== null && selectedRevision.status !== "published";
-    const unpublishedExplanation = specification.publishedRevision === null
-      ? "Esta especificação ainda não tem revisão publicada; o conteúdo exibido é apenas a revisão selecionada."
-      : `Esse conteúdo não substitui a última revisão publicada (r${specification.publishedRevision}).`;
     const publishedLabel = specification.publishedRevision === null
-      ? "Sem revisão publicada"
-      : `Última publicação r${specification.publishedRevision}`;
+      ? "Sem publicação vigente"
+      : `Publicação vigente r${specification.publishedRevision}`;
     const revisionRows = revisions.length
       ? revisions.map((revision) => `<li><button class="specification-revision${revision.revisionNumber === selectedRevision?.revisionNumber ? " is-selected" : ""}" type="button" data-spec-revision="${revision.revisionNumber}" aria-pressed="${revision.revisionNumber === selectedRevision?.revisionNumber}"><span class="specification-revision-number">r${revision.revisionNumber}</span><span class="specification-revision-status status-${escapeHtml(revision.status)}">${escapeHtml(specificationRevisionStatusLabel(revision.status))}</span><time datetime="${escapeHtml(revision.createdAt)}">${escapeHtml(formatDate(revision.createdAt))}</time></button></li>`).join("")
       : "<li class=\"specification-empty\">Nenhuma revisão registrada.</li>";
@@ -1682,7 +1729,7 @@
         </div>
         <button class="icon-button" type="button" data-close-specification aria-label="Fechar detalhe da especificação">×</button>
       </div>
-      ${isUnpublished ? `<p class="specification-warning" role="status"><strong>Revisão não publicada.</strong> Você está lendo r${selectedRevision.revisionNumber} (${escapeHtml(specificationRevisionStatusLabel(selectedRevision.status))}). ${escapeHtml(unpublishedExplanation)}</p>` : ""}
+      ${renderSpecificationNotice(specification, selectedRevision)}
       <div class="specification-content">${renderSpecificationValue(selectedRevision?.content ?? {})}</div>
       <section class="specification-revisions-list" aria-label="Revisões da especificação"><h4>Revisões (${revisions.length})</h4><ul>${revisionRows}</ul></section>`;
   }
@@ -1712,13 +1759,12 @@
   function metricNumber(value) {
     return value === null || value === undefined
       ? "—"
-      : new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
+      : metricNumberFormatter.format(value);
   }
 
   function metricDate(value) {
     if (!value) return "—";
-    return new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeZone: "UTC" })
-      .format(new Date(`${value}T12:00:00.000Z`));
+    return metricDateFormatter.format(new Date(`${value}T12:00:00.000Z`));
   }
 
   function metricStatusLabel(status) {
@@ -1903,8 +1949,8 @@
     const velocityPoints = visibleVelocitySprints.map((sprint) => sprint.deliveredPoints);
     const velocityAverage = velocityPoints.length ? velocityPoints.reduce((total, points) => total + points, 0) / velocityPoints.length : null;
     const velocityMedian = medianMetric(velocityPoints);
-    const velocityRows = [...visibleVelocitySprints].reverse().map((sprint) => `<tr><td>${escapeHtml(sprint.sprintKey)}</td><td>${escapeHtml(metricDate(sprint.closedAt.slice(0, 10)))}</td><td>${escapeHtml(metricNumber(sprint.deliveredPoints))} pts</td><td>${escapeHtml(metricNumber(sprint.capacityHours))} h</td><td>${escapeHtml(metricNumber(sprint.pointsPerHour))} pts/h</td></tr>`).join("");
-    const velocitySeries = visibleVelocitySprints.map((sprint) => ({ date: sprint.closedAt.slice(0, 10), deliveredPoints: sprint.deliveredPoints }));
+    const velocityRows = [...visibleVelocitySprints].reverse().map((sprint) => `<tr><td>${escapeHtml(sprint.sprintKey)}</td><td>${escapeHtml(metricDate(metricTimestampDate(sprint.closedAt)))}</td><td>${escapeHtml(metricNumber(sprint.deliveredPoints))} pts</td><td>${escapeHtml(metricNumber(sprint.capacityHours))} h</td><td>${escapeHtml(metricNumber(sprint.pointsPerHour))} pts/h</td></tr>`).join("");
+    const velocitySeries = visibleVelocitySprints.map((sprint) => ({ date: metricTimestampDate(sprint.closedAt), deliveredPoints: sprint.deliveredPoints }));
     const developerMetrics = data.developerExecutionMetrics;
     const developers = developerMetrics?.developers ?? [];
     if (model.selectedMetricsDeveloperId && !developers.some((developer) => developer.principalId === model.selectedMetricsDeveloperId)) {
@@ -2822,6 +2868,10 @@
   }
 
   elements.loginForm.addEventListener("submit", (event) => { void submitLogin(event); });
+  document.addEventListener("visibilitychange", () => {
+    scheduleRefresh();
+    if (!document.hidden && model.session !== null) void loadProjectData();
+  });
   elements.logout.addEventListener("click", () => { void logout(); });
   elements.projectSelect.addEventListener("change", () => {
     model.projectId = elements.projectSelect.value;

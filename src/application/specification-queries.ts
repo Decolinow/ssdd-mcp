@@ -42,6 +42,7 @@ interface RevisionRow {
 
 type ListedSpecificationRow = SpecificationRow & {
   readonly latest_revision: number;
+  readonly latest_status: SpecificationRevisionStatus | null;
   readonly published_revision: number | null;
   readonly latest_content_json?: string | null;
 };
@@ -88,6 +89,7 @@ export function getSpecification(
     title: row.title,
     version: row.version,
     latestRevision,
+    latestStatus: revisions.at(-1)?.status ?? null,
     publishedRevision,
     createdByPrincipalId: row.created_by_principal_id,
     createdAt: row.created_at,
@@ -131,6 +133,9 @@ export function listSpecifications(
         `SELECT s.spec_id, s.project_id, s.spec_key, s.kind, s.title, s.version,
                 s.created_by_principal_id, s.created_at,
                 COALESCE(MAX(r.revision_number), 0) AS latest_revision,
+                (SELECT latest.status FROM specification_revisions latest
+                 WHERE latest.project_id = s.project_id AND latest.spec_id = s.spec_id
+                 ORDER BY latest.revision_number DESC LIMIT 1) AS latest_status,
                 MAX(CASE WHEN r.status = 'published' THEN r.revision_number END) AS published_revision
          FROM specifications AS s
          LEFT JOIN specification_revisions AS r
@@ -147,6 +152,9 @@ export function listSpecifications(
       `SELECT s.spec_id, s.project_id, s.spec_key, s.kind, s.title, s.version,
               s.created_by_principal_id, s.created_at,
               COALESCE(MAX(r.revision_number), 0) AS latest_revision,
+              (SELECT latest.status FROM specification_revisions latest
+               WHERE latest.project_id = s.project_id AND latest.spec_id = s.spec_id
+               ORDER BY latest.revision_number DESC LIMIT 1) AS latest_status,
               MAX(CASE WHEN r.status = 'published' THEN r.revision_number END) AS published_revision,
               (SELECT latest.content_json FROM specification_revisions latest
                WHERE latest.project_id = s.project_id AND latest.spec_id = s.spec_id
@@ -181,6 +189,7 @@ export function listSpecifications(
     title: row.title,
     version: row.version,
     latestRevision: row.latest_revision,
+    latestStatus: row.latest_status,
     publishedRevision: row.published_revision,
     createdByPrincipalId: row.created_by_principal_id,
     createdAt: row.created_at,

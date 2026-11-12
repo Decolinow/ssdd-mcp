@@ -48,6 +48,7 @@ export interface Specification {
   readonly title: string;
   readonly version: number;
   readonly latestRevision: number;
+  readonly latestStatus: SpecificationRevisionStatus | null;
   readonly publishedRevision: number | null;
   readonly createdByPrincipalId: string;
   readonly createdAt: string;

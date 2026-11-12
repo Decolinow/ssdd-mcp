@@ -15,7 +15,11 @@ import { setDefinitionOfDone } from "../../src/application/definition-of-done.js
 import { initializeProject } from "../../src/application/initialize-project.js";
 import { createMilestone } from "../../src/application/milestones.js";
 import { createScenario, publishScenarioRevision } from "../../src/application/scenario-commands.js";
-import { createSpecification } from "../../src/application/specification-commands.js";
+import {
+  createSpecification,
+  proposeSpecificationRevision,
+  publishSpecificationRevision,
+} from "../../src/application/specification-commands.js";
 import { setSprintRetrospective } from "../../src/application/sprint-retrospectives.js";
 import { setTeamCapacityConfiguration } from "../../src/application/team-capacity.js";
 import { addTraceLink } from "../../src/application/trace-commands.js";
@@ -119,6 +123,39 @@ test("dashboard API sessions and project authorization match MCP access", async 
     title: "Unpublished payment decision",
     content: { decision: "DRAFT_DECISION_MUST_NOT_BE_EXPOSED" },
   }).value;
+  createSpecification(database, {
+    projectId,
+    principalId,
+    requestId: "dashboard-historical-specification",
+    key: "PAY-ADR-HISTORY",
+    kind: "adr",
+    title: "Replaced payment decision",
+    content: { decision: "FIRST_PUBLISHED_DECISION" },
+  });
+  publishSpecificationRevision(database, {
+    projectId,
+    principalId,
+    requestId: "dashboard-historical-specification-publish-1",
+    specIdOrKey: "PAY-ADR-HISTORY",
+    revisionNumber: 1,
+    expectedVersion: 1,
+  });
+  proposeSpecificationRevision(database, {
+    projectId,
+    principalId,
+    requestId: "dashboard-historical-specification-revision",
+    specIdOrKey: "PAY-ADR-HISTORY",
+    expectedVersion: 2,
+    content: { decision: "CURRENT_PUBLISHED_DECISION" },
+  });
+  publishSpecificationRevision(database, {
+    projectId,
+    principalId,
+    requestId: "dashboard-historical-specification-publish-2",
+    specIdOrKey: "PAY-ADR-HISTORY",
+    revisionNumber: 2,
+    expectedVersion: 3,
+  });
   const draftSpecificationLink = addTraceLink(database, {
     projectId,
     principalId,
@@ -332,6 +369,13 @@ test("dashboard API sessions and project authorization match MCP access", async 
   assert.match(dashboardJavascript, /data-open-specification/u);
   assert.match(dashboardJavascript, /Revisão não publicada/u);
   assert.match(dashboardJavascript, /ainda não tem revisão publicada/u);
+  assert.match(dashboardJavascript, /Revisão histórica \(substituída\)/u);
+  assert.match(dashboardJavascript, /já foi publicada e depois substituída/u);
+  assert.match(dashboardJavascript, /Revisão retirada/u);
+  assert.match(dashboardJavascript, /Sem publicação vigente/u);
+  assert.match(dashboardJavascript, /specification\.latestStatus/u);
+  assert.match(dashboardJavascript, /última revisão substituída/u);
+  assert.match(dashboardJavascript, /última revisão retirada/u);
   assert.match(dashboardJavascript, /specificationKindLabel\(specification\.kind\)/u);
   assert.match(dashboardJavascript, /function scenarioKindLabel\(kind\)/u);
   assert.match(dashboardJavascript, /scenarioKindLabel\(scenario\.kind\)/u);
@@ -924,14 +968,27 @@ test("dashboard API sessions and project authorization match MCP access", async 
   });
   assert.equal(specificationListResponse.status, 200);
   const specificationPage = await specificationListResponse.json() as {
-    specifications: Array<{ key: string; kind: string; latestRevision: number; publishedRevision: number | null }>;
+    specifications: Array<{
+      key: string;
+      kind: string;
+      latestRevision: number;
+      latestStatus: string | null;
+      publishedRevision: number | null;
+    }>;
     watermark: number;
   };
   assert.ok(specificationPage.specifications.some((specification) => (
     specification.key === "PAY-ADR-DRAFT"
     && specification.kind === "adr"
     && specification.latestRevision === 1
+    && specification.latestStatus === "draft"
     && specification.publishedRevision === null
+  )));
+  assert.ok(specificationPage.specifications.some((specification) => (
+    specification.key === "PAY-ADR-HISTORY"
+    && specification.latestRevision === 2
+    && specification.latestStatus === "published"
+    && specification.publishedRevision === 2
   )));
   assert.ok(specificationPage.watermark > 0);
 
@@ -964,6 +1021,26 @@ test("dashboard API sessions and project authorization match MCP access", async 
   assert.equal(specificationDetail.specification.revisions.length, 1);
   assert.equal(specificationDetail.specification.revisions[0]?.status, "draft");
   assert.equal(specificationDetail.specification.revisions[0]?.content.decision, "DRAFT_DECISION_MUST_NOT_BE_EXPOSED");
+
+  const historicalSpecificationResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/specifications/PAY-ADR-HISTORY`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(historicalSpecificationResponse.status, 200);
+  const historicalSpecification = await historicalSpecificationResponse.json() as {
+    specification: {
+      publishedRevision: number | null;
+      revisions: Array<{ revisionNumber: number; status: string }>;
+    };
+  };
+  assert.equal(historicalSpecification.specification.publishedRevision, 2);
+  assert.deepEqual(
+    historicalSpecification.specification.revisions.map(({ revisionNumber, status }) => ({ revisionNumber, status })),
+    [
+      { revisionNumber: 1, status: "superseded" },
+      { revisionNumber: 2, status: "published" },
+    ],
+  );
 
   const missingSpecificationResponse = await fetch(
     `${address.origin}/api/v1/projects/${projectId}/specifications/PAY-ADR-MISSING`,

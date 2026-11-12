@@ -102,6 +102,7 @@ Configure o cliente MCP para executar `docker compose run --rm -i ssdd-mcp`. Cad
 | [Simulação de projeto solo](docs/solo-simulation.md) | Definition of Done, capacidade, fluxo MCP completo e próximos passos |
 | [Demo local](docs/demo.md) | Trilha PO → Dev → QA, configuração de cliente stdio e validação do pacote |
 | [Notas de release v0.2.0 (rascunho)](docs/release-v0.2.md) | Compatibilidade, upgrade, instalação e gate de publicação |
+| [Análise de qualidade e melhorias](docs/analise-qualidade-e-melhorias.md) | Lacunas de fidelidade de entrega, propostas SSDD-938–955 e ordem recomendada |
 | [Status](docs/status.md) | Sprint atual, tarefas iniciadas, evidências e próximo passo |
 | [Sessões e releases por tarefa (ADR 0017)](docs/adr/0017-sessoes-de-desenvolvimento-e-releases.md) | Datas, autoria, calibração em horas, gates de promoção e limites de recuperação |
 | [Desenvolvimento](docs/development.md) | Instalação, comandos, fluxo de contribuição e atualização da documentação |

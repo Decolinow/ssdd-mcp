@@ -301,7 +301,7 @@ export function getProjectFeatureRoadmap(
     const durationDays = median(durations.map((sprint) => daysBetween(sprint.startsOn, sprint.endsOn) + 1));
     const samplesSufficient = velocitySamples.length >= minimumVelocitySamples;
     const timeline = samplesSufficient
-      ? buildSprintTimeline(database, input.projectId, teamId, asOfDate, durations, durationDays)
+      ? buildSprintTimeline(database, input.projectId, teamId, asOfDate, durationDays)
       : [];
     const hasZeroVelocity = velocitySamples.length > 0 && velocitySamples.every((sample) => sample.deliveredPoints === 0);
     const simulationResults = samplesSufficient && !hasZeroVelocity
@@ -418,7 +418,6 @@ function buildSprintTimeline(
   projectId: string,
   teamId: string | null,
   asOfDate: string,
-  historical: readonly SprintDate[],
   medianDuration: number | null,
 ): ProjectFeatureRoadmap["sprintTimeline"] {
   if (teamId === null || medianDuration === null || medianDuration < 1) return [];
@@ -427,10 +426,15 @@ function buildSprintTimeline(
      FROM sprints WHERE project_id = ? AND team_id = ? AND status = 'draft' AND starts_on > ?
      ORDER BY starts_on, sprint_key COLLATE NOCASE LIMIT 52`,
   ).all(projectId, teamId, asOfDate) as SprintDate[];
+  const active = database.prepare(
+    `SELECT sprint_id AS sprintId, starts_on AS startsOn, ends_on AS endsOn
+     FROM sprints WHERE project_id = ? AND team_id = ? AND status = 'active'
+     ORDER BY ends_on DESC, sprint_key COLLATE NOCASE LIMIT 1`,
+  ).get(projectId, teamId) as SprintDate | undefined;
   const timeline: Array<{ index: number; startsOn: string; endsOn: string; source: "planned_sprint" | "historical_median" }> =
     planned.map((sprint, index) => ({ ...sprint, index: index + 1, source: "planned_sprint" as const }));
-  const latestEnd = historical.at(-1)?.endsOn ?? asOfDate;
-  let nextStart = addDays(planned.at(-1)?.endsOn ?? latestEnd, 1);
+  const activeEnd = active !== undefined && active.endsOn > asOfDate ? active.endsOn : asOfDate;
+  let nextStart = addDays(planned.at(-1)?.endsOn ?? activeEnd, 1);
   while (timeline.length < maximumProjectedSprints) {
     const endsOn = addDays(nextStart, medianDuration - 1);
     timeline.push({ index: timeline.length + 1, startsOn: nextStart, endsOn, source: "historical_median" });

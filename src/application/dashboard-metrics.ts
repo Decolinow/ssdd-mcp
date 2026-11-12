@@ -227,14 +227,21 @@ function readProjectWatermark(database: SqliteDatabase, projectId: string): numb
   return row.sequence;
 }
 
+const localDateFormatters = new Map<string, Intl.DateTimeFormat>();
+
 function localDate(value: string | Date, timezone: string): string {
   const date = value instanceof Date ? value : new Date(value);
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
+  let formatter = localDateFormatters.get(timezone);
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    localDateFormatters.set(timezone, formatter);
+  }
+  const parts = formatter.formatToParts(date);
   const year = parts.find((part) => part.type === "year")?.value;
   const month = parts.find((part) => part.type === "month")?.value;
   const day = parts.find((part) => part.type === "day")?.value;

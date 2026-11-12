@@ -395,6 +395,31 @@ O dashboard expõe uma aba somente leitura que recebe `asOfDate` no fuso do proj
 
 O domínio valida `implements` de tarefa para especificação e preserva revisões de baseline; `relates_to` também aparece no contexto como referência sem alegação de implementação. Na sessão de desenvolvimento, as revisões técnicas implementadas e de cenários associadas à tarefa são fixadas. `scenario_create/revise` aceita tarefas vinculadas; `test_run_record` aceita uma ou várias tarefas para que o contexto apresente cenário, revisão executada, build e resultado. Decisões herdadas continuam distintas de links diretos, e warnings sinalizam revisões publicadas depois da sessão. A relação é opcional; nenhum gate global Ready/Done exige artefatos que a equipe não configurou como aplicáveis.
 
+## Propostas de fidelidade de entrega e qualidade (2026-11-12)
+
+Resultado da [análise de qualidade](docs/analise-qualidade-e-melhorias.md). São propostas sem sprint e sem estimativa confirmada. Estão registradas no MCP como tarefas Draft `SSDD-141`–`SSDD-158` sob a história `SSDD-102`, com os aliases estáveis desta tabela vinculados na mesma ordem; as 25 dependências estão gravadas como arestas `depends_on`. Aceites, dependências e ordem recomendada estão no documento.
+
+| ID | Proposta | Pts | Fase |
+|---|---|---:|---|
+| SSDD-938 | Critérios de aceite estruturados e critérios em tarefas | 5 | A · Entregar igual ao esperado |
+| SSDD-939 | Revisão de prontidão e perguntas em aberto | 8 | A |
+| SSDD-940 | Relatório de entrega por critério | 8 | A |
+| SSDD-941 | Evidência verificada por CI | 8 | A |
+| SSDD-942 | Revisão independente como gate | 5 | A |
+| SSDD-943 | Definition of Done aplicada por item | 5 | A |
+| SSDD-944 | Vínculo entre tarefa e mudança de código | 5 | A |
+| SSDD-945 | Briefing de tarefa em uma chamada | 5 | B · Menos fricção, mais contexto |
+| SSDD-946 | Anotações e descrições das tools | 3 | B |
+| SSDD-947 | Política de gates por projeto | 8 | B |
+| SSDD-948 | Orientações do projeto no contexto | 5 | B |
+| SSDD-949 | Modelos de item e de workflow | 3 | B |
+| SSDD-950 | Skills em formato de checklist | 2 | B |
+| SSDD-951 | Métricas de qualidade de entrega | 5 | C · Medir e sustentar |
+| SSDD-952 | Avaliação automatizada de skills e prompts | 8 | C |
+| SSDD-953 | Dividir `src/mcp/server.ts` por domínio | 5 | C |
+| SSDD-954 | Modularizar e testar o dashboard | 8 | C |
+| SSDD-955 | Reduzir a leitura obrigatória | 3 | C |
+
 ## Refinamento para iniciar a Sprint 1
 
 - **SSDD-101:** inicializar npm, TypeScript estrito, lint, comandos de build/verificação e CI nos três sistemas operacionais com Node 24 e 26. Aceite fecha após execução verde da matriz, não apenas após criar o workflow.

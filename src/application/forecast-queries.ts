@@ -1083,12 +1083,19 @@ function normalizeAsOfDate(value: string | undefined, timezone: string): string 
   return value;
 }
 
+const localDateFormatters = new Map<string, Intl.DateTimeFormat>();
+
 function localDate(value: string | Date, timezone: string): string {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) throw new ApplicationError("VALIDATION_FAILED", "Forecast event timestamp is invalid.");
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
-  }).formatToParts(date);
+  let formatter = localDateFormatters.get(timezone);
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+    });
+    localDateFormatters.set(timezone, formatter);
+  }
+  const parts = formatter.formatToParts(date);
   return `${parts.find((part) => part.type === "year")!.value}-${parts.find((part) => part.type === "month")!.value}-${parts.find((part) => part.type === "day")!.value}`;
 }
 

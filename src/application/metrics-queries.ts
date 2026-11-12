@@ -138,15 +138,15 @@ export function getSprintDeliveryMetrics(
   const scopeSeries = sprint.starts_on > effectiveEndDate
     ? []
     : buildScopeMetricSeries(metricEvents, sprint.starts_on, effectiveEndDate);
+  const idealRemainingByDate = buildIdealRemainingPoints(
+    sprint.starts_on,
+    sprint.ends_on,
+    calendar,
+    plannedScopePoints,
+  );
   const series: SprintMetricPoint[] = scopeSeries.map((point) => ({
     ...point,
-    idealRemainingPoints: calculateIdealRemainingPoints(
-      point.date,
-      sprint.starts_on,
-      sprint.ends_on,
-      calendar,
-      plannedScopePoints,
-    ),
+    idealRemainingPoints: idealRemainingByDate.get(point.date) ?? null,
   }));
   const generation = database.prepare(
     `SELECT generation_number FROM team_config_versions
@@ -509,7 +509,7 @@ export function getProjectCoverageMetrics(
      ), latest_runs AS (
        SELECT run.project_id, run.run_id, run.scenario_id, run.revision_number, run.build_id, run.result,
               ROW_NUMBER() OVER (
-                PARTITION BY run.project_id, run.scenario_id, run.revision_number, run.build_id
+                PARTITION BY run.project_id, run.scenario_id, run.revision_number
                 ORDER BY run.sequence DESC
               ) AS run_rank
        FROM test_runs run WHERE run.project_id = ? ${latestRunBuildFilter}
@@ -830,20 +830,24 @@ function readWorkCalendar(
   };
 }
 
-function calculateIdealRemainingPoints(
-  date: string,
+function buildIdealRemainingPoints(
   startsOn: string,
   endsOn: string,
   calendar: WorkCalendar,
   plannedPoints: number,
-): number | null {
-  const totalWorkdays = enumerateDates(startsOn, endsOn).filter((value) => isWorkingDate(value, calendar)).length;
-  if (totalWorkdays === 0) return null;
+): ReadonlyMap<string, number | null> {
+  const dates = enumerateDates(startsOn, endsOn);
+  const working = dates.map((date) => isWorkingDate(date, calendar));
+  const totalWorkdays = working.filter(Boolean).length;
+  const values = new Map<string, number | null>();
   let elapsedWorkdays = 0;
-  for (const value of enumerateDates(startsOn, minDate(date, endsOn))) {
-    if (isWorkingDate(value, calendar)) elapsedWorkdays += 1;
+  for (const [index, date] of dates.entries()) {
+    if (working[index] === true) elapsedWorkdays += 1;
+    values.set(date, totalWorkdays === 0
+      ? null
+      : roundMetric(plannedPoints * Math.max(0, totalWorkdays - elapsedWorkdays) / totalWorkdays));
   }
-  return roundMetric(plannedPoints * Math.max(0, totalWorkdays - elapsedWorkdays) / totalWorkdays);
+  return values;
 }
 
 function isWorkingDate(date: string, calendar: WorkCalendar): boolean {
@@ -947,15 +951,22 @@ export function normalizeMetricsAsOfDate(value: string | undefined, timezone: st
   return value;
 }
 
+const localDateFormatters = new Map<string, Intl.DateTimeFormat>();
+
 function localDate(value: string | Date, timezone: string): string {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) throw new ApplicationError("VALIDATION_FAILED", "Metric event timestamp is invalid.");
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
+  let formatter = localDateFormatters.get(timezone);
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    localDateFormatters.set(timezone, formatter);
+  }
+  const parts = formatter.formatToParts(date);
   const year = parts.find((part) => part.type === "year")?.value;
   const month = parts.find((part) => part.type === "month")?.value;
   const day = parts.find((part) => part.type === "day")?.value;

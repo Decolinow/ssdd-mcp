@@ -896,6 +896,7 @@ const specificationSchema = z.object({
   title: z.string(),
   version: z.number().int().positive(),
   latestRevision: z.number().int().nonnegative(),
+  latestStatus: z.enum(specificationRevisionStatuses).nullable(),
   publishedRevision: z.number().int().positive().nullable(),
   createdByPrincipalId: z.string().uuid(),
   createdAt: z.string().datetime(),

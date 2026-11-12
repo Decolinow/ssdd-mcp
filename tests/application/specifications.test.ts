@@ -101,6 +101,7 @@ describe("versioned specifications", () => {
     const specification = getSpecification(database, projectId, principalId, "br-04");
     assert.equal(specification.publishedRevision, 2);
     assert.equal(specification.latestRevision, 2);
+    assert.equal(specification.latestStatus, "published");
     assert.deepEqual(
       specification.revisions.map(({ revisionNumber, status }) => ({ revisionNumber, status })),
       [
@@ -168,14 +169,18 @@ describe("versioned specifications", () => {
       expectedVersion: 1, reason: "Superseded by the corrected ADR-11 decision.",
     });
     assert.equal(withdrawn.value.status, "withdrawn");
-    assert.deepEqual(getSpecification(database, projectId, principalId, "ADR-10").revisions.map(({ status }) => status), ["withdrawn"]);
+    const withdrawnSpecification = getSpecification(database, projectId, principalId, "ADR-10");
+    assert.equal(withdrawnSpecification.latestStatus, "withdrawn");
+    assert.deepEqual(withdrawnSpecification.revisions.map(({ status }) => status), ["withdrawn"]);
 
     const replacement = proposeSpecificationRevision(database, {
       projectId, principalId, requestId: "withdraw-propose-replacement", specIdOrKey: "ADR-10", expectedVersion: 2,
       content: { decision: "Use the currently implemented workflow contract." },
     });
     assert.equal(replacement.value.revisionNumber, 2);
-    assert.deepEqual(getSpecification(database, projectId, principalId, "ADR-10").revisions.map(({ status }) => status), ["withdrawn", "draft"]);
+    const reopenedSpecification = getSpecification(database, projectId, principalId, "ADR-10");
+    assert.equal(reopenedSpecification.latestStatus, "draft");
+    assert.deepEqual(reopenedSpecification.revisions.map(({ status }) => status), ["withdrawn", "draft"]);
   });
 
   it("enforces type-specific authoring roles and requires a human publisher", () => {
