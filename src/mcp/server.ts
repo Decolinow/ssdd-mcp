@@ -143,6 +143,7 @@ import {
   parseMcpProfile,
   type McpProfile,
 } from "./profiles.js";
+import { normalizeItemParameterAlias, withItemParameterAlias } from "./item-parameter-alias.js";
 import { withToolAnnotations } from "./tool-annotations.js";
 
 const skillRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../skills");
@@ -1049,6 +1050,12 @@ export function createMcpServer(
   server.registerTool = ((name: string, config: unknown, callback: (args: unknown, context: unknown) => unknown) => {
     if (!mcpProfileAllowsTool(profile, name, isHostAdministrator)) return undefined as never;
     config = withToolAnnotations(name, config);
+    const aliasing = withItemParameterAlias(config);
+    config = aliasing.config;
+    if (aliasing.aliased) {
+      const innerCallback = callback;
+      callback = (args, context) => innerCallback(normalizeItemParameterAlias(args), context);
+    }
     if (!requiresHumanApproval || !isApprovableToolName(name)) {
       return originalRegisterTool(name, config, callback) as never;
     }

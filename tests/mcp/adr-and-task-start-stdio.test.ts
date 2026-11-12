@@ -75,6 +75,14 @@ test("MCP creates, searches and traces ADRs and reports task-start blockers", as
   assert.equal((readiness.structuredContent as { canStart: boolean; blockers: Array<{ code: string }> }).canStart, false);
   assert.ok((readiness.structuredContent as { blockers: Array<{ code: string }> }).blockers.some(({ code }) => code === "task_not_ready_for_development"));
 
+  const aliasReadiness = await client.callTool({ name: "task_start_check", arguments: { projectId, itemIdOrKey: task.key } });
+  assert.notEqual(aliasReadiness.isError, true);
+  assert.deepEqual(aliasReadiness.structuredContent, readiness.structuredContent);
+  const bothNames = await client.callTool({ name: "task_start_check", arguments: { projectId, itemIdOrKey: task.key, taskIdOrKey: task.key } });
+  assert.equal(bothNames.isError, true);
+  const neitherName = await client.callTool({ name: "task_start_check", arguments: { projectId } });
+  assert.equal(neitherName.isError, true);
+
   const start = await client.callTool({ name: "task_start", arguments: {
     projectId, requestId: "adr-test-start-draft", taskIdOrKey: task.key, expectedVersion: task.version, reason: "Não iniciar tarefa Draft.",
   } });

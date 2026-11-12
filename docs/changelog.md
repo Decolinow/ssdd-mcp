@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Alias de parâmetro nas tools de tarefa (2026-11-12, SSDD-958 / MCP SSDD-161)
+
+- `task_start_check`, `task_start`, `task_context_get` e demais `task_*` aceitam `itemIdOrKey` como sinônimo de `taskIdOrKey` (`src/mcp/item-parameter-alias.ts`). Passar os dois ou nenhum é erro de validação. Todas as escritas que alteram a versão do item (assign, rank, transition, estimate, estimate_confirm, revision propose/publish) agora devolvem a versão.
+
 ## Aviso de autovalidação nos gates (2026-11-12, SSDD-957 / MCP SSDD-160)
 
 - `work_item_gate_check` para Done de tarefa devolve `warnings: [{code: "self_validation"}]` quando quem verifica é o responsável ou quem iniciou a tarefa. Não bloqueia (agentes operam com a identidade do humano, então um bloqueio impediria todo fechamento); torna a falta de revisor independente visível e rastreável. Bloqueio por política do projeto fica como evolução.

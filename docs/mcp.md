@@ -52,7 +52,7 @@ Toda entrada de domínio inclui `projectId` após descoberta, exceto `project_li
 
 ### Versão nas escritas
 
-`work_item_estimate`, `work_item_revision_propose` e `work_item_revision_publish` devolvem `version`: a versão otimista corrente do item após a escrita, para encadear a próxima chamada com `expectedVersion` sem reler o item. Uniformizar o nome dos parâmetros de item (`itemIdOrKey` vs `taskIdOrKey`) segue pendente na SSDD-958.
+`work_item_estimate`, `work_item_revision_propose` e `work_item_revision_publish` devolvem `version`: a versão otimista corrente do item após a escrita, para encadear a próxima chamada com `expectedVersion` sem reler o item. As tools `task_*` aceitam `itemIdOrKey` como sinônimo de `taskIdOrKey` (exatamente um dos dois); a normalização ocorre depois da checagem de aprovação, então argumentos aprovados continuam idênticos ao que foi enviado.
 
 ### Anotações das tools
 
