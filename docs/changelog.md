@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Execuções de teste paginadas no dashboard (2026-11-12, SSDD-904 / MCP SSDD-105)
+
+`GET /api/v1/projects/{id}/test-runs` deixou de cortar em 100 registros sem sinalizar: passa a usar `listTestRunPage`, devolve `nextCursor` e `watermark` e aceita `cursor`, `build` e `result`. Teste do dashboard cobre continuação do cursor, filtro por resultado e resultado inválido.
+
 ## Aceite retroativo da cadeia da SSDD-305 (2026-11-12)
 
 Por decisão do usuário, as 13 tarefas históricas das Sprints 1 a 3 que bloqueavam a SSDD-305 (MCP SSDD-7, 8, 9, 10, 14 a 18, 22 a 25) e as histórias SSDD-6, 13 e 21 foram aceitas no MCP: critério não obrigatório, estimativa confirmada, Ready com baseline, `task_start`, evidência `git:b60e7e0` (com `npm run check` de 202 testes) e transições até Done. Todas as revisões foram do mesmo principal e estão declaradas como autovalidação nos motivos. A SSDD-26 (SSDD-305) foi revalidada com `npm run demo` e parou em `in_review`: a tag v0.1 está obsoleta, pois o pacote já está em 0.2.0. Achados U11 a U14 em `docs/analise-qualidade-e-melhorias.md`.

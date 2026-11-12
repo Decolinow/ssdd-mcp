@@ -1123,6 +1123,33 @@ test("dashboard API sessions and project authorization match MCP access", async 
     revisionNumber: run.revisionNumber,
   })), [{ id: recordedRun.run.id, scenarioKey: "PAY-TC-DASHBOARD", revisionNumber: 1 }]);
 
+  const secondRunResponse = await postMutation(`/api/v1/projects/${projectId}/scenarios/PAY-TC-DASHBOARD/test-runs`, {
+    requestId: "dashboard-api-run-record-2",
+    revisionNumber: 1,
+    buildId: "dashboard-build-2",
+    result: "failed",
+  });
+  assert.equal(secondRunResponse.status, 201);
+  const secondRun = (await secondRunResponse.json()) as { run: { id: string } };
+  type RunPage = { runs: Array<{ id: string }>; nextCursor: string | null; watermark: number };
+  const runPageUrl = `${address.origin}/api/v1/projects/${projectId}/test-runs?scenario=PAY-TC-DASHBOARD&limit=1`;
+  const firstRunPage = (await (await fetch(runPageUrl, { headers: { Cookie: cookie, Origin: address.origin } })).json()) as RunPage;
+  assert.deepEqual(firstRunPage.runs.map((run) => run.id), [secondRun.run.id]);
+  assert.notEqual(firstRunPage.nextCursor, null);
+  const secondRunPage = (await (await fetch(`${runPageUrl}&cursor=${encodeURIComponent(firstRunPage.nextCursor ?? "")}`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  })).json()) as RunPage;
+  assert.deepEqual(secondRunPage.runs.map((run) => run.id), [recordedRun.run.id]);
+  assert.equal(secondRunPage.nextCursor, null);
+  const failedOnly = (await (await fetch(`${address.origin}/api/v1/projects/${projectId}/test-runs?result=failed`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  })).json()) as RunPage;
+  assert.deepEqual(failedOnly.runs.map((run) => run.id), [secondRun.run.id]);
+  const invalidResult = await fetch(`${address.origin}/api/v1/projects/${projectId}/test-runs?result=unknown`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  assert.equal(invalidResult.status, 400);
+
   const createdItemResponse = await postMutation(`/api/v1/projects/${projectId}/work-items`, {
     requestId: "dashboard-api-work-item-create",
     type: "story",

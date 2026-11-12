@@ -27,7 +27,8 @@ import { getWorkItem, listWorkItemRevisions, listWorkItems } from "../applicatio
 import { createWorkItem } from "../application/create-work-item.js";
 import { proposeWorkItemRevision, publishWorkItemRevision } from "../application/work-item-revisions.js";
 import { createScenario, proposeScenarioRevision, publishScenarioRevision, recordTestRun } from "../application/scenario-commands.js";
-import { getScenario, listScenarioRevisionWorkItems, listScenarios, listTestRuns } from "../application/scenario-queries.js";
+import type { ListTestRunsInput } from "../application/scenario-queries.js";
+import { getScenario, listScenarioRevisionWorkItems, listScenarios, listTestRunPage } from "../application/scenario-queries.js";
 import { getSpecification, listSpecifications } from "../application/specification-queries.js";
 import { getTaskStartReadiness, transitionWorkItem } from "../application/work-item-workflow.js";
 import { scenarioKinds, testRunResults } from "../domain/scenarios.js";
@@ -358,7 +359,7 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
       if (request.method === "GET" && projectTestRunsMatch !== null) {
         const projectId = parseUuid(decodePathSegment(projectTestRunsMatch[1]));
         const filters = parseTestRunFilters(requestUrl.searchParams);
-        sendJson(response, 200, { runs: listTestRuns(database, projectId, principal.id, filters) });
+        sendJson(response, 200, listTestRunPage(database, projectId, principal.id, filters));
         return;
       }
 
@@ -936,18 +937,25 @@ function parseTaskContextFilters(searchParams: URLSearchParams): {
   };
 }
 
-function parseTestRunFilters(searchParams: URLSearchParams): { readonly limit?: number; readonly scenarioIdOrKey?: string } {
+function parseTestRunFilters(searchParams: URLSearchParams): ListTestRunsInput {
   const parsed = z.object({
     limit: z.coerce.number().int().min(1).max(100).optional(),
     scenario: z.string().trim().min(1).max(80).optional(),
-  }).safeParse({
-    ...(searchParams.has("limit") ? { limit: searchParams.get("limit") } : {}),
-    ...(searchParams.has("scenario") ? { scenario: searchParams.get("scenario") } : {}),
-  });
+    build: z.string().trim().min(1).max(128).optional(),
+    result: z.enum(testRunResults).optional(),
+    cursor: z.string().min(1).max(4_096).optional(),
+  }).safeParse(Object.fromEntries(
+    ["limit", "scenario", "build", "result", "cursor"]
+      .filter((name) => searchParams.has(name))
+      .map((name) => [name, searchParams.get(name)]),
+  ));
   if (!parsed.success) throw new ApplicationError("VALIDATION_FAILED", "Dashboard test run filters are invalid.");
   return {
     ...(parsed.data.limit === undefined ? {} : { limit: parsed.data.limit }),
     ...(parsed.data.scenario === undefined ? {} : { scenarioIdOrKey: parsed.data.scenario }),
+    ...(parsed.data.build === undefined ? {} : { buildId: parsed.data.build }),
+    ...(parsed.data.result === undefined ? {} : { result: parsed.data.result }),
+    ...(parsed.data.cursor === undefined ? {} : { cursor: parsed.data.cursor }),
   };
 }
 
