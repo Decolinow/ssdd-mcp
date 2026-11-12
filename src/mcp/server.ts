@@ -143,6 +143,7 @@ import {
   parseMcpProfile,
   type McpProfile,
 } from "./profiles.js";
+import { withToolAnnotations } from "./tool-annotations.js";
 
 const skillRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../skills");
 const sourceSkillFiles = nodeSkillFiles(skillRoot);
@@ -1045,6 +1046,7 @@ export function createMcpServer(
   ) => unknown;
   server.registerTool = ((name: string, config: unknown, callback: (args: unknown, context: unknown) => unknown) => {
     if (!mcpProfileAllowsTool(profile, name, isHostAdministrator)) return undefined as never;
+    config = withToolAnnotations(name, config);
     if (!requiresHumanApproval || !isApprovableToolName(name)) {
       return originalRegisterTool(name, config, callback) as never;
     }

@@ -5,6 +5,12 @@
 
 **Próximo trabalho:** refinar e aprovar backlog real antes de iniciar; colocar tarefas elegíveis/atribuídas na fila priorizada, atualizar forecasts após três sprints comparáveis e executar/certificar o cenário QA de velocity. Permanecem pendentes CI remota do candidato, benchmark semântico (SSDD-923), recuperação de sessão, tempo de ciclo, observabilidade e curadoria QA (SSDD-910/912/915/925). A revisão atual ainda não foi enviada para `main`; os resultados locais não equivalem a release aprovado.
 
+## SSDD-946 · Anotações das tools (2026-11-12, implementada localmente)
+
+- As 97 tools do catálogo `full` expõem `readOnlyHint`, `destructiveHint`, `idempotentHint` e `openWorldHint`, aplicados no registro central (`withToolAnnotations`) a partir de `src/mcp/tool-annotations.ts`. Anotações declaradas na própria tool prevalecem sobre o catálogo.
+- `tests/mcp/tool-annotations.test.ts` conecta um cliente stdio real e falha se uma tool listada não tiver classificação, se uma leitura for destrutiva, se alguma tool classificada deixar de existir (exceto `user_*`, exclusivas do admin) ou se uma mutação aprovável por agente for marcada como leitura. `npm run check` passou com 199 testes em 31 suítes.
+- Não coberto: o critério de descrição com pré-condição e erro mais comum por tool continua pendente; o item `SSDD-149` (alias `SSDD-946`) permanece Draft no MCP porque Ready exige refinamento, estimativa e gates humanos.
+
 ## Análise de qualidade e propostas de melhoria (2026-11-12)
 
 - A [análise de qualidade](analise-qualidade-e-melhorias.md) registra 18 lacunas e 18 propostas (`SSDD-938`–`SSDD-955`, 99 pontos sugeridos) em três fases: entregar igual ao esperado, reduzir fricção/ampliar contexto e medir/sustentar. As propostas estão listadas no `ROADMAP.md` e não têm estimativa confirmada nem sprint.

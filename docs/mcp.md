@@ -50,6 +50,21 @@ Toda entrada de domínio inclui `projectId` após descoberta, exceto `project_li
 | `user_create`, `user_list`, `user_auth_key_rotate`, `user_auth_key_revoke` | Cria identidade com papéis por projeto, lista metadados, troca ou revoga authKeys | Administrador único da instância; chave secreta só é devolvida na emissão, nunca no replay |
 | `work_item_semantic_index`, `work_item_semantic_search` | Indexação vetorial paginada e busca por significado; aceita `assignedToMe`, tipos/estados e limite | Membro autorizado no projeto; requer embeddings configurados; indexar só atualiza cache derivado |
 
+### Anotações das tools
+
+Toda tool declara `readOnlyHint`, `destructiveHint`, `idempotentHint` e `openWorldHint` em `tools/list`, classificadas em `src/mcp/tool-annotations.ts`. São dicas para o cliente decidir auto-aprovação e confirmação; não substituem RBAC, aprovações delegadas nem gates.
+
+| Classe | Hints | Exemplos |
+|---|---|---|
+| Leitura | `readOnly=true`, `destructive=false` | `work_item_get`, `task_context_get`, `trace_query` |
+| Leitura externa | leitura + `openWorld=true` | `github_issue_import_preview`, `azure_work_item_import_preview` |
+| Cache ou snapshot derivado | `readOnly=false`, `destructive=false` | `metrics_get`, `work_item_semantic_search` |
+| Mutação aditiva | `readOnly=false`, `destructive=false` | `work_item_create`, `task_start`, `evidence_add` |
+| Importação aplicada | aditiva + `openWorld=true` | `github_issue_import_apply`, `azure_work_item_import_apply` |
+| Encerra, retira ou revoga | `readOnly=false`, `destructive=true` | `trace_link_remove`, `sprint_cancel`, `sprint_close`, `work_item_transition`, `approval_revoke` |
+
+`idempotentHint` é verdadeiro em todas: leituras não mudam estado e mutações repetem o resultado original com o mesmo `requestId` e payload. `destructive` significa que o estado vigente é substituído ou encerrado; o histórico continua append-only. Uma tool sem classificação falha em `tests/mcp/tool-annotations.test.ts`.
+
 ## Identidade, perfis e busca semântica
 
 Na primeira inicialização do host MCP, a identidade humana local do sistema operacional é gravada como administrador único da instância e recebe uma authKey aleatória. O servidor imprime essa chave uma vez em `stderr`; não há recuperação da chave em texto claro. Guarde-a em um cofre de segredos. Se for perdida, o administrador ainda pode rotacioná-la por outra conexão local confiável. O evento de bootstrap e os comandos administrativos são auditados em tabela global imutável.
