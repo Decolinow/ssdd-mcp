@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Fila mostra trabalho em andamento (2026-11-12, achado U8)
+
+- `task_execution_queue_get` ganhou `inFlight` (tarefas in_progress/in_review/in_validation) e `upNext` deixou de listá-las como próximas candidatas.
+
 ## Versão devolvida nas escritas de item (2026-11-12, SSDD-958 parcial / MCP SSDD-161)
 
 - `work_item_estimate`, `work_item_revision_propose` e `work_item_revision_publish` incluem `version` no resultado (achado U5). Falta aceitar alias de parâmetro (`itemIdOrKey`/`taskIdOrKey`) e cobrir as demais escritas de item.

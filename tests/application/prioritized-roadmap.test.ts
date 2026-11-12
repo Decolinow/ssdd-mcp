@@ -75,6 +75,20 @@ describe("business value, prioritized execution and project feature roadmap", ()
     assert.ok(queue.upNext[1]?.missing.includes("dependencies"));
     assert.match(queue.upNext[1]?.nextAction ?? "", /Concluir antes/);
     assert.equal(queue.awaitingAcceptanceCount, 0);
+    assert.deepEqual(queue.inFlight, []);
+  });
+
+  it("lists tasks already under review as in flight instead of next candidates", () => {
+    const epic = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "epic", title: "Epic" }).value;
+    const feature = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "feature", title: "Feature", parentId: epic.id }).value;
+    const story = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "story", title: "Story", parentId: feature.id }).value;
+    const reviewing = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "task", title: "Reviewing", parentId: story.id }).value;
+    database.prepare("UPDATE work_items SET state = 'in_review' WHERE project_id = ? AND item_id = ?").run(projectId, reviewing.id);
+
+    const queue = getTaskExecutionQueue(database, { projectId, principalId });
+
+    assert.deepEqual(queue.upNext, []);
+    assert.deepEqual(queue.inFlight.map((task) => [task.key, task.state]), [[reviewing.key, "in_review"]]);
   });
 
   it("keeps tasks delivered locally out of upNext and lists them as awaiting acceptance", () => {

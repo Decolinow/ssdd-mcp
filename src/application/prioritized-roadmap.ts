@@ -41,6 +41,7 @@ export interface TaskExecutionQueue {
   readonly upNext: readonly UpNextTask[];
   readonly awaitingAcceptanceCount: number;
   readonly awaitingAcceptance: readonly string[];
+  readonly inFlight: readonly { readonly key: string; readonly state: string; readonly assigneeId: string | null }[];
 }
 
 export interface UpNextTask extends PrioritizedTask {
@@ -58,6 +59,7 @@ export function getTaskExecutionQueue(
   return {
     ...queue,
     emptyReason: startable > 0 ? null : queue.scannedCount === 0 ? "no_ready_tasks" : "ready_tasks_blocked",
+    inFlight: getInFlightTasks(database, input.projectId),
     ...(startable > 0 ? { upNext: [], awaitingAcceptanceCount: 0, awaitingAcceptance: [] } : upNextSummary(getUpNextTasks(database, input.projectId))),
   };
 }
@@ -65,7 +67,7 @@ export function getTaskExecutionQueue(
 function getStartableQueue(
   database: SqliteDatabase,
   input: { readonly projectId: string; readonly principalId: string; readonly limit?: number; readonly assignedToMe?: boolean },
-): Omit<TaskExecutionQueue, "emptyReason" | "upNext" | "awaitingAcceptanceCount" | "awaitingAcceptance"> {
+): Omit<TaskExecutionQueue, "emptyReason" | "upNext" | "awaitingAcceptanceCount" | "awaitingAcceptance" | "inFlight"> {
   const limit = input.limit ?? 20;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
     throw new ApplicationError("VALIDATION_FAILED", "Execution queue limit must be an integer between 1 and 50.");
@@ -520,6 +522,15 @@ function simulateFeatureCompletionOrdinals(
  */
 const deliveredLocallyPattern = /Registro factual em docs\/status\.md \([^)]*\):\s*(Conclu[ií]d|Implementad)/i;
 
+function getInFlightTasks(database: SqliteDatabase, projectId: string): TaskExecutionQueue["inFlight"] {
+  const rows = database.prepare(
+    `SELECT item_key, state, assignee_principal_id FROM work_items
+     WHERE project_id = ? AND type = 'task' AND state IN ('in_progress', 'in_review', 'in_validation')
+     ORDER BY item_key COLLATE NOCASE LIMIT 20`,
+  ).all(projectId) as Array<{ item_key: string; state: string; assignee_principal_id: string | null }>;
+  return rows.map((row) => ({ key: row.item_key, state: row.state, assigneeId: row.assignee_principal_id }));
+}
+
 interface UpNextCandidates { readonly pending: UpNextTask[]; readonly awaitingAcceptance: string[]; }
 
 function upNextSummary(candidates: UpNextCandidates): Pick<TaskExecutionQueue, "upNext" | "awaitingAcceptanceCount" | "awaitingAcceptance"> {
@@ -550,7 +561,7 @@ function getUpNextTasks(database: SqliteDatabase, projectId: string): UpNextCand
      LEFT JOIN work_items story ON story.project_id = task.project_id AND story.item_id = task.parent_id
      LEFT JOIN work_items feature ON feature.project_id = story.project_id AND feature.item_id = story.parent_id
      LEFT JOIN work_items epic ON epic.project_id = feature.project_id AND epic.item_id = feature.parent_id
-     WHERE task.project_id = ? AND task.type = 'task' AND task.state NOT IN ('ready', 'in_progress', 'done', 'cancelled')
+     WHERE task.project_id = ? AND task.type = 'task' AND task.state NOT IN ('ready', 'in_progress', 'in_review', 'in_validation', 'done', 'cancelled')
      LIMIT ?`,
   ).all(projectId, maximumQueueCandidates) as Array<{
     item_id: string; item_key: string; title: string; state: string; assignee_principal_id: string | null;

@@ -1855,6 +1855,7 @@ export function createMcpServer(
           businessValueSource: z.string().nullable(), featureKey: z.string().nullable(), rank: z.number().int().positive(),
         })),
         emptyReason: z.enum(["no_ready_tasks", "ready_tasks_blocked"]).nullable(),
+        inFlight: z.array(z.object({ key: z.string(), state: z.string(), assigneeId: z.string().uuid().nullable() })),
         awaitingAcceptanceCount: z.number().int().nonnegative(),
         awaitingAcceptance: z.array(z.string()),
         upNext: z.array(z.object({
