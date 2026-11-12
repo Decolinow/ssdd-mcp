@@ -1872,6 +1872,7 @@ export function createMcpServer(
           businessValueScore: z.number().int().min(0).max(100).nullable(), businessValueRationale: z.string().nullable(),
           businessValueSource: z.string().nullable(), featureKey: z.string().nullable(), rank: z.number().int().positive(),
           unmetDependencies: z.array(z.string()),
+          dependenciesAwaitingAcceptance: z.array(z.string()),
           missing: z.array(z.enum(["not_ready_state", "assignee", "estimate", "business_value", "dependencies"])),
           nextAction: z.string(),
         })),

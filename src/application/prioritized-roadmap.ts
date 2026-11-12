@@ -46,6 +46,7 @@ export interface TaskExecutionQueue {
 
 export interface UpNextTask extends PrioritizedTask {
   readonly unmetDependencies: readonly string[];
+  readonly dependenciesAwaitingAcceptance: readonly string[];
   readonly missing: readonly ("not_ready_state" | "assignee" | "estimate" | "business_value" | "dependencies")[];
   readonly nextAction: string;
 }
@@ -553,7 +554,7 @@ function getUpNextTasks(database: SqliteDatabase, projectId: string): UpNextCand
             epic.business_value_score AS epic_value, epic.business_value_rationale AS epic_value_rationale,
             story.item_key AS story_key, story.priority AS story_priority,
             (SELECT value FROM work_item_estimates e WHERE e.project_id = task.project_id AND e.item_id = task.item_id AND e.unit = 'points') AS points,
-            (SELECT GROUP_CONCAT(target.item_key, ',') FROM trace_links link
+            (SELECT GROUP_CONCAT(target.item_key || char(31) || COALESCE(target.description, ''), char(30)) FROM trace_links link
                INNER JOIN work_items target ON target.project_id = link.project_id AND target.item_id = link.target_id
               WHERE link.project_id = task.project_id AND link.source_id = task.item_id
                 AND link.link_type = 'depends_on' AND link.removed_at IS NULL AND target.state <> 'done') AS unmet
@@ -583,15 +584,22 @@ function getUpNextTasks(database: SqliteDatabase, projectId: string): UpNextCand
         : row.feature_priority === priority ? row.feature_key ?? row.item_key
           : row.epic_key ?? row.item_key;
     const businessValueScore = row.task_value ?? row.feature_value ?? row.epic_value;
-    const unmetDependencies = row.unmet === null ? [] : row.unmet.split(",").sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+    const openDependencies = (row.unmet === null ? [] : row.unmet.split("")).map((entry) => {
+      const [key = "", description = ""] = entry.split("");
+      return { key, delivered: deliveredLocallyPattern.test(description) };
+    }).sort((a, b) => a.key.localeCompare(b.key, "en", { numeric: true }));
+    const unmetDependencies = openDependencies.filter((dependency) => !dependency.delivered).map((dependency) => dependency.key);
+    const dependenciesAwaitingAcceptance = openDependencies.filter((dependency) => dependency.delivered).map((dependency) => dependency.key);
     const missing: UpNextTask["missing"][number][] = ["not_ready_state"];
     if (row.assignee_principal_id === null) missing.push("assignee");
     if (row.points === null) missing.push("estimate");
     if (businessValueScore === null) missing.push("business_value");
-    if (unmetDependencies.length > 0) missing.push("dependencies");
+    if (unmetDependencies.length > 0 || dependenciesAwaitingAcceptance.length > 0) missing.push("dependencies");
     const nextAction = unmetDependencies.length > 0
       ? `Concluir antes: ${unmetDependencies.slice(0, 5).join(", ")}. Depois refinar, estimar, atribuir e passar nos gates Ready.`
-      : `Sem dependência aberta: refinar${row.points === null ? ", estimar" : ""}${row.assignee_principal_id === null ? ", atribuir" : ""} e passar nos gates Ready (work_item_gate_check) antes de task_start.`;
+      : dependenciesAwaitingAcceptance.length > 0
+        ? `Dependências já entregues localmente, mas sem aceite formal no MCP: ${dependenciesAwaitingAcceptance.slice(0, 5).join(", ")}. Aceitá-las (evidência e revisão) antes de task_start; refinar, estimar e atribuir esta tarefa em paralelo.`
+        : `Sem dependência aberta: refinar${row.points === null ? ", estimar" : ""}${row.assignee_principal_id === null ? ", atribuir" : ""} e passar nos gates Ready (work_item_gate_check) antes de task_start.`;
     return {
       sort: { priority, value: businessValueScore ?? -1, featureRank: row.feature_rank ?? Number.MAX_SAFE_INTEGER, rank: row.task_rank, free: unmetDependencies.length === 0 },
       task: {
@@ -600,7 +608,7 @@ function getUpNextTasks(database: SqliteDatabase, projectId: string): UpNextCand
         businessValueRationale: row.task_value !== null ? row.task_value_rationale : row.feature_value !== null ? row.feature_value_rationale : row.epic_value_rationale,
         businessValueSource: row.task_value !== null ? row.item_key : row.feature_value !== null ? row.feature_key : row.epic_value !== null ? row.epic_key : null,
         featureKey: row.feature_key, rank: row.task_rank,
-        unmetDependencies, missing, nextAction,
+        unmetDependencies, dependenciesAwaitingAcceptance, missing, nextAction,
       } satisfies UpNextTask,
     };
   });

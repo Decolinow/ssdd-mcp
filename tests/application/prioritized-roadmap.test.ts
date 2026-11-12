@@ -75,6 +75,7 @@ describe("business value, prioritized execution and project feature roadmap", ()
     assert.ok(queue.upNext[1]?.missing.includes("dependencies"));
     assert.match(queue.upNext[1]?.nextAction ?? "", /Concluir antes/);
     assert.equal(queue.awaitingAcceptanceCount, 0);
+    assert.deepEqual(queue.upNext[1]?.dependenciesAwaitingAcceptance, []);
     assert.deepEqual(queue.inFlight, []);
   });
 
@@ -109,6 +110,15 @@ describe("business value, prioritized execution and project feature roadmap", ()
     assert.deepEqual(queue.upNext.map((task) => task.key), [pending.key]);
     assert.equal(queue.awaitingAcceptanceCount, 1);
     assert.deepEqual(queue.awaitingAcceptance, [delivered.key]);
+
+    database.prepare(
+      `INSERT INTO trace_links (link_id, project_id, source_id, target_id, link_type, created_by_principal_id, created_at)
+       VALUES (?, ?, ?, ?, 'depends_on', ?, ?)`,
+    ).run(randomUUID(), projectId, pending.id, delivered.id, principalId, new Date().toISOString());
+    const withDependency = getTaskExecutionQueue(database, { projectId, principalId });
+    assert.deepEqual(withDependency.upNext[0]?.unmetDependencies, []);
+    assert.deepEqual(withDependency.upNext[0]?.dependenciesAwaitingAcceptance, [delivered.key]);
+    assert.match(withDependency.upNext[0]?.nextAction ?? "", /sem aceite formal/);
   });
 
   it("reports the story as the priority source when it raises a task above its Feature", () => {

@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Dependências aguardando aceite na fila (2026-11-12, achado U10)
+
+- `upNext` separa `unmetDependencies` de `dependenciesAwaitingAcceptance` e diz na `nextAction` que é preciso aceitar formalmente a dependência já entregue. Motivo: SSDD-141–157 só dependem de tarefas entregues e Draft, e isso aparecia como trabalho pendente. Tarefas sem linha em `status.md` (SSDD-87, SSDD-91) ainda não são reconhecidas como entregues pela heurística.
+
 ## Alias de parâmetro nas tools de tarefa (2026-11-12, SSDD-958 / MCP SSDD-161)
 
 - `task_start_check`, `task_start`, `task_context_get` e demais `task_*` aceitam `itemIdOrKey` como sinônimo de `taskIdOrKey` (`src/mcp/item-parameter-alias.ts`). Passar os dois ou nenhum é erro de validação. Todas as escritas que alteram a versão do item (assign, rank, transition, estimate, estimate_confirm, revision propose/publish) agora devolvem a versão.
