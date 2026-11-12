@@ -1825,7 +1825,7 @@ export function createMcpServer(
     "task_execution_queue_get",
     {
       title: "Consultar fila priorizada de execução",
-      description: "Lista tarefas Ready/in_progress atribuídas ao principal (por padrão), validadas pelos bloqueios reais de início. Ordena por prioridade efetiva (P1 primeiro), valor de negócio herdado/definido (maior primeiro) e rank; valores ausentes ficam por último. Se nada puder iniciar, emptyReason explica e upNext lista as próximas tarefas ainda não Ready (sem dependência aberta primeiro) com o que falta e a próxima ação. Read-only; inicie somente com task_start após task_start_check.",
+      description: "Lista tarefas Ready/in_progress atribuídas ao principal (por padrão), validadas pelos bloqueios reais de início. Ordena por prioridade efetiva (P1 primeiro), valor de negócio herdado/definido (maior primeiro) e rank; valores ausentes ficam por último. Se nada puder iniciar, emptyReason explica e upNext lista as próximas tarefas ainda não Ready (sem dependência aberta primeiro), excluindo as já entregues localmente e sem aceite formal (awaitingAcceptance/awaitingAcceptanceCount) com o que falta e a próxima ação. Read-only; inicie somente com task_start após task_start_check.",
       inputSchema: z.object({
         projectId: z.string().uuid(),
         assignedToMe: z.boolean().optional().default(true),
@@ -1853,6 +1853,8 @@ export function createMcpServer(
           businessValueSource: z.string().nullable(), featureKey: z.string().nullable(), rank: z.number().int().positive(),
         })),
         emptyReason: z.enum(["no_ready_tasks", "ready_tasks_blocked"]).nullable(),
+        awaitingAcceptanceCount: z.number().int().nonnegative(),
+        awaitingAcceptance: z.array(z.string()),
         upNext: z.array(z.object({
           id: z.string().uuid(), key: z.string(), title: z.string(), state: z.string(), assigneeId: z.string().uuid().nullable(),
           priority: z.number().int().min(1).max(4), prioritySource: z.string(),

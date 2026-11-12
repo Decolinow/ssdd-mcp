@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Fila separa entregue-local de pendente (2026-11-12, SSDD-956 / MCP SSDD-159)
+
+- `upNext` exclui tarefas cuja descrição registra entrega local (marcador do sincronizador) e expõe `awaitingAcceptance`/`awaitingAcceptanceCount`. Heurística apoiada em um único produtor (`scripts/sync-roadmap-to-mcp.mjs`); o fechamento retroativo com evidência e revisão independente segue pendente.
+
 ## Caminho de transição no gate (2026-11-12)
 
 - Achado de uso: `work_item_gate_check` para Done só dizia "falta evidência"; a transição direta `in_progress → done` falhou com INVALID_TRANSITION. Agora o relatório traz `transitionPath` (BFS pelas transições permitidas, sem passar por cancelled). Coberto em `tests/application/work-item-workflow.test.ts`.

@@ -39,6 +39,8 @@ export interface TaskExecutionQueue {
   readonly tasks: readonly PrioritizedTask[];
   readonly emptyReason: "no_ready_tasks" | "ready_tasks_blocked" | null;
   readonly upNext: readonly UpNextTask[];
+  readonly awaitingAcceptanceCount: number;
+  readonly awaitingAcceptance: readonly string[];
 }
 
 export interface UpNextTask extends PrioritizedTask {
@@ -56,14 +58,14 @@ export function getTaskExecutionQueue(
   return {
     ...queue,
     emptyReason: startable > 0 ? null : queue.scannedCount === 0 ? "no_ready_tasks" : "ready_tasks_blocked",
-    upNext: startable > 0 ? [] : getUpNextTasks(database, input.projectId, 5),
+    ...(startable > 0 ? { upNext: [], awaitingAcceptanceCount: 0, awaitingAcceptance: [] } : upNextSummary(getUpNextTasks(database, input.projectId))),
   };
 }
 
 function getStartableQueue(
   database: SqliteDatabase,
   input: { readonly projectId: string; readonly principalId: string; readonly limit?: number; readonly assignedToMe?: boolean },
-): Omit<TaskExecutionQueue, "emptyReason" | "upNext"> {
+): Omit<TaskExecutionQueue, "emptyReason" | "upNext" | "awaitingAcceptanceCount" | "awaitingAcceptance"> {
   const limit = input.limit ?? 20;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
     throw new ApplicationError("VALIDATION_FAILED", "Execution queue limit must be an integer between 1 and 50.");
@@ -512,9 +514,25 @@ function simulateFeatureCompletionOrdinals(
   return results;
 }
 
-function getUpNextTasks(database: SqliteDatabase, projectId: string, limit: number): UpNextTask[] {
+/**
+ * O sincronizador do roadmap grava "Registro factual em docs/status.md (data): <estado>" na descrição.
+ * Estados que começam por Concluíd/Implementad indicam entrega local ainda sem aceite formal no MCP.
+ */
+const deliveredLocallyPattern = /Registro factual em docs\/status\.md \([^)]*\):\s*(Conclu[ií]d|Implementad)/i;
+
+interface UpNextCandidates { readonly pending: UpNextTask[]; readonly awaitingAcceptance: string[]; }
+
+function upNextSummary(candidates: UpNextCandidates): Pick<TaskExecutionQueue, "upNext" | "awaitingAcceptanceCount" | "awaitingAcceptance"> {
+  return {
+    upNext: candidates.pending.slice(0, 5),
+    awaitingAcceptanceCount: candidates.awaitingAcceptance.length,
+    awaitingAcceptance: candidates.awaitingAcceptance.slice(0, 10),
+  };
+}
+
+function getUpNextTasks(database: SqliteDatabase, projectId: string): UpNextCandidates {
   const rows = database.prepare(
-    `SELECT task.item_id, task.item_key, task.title, task.state, task.assignee_principal_id,
+    `SELECT task.item_id, task.item_key, task.title, task.state, task.assignee_principal_id, task.description,
             task.priority AS task_priority, task.business_value_score AS task_value,
             task.business_value_rationale AS task_value_rationale, task.rank AS task_rank,
             feature.item_key AS feature_key, feature.rank AS feature_rank,
@@ -541,8 +559,11 @@ function getUpNextTasks(database: SqliteDatabase, projectId: string, limit: numb
     feature_value: number | null; feature_value_rationale: string | null;
     epic_key: string | null; epic_priority: number | null; epic_value: number | null; epic_value_rationale: string | null;
     story_key: string | null; story_priority: number | null; points: number | null; unmet: string | null;
+    description: string | null;
   }>;
-  const mapped = rows.map((row) => {
+  const awaitingAcceptance = rows.filter((row) => deliveredLocallyPattern.test(row.description ?? ""))
+    .map((row) => row.item_key).sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+  const mapped = rows.filter((row) => !deliveredLocallyPattern.test(row.description ?? "")).map((row) => {
     const priorities = [row.task_priority, row.story_priority, row.feature_priority, row.epic_priority]
       .filter((value): value is number => value !== null);
     const priority = Math.min(...priorities);
@@ -575,7 +596,7 @@ function getUpNextTasks(database: SqliteDatabase, projectId: string, limit: numb
   mapped.sort((l, r) => Number(r.sort.free) - Number(l.sort.free) || l.sort.priority - r.sort.priority ||
     r.sort.value - l.sort.value || l.sort.featureRank - r.sort.featureRank || l.sort.rank - r.sort.rank ||
     l.task.key.localeCompare(r.task.key, "en", { numeric: true }));
-  return mapped.slice(0, limit).map((entry) => entry.task);
+  return { pending: mapped.map((entry) => entry.task), awaitingAcceptance };
 }
 
 function publicTask(task: PrioritizedTask & { featureRank?: number; readiness?: unknown }): PrioritizedTask {

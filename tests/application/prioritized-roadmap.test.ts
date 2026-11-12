@@ -74,6 +74,27 @@ describe("business value, prioritized execution and project feature roadmap", ()
     assert.ok(queue.upNext[0]?.missing.includes("estimate"));
     assert.ok(queue.upNext[1]?.missing.includes("dependencies"));
     assert.match(queue.upNext[1]?.nextAction ?? "", /Concluir antes/);
+    assert.equal(queue.awaitingAcceptanceCount, 0);
+  });
+
+  it("keeps tasks delivered locally out of upNext and lists them as awaiting acceptance", () => {
+    const epic = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "epic", title: "Epic" }).value;
+    const feature = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "feature", title: "Feature", parentId: epic.id }).value;
+    const story = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "story", title: "Story", parentId: feature.id }).value;
+    const delivered = createWorkItem(database, {
+      projectId, principalId, requestId: randomUUID(), type: "task", title: "Delivered", parentId: story.id,
+      description: "[roadmap:X] Registro factual em docs/status.md (2026-11-12): Concluído localmente: testes passam.",
+    }).value;
+    const pending = createWorkItem(database, {
+      projectId, principalId, requestId: randomUUID(), type: "task", title: "Pending", parentId: story.id,
+      description: "Registro factual em docs/status.md (2026-11-12): Sem registro individual em docs/status.md",
+    }).value;
+
+    const queue = getTaskExecutionQueue(database, { projectId, principalId });
+
+    assert.deepEqual(queue.upNext.map((task) => task.key), [pending.key]);
+    assert.equal(queue.awaitingAcceptanceCount, 1);
+    assert.deepEqual(queue.awaitingAcceptance, [delivered.key]);
   });
 
   it("reports the story as the priority source when it raises a task above its Feature", () => {
