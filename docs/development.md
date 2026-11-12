@@ -135,7 +135,7 @@ O pacote é validado como tarball local; `private: true` impede publicação aci
 2. Mantenha o escopo da mudança ligado ao aceite da tarefa e registre decisões que afetam mais de uma implementação em `docs/adr/`.
 3. Atualize, na mesma alteração, a documentação de domínio, contrato MCP, arquitetura, dashboard ou operação que tenha sido afetada.
 4. Execute `npm run check`. Não marque a tarefa concluída sem evidência do aceite e da verificação aplicável.
-5. Atualize [docs/status.md](status.md) e o status do roadmap junto com a entrega.
+5. Atualize [docs/status.md](status.md) (resumo e linha da tarefa), registre a narrativa datada em [docs/changelog.md](changelog.md) e atualize o status do roadmap junto com a entrega.
 
 ## Definição de pronto
 
