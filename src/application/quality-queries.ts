@@ -8,6 +8,7 @@ import { assertProjectAuthorization } from "./local-identity.js";
 import { listWorkItemEvidence } from "./work-item-workflow.js";
 import { getWorkItem } from "./work-item-queries.js";
 import { searchScenariosByCriterion } from "./scenario-queries.js";
+import { decodeStableListCursor, encodeStableListCursor, hashListFilters } from "./stable-list-cursor.js";
 
 export interface WorkItemQualityScenario {
   readonly scenario: ScenarioCoverageMatch["scenario"];
@@ -120,24 +121,48 @@ export function getWorkItemQualityReport(
   };
 }
 
+export interface QualitySummaryPage {
+  readonly items: readonly {
+    readonly itemId: string;
+    readonly itemKey: string;
+    readonly type: "story" | "bug";
+    readonly title: string;
+    readonly state: string;
+    readonly version: number;
+    readonly baselineId: string | null;
+    readonly baselineSequence: number | null;
+    readonly requiredCriteria: number;
+    readonly coveredRequiredCriteria: number;
+    readonly coveragePercent: number | null;
+  }[];
+  readonly nextCursor: string | null;
+  readonly watermark: number;
+}
+
 export function listProjectQualitySummaries(
   database: SqliteDatabase,
-  input: { readonly projectId: string; readonly principalId: string },
-): readonly {
-  readonly itemId: string;
-  readonly itemKey: string;
-  readonly type: "story" | "bug";
-  readonly title: string;
-  readonly state: string;
-  readonly version: number;
-  readonly baselineId: string | null;
-  readonly baselineSequence: number | null;
-  readonly requiredCriteria: number;
-  readonly coveredRequiredCriteria: number;
-  readonly coveragePercent: number | null;
-}[] {
+  input: { readonly projectId: string; readonly principalId: string; readonly limit?: number; readonly cursor?: string },
+): QualitySummaryPage {
   assertProjectAuthorization(database, input.projectId, input.principalId);
-  return database.prepare(
+  const limit = input.limit ?? 25;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new ApplicationError("VALIDATION_FAILED", "Quality summary page size must be an integer between 1 and 100.");
+  }
+  const filterHash = hashListFilters({ limit });
+  const watermarkRow = database.prepare(
+    "SELECT COALESCE(MAX(sequence), 0) AS watermark FROM audit_events WHERE project_id = ?",
+  ).get(input.projectId) as { watermark: number };
+  const watermark = watermarkRow.watermark;
+  const cursor = input.cursor === undefined ? undefined : decodeStableListCursor(input.cursor, {
+    projectId: input.projectId, principalId: input.principalId, filterHash, watermark,
+  });
+  const cursorFilter = cursor === undefined ? "" : `
+     WHERE quality.item_key COLLATE NOCASE > ?
+        OR (quality.item_key COLLATE NOCASE = ? AND quality.item_id > ?)`;
+  const parameters: Array<string | number> = [input.projectId];
+  if (cursor !== undefined) parameters.push(cursor.afterKey, cursor.afterKey, cursor.afterId);
+  parameters.push(limit + 1);
+  const rows = database.prepare(
     `WITH current_items AS (
        SELECT wi.project_id, wi.item_id, wi.item_key, wi.type, wi.title, wi.state, wi.version,
               (SELECT b.baseline_id FROM work_baselines b
@@ -183,16 +208,20 @@ export function listProjectQualitySummaries(
               ) AS is_covered
        FROM criteria criterion
      )
-     SELECT ci.item_id, ci.item_key, ci.type, ci.title, ci.state, ci.version, ci.baseline_id,
+     SELECT quality.* FROM (
+       SELECT ci.item_id, ci.item_key, ci.type, ci.title, ci.state, ci.version, ci.baseline_id,
             (SELECT b.sequence FROM work_baselines b WHERE b.project_id = ci.project_id
              AND b.baseline_id = ci.baseline_id) AS baseline_sequence,
             SUM(CASE WHEN cq.is_required = 1 THEN 1 ELSE 0 END) AS required_criteria,
             SUM(CASE WHEN cq.is_required = 1 AND cq.is_covered THEN 1 ELSE 0 END) AS covered_required_criteria
-     FROM current_items ci LEFT JOIN criterion_quality cq
-       ON cq.project_id = ci.project_id AND cq.item_id = ci.item_id
-     GROUP BY ci.project_id, ci.item_id
-     ORDER BY ci.state, ci.item_key COLLATE NOCASE, ci.item_id`,
-  ).all(input.projectId).map((row) => {
+       FROM current_items ci LEFT JOIN criterion_quality cq
+         ON cq.project_id = ci.project_id AND cq.item_id = ci.item_id
+       GROUP BY ci.project_id, ci.item_id
+     ) AS quality
+     ${cursorFilter}
+     ORDER BY quality.item_key COLLATE NOCASE, quality.item_id
+     LIMIT ?`,
+  ).all(...parameters).map((row) => {
     const result = row as {
       item_id: string; item_key: string; type: "story" | "bug"; title: string; state: string; version: number;
       baseline_id: string | null; baseline_sequence: number | null; required_criteria: number | null;
@@ -213,7 +242,23 @@ export function listProjectQualitySummaries(
       coveredRequiredCriteria,
       coveragePercent: requiredCriteria === 0 ? null : Math.round(coveredRequiredCriteria / requiredCriteria * 100),
     };
-  });
+  }) as QualitySummaryPage["items"];
+  const hasMore = rows.length > limit;
+  const items = rows.slice(0, limit);
+  const last = items.at(-1);
+  return {
+    items,
+    nextCursor: hasMore && last !== undefined ? encodeStableListCursor({
+      version: 1,
+      projectId: input.projectId,
+      principalId: input.principalId,
+      filterHash,
+      watermark,
+      afterKey: last.itemKey,
+      afterId: last.itemId,
+    }) : null,
+    watermark,
+  };
 }
 
 function readCertifications(

@@ -4,6 +4,7 @@ import type { SqliteDatabase } from "../storage-sqlite/database.js";
 import { ApplicationError } from "./errors.js";
 import { executeIdempotentCommand, type CommandReceipt } from "./idempotent-command.js";
 import { assertProjectAuthorization, type ProjectRole } from "./local-identity.js";
+import { resolveWorkItemIdentifier } from "./work-item-reference.js";
 
 export interface ProposeWorkItemRevisionInput {
   readonly projectId: string;
@@ -14,6 +15,8 @@ export interface ProposeWorkItemRevisionInput {
   readonly title?: string;
   readonly description?: string | null;
   readonly priority?: number;
+  readonly businessValueScore?: number | null;
+  readonly businessValueRationale?: string | null;
   readonly criteria?: readonly {
     readonly id?: string;
     readonly description: string;
@@ -40,6 +43,8 @@ interface WorkItemTarget {
   readonly title: string;
   readonly description: string | null;
   readonly priority: number;
+  readonly business_value_score: number | null;
+  readonly business_value_rationale: string | null;
   readonly version: number;
 }
 
@@ -50,6 +55,8 @@ interface WorkItemSnapshot {
   readonly title: string;
   readonly description: string | null;
   readonly priority: number;
+  readonly businessValueScore: number | null;
+  readonly businessValueRationale: string | null;
   readonly criteria: readonly AcceptanceCriterion[];
 }
 
@@ -94,6 +101,8 @@ export function proposeWorkItemRevision(
       ...(input.title === undefined ? {} : { title: input.title }),
       ...(input.description === undefined ? {} : { description: input.description }),
       ...(input.priority === undefined ? {} : { priority: input.priority }),
+      ...(input.businessValueScore === undefined ? {} : { businessValueScore: input.businessValueScore }),
+      ...(input.businessValueRationale === undefined ? {} : { businessValueRationale: input.businessValueRationale }),
       ...(input.criteria === undefined
         ? {}
         : {
@@ -290,6 +299,12 @@ function normalizeSnapshot(
     ? previous.description
     : (input.description?.trim() || null);
   const priority = input.priority ?? previous.priority;
+  const businessValueScore = input.businessValueScore === undefined
+    ? (previous.businessValueScore ?? target.business_value_score ?? null)
+    : input.businessValueScore;
+  const businessValueRationale = input.businessValueRationale === undefined
+    ? (previous.businessValueRationale ?? target.business_value_rationale ?? null)
+    : (input.businessValueRationale?.trim() || null);
   if (title.length === 0 || title.length > 200) {
     throw new ApplicationError("VALIDATION_FAILED", "Title must contain between 1 and 200 characters.");
   }
@@ -299,6 +314,7 @@ function normalizeSnapshot(
   if (!Number.isSafeInteger(priority) || priority < 1 || priority > 4) {
     throw new ApplicationError("VALIDATION_FAILED", "Priority must be an integer between 1 and 4.");
   }
+  validateBusinessValue(target.type, businessValueScore, businessValueRationale);
 
   const criteria = input.criteria === undefined
     ? previous.criteria
@@ -313,8 +329,22 @@ function normalizeSnapshot(
     title,
     description,
     priority,
+    businessValueScore,
+    businessValueRationale,
     criteria,
   };
+}
+
+function validateBusinessValue(type: WorkItemType, score: number | null, rationale: string | null): void {
+  if (score !== null && (!Number.isSafeInteger(score) || score < 0 || score > 100)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Business value score must be an integer between 0 and 100.");
+  }
+  if (type !== "epic" && type !== "feature" && type !== "task" && (score !== null || rationale !== null)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Business value may only be set on epics, features and tasks.");
+  }
+  if ((score === null) !== (rationale === null) || (rationale !== null && (rationale.length === 0 || rationale.length > 1000))) {
+    throw new ApplicationError("VALIDATION_FAILED", "A business value score requires a rationale of 1-1000 characters; clearing both fields is allowed.");
+  }
 }
 
 function normalizeCriteria(
@@ -388,10 +418,12 @@ function applySnapshotToWorkItem(
 ): void {
   database
     .prepare(
-      `UPDATE work_items SET title = ?, description = ?, priority = ?
+      `UPDATE work_items SET title = ?, description = ?, priority = ?,
+              business_value_score = ?, business_value_rationale = ?
        WHERE project_id = ? AND item_id = ?`,
     )
-    .run(snapshot.title, snapshot.description, snapshot.priority, target.project_id, target.item_id);
+    .run(snapshot.title, snapshot.description, snapshot.priority, snapshot.businessValueScore,
+      snapshot.businessValueRationale, target.project_id, target.item_id);
 
   database
     .prepare(
@@ -454,13 +486,14 @@ function findWorkItem(
   if (reference.length === 0) {
     throw new ApplicationError("VALIDATION_FAILED", "A work item ID or key is required.");
   }
+  const lookupReference = resolveWorkItemIdentifier(database, projectId, reference);
   const item = database
     .prepare(
       `SELECT item_id, project_id, item_key, type, parent_id, related_story_id,
-              title, description, priority, version
+              title, description, priority, business_value_score, business_value_rationale, version
        FROM work_items WHERE project_id = ? AND (item_id = ? OR item_key = ? COLLATE NOCASE)`,
     )
-    .get(projectId, reference, reference) as WorkItemTarget | undefined;
+    .get(projectId, lookupReference, lookupReference) as WorkItemTarget | undefined;
   if (item === undefined) {
     throw new ApplicationError("NOT_FOUND", "Work item was not found.");
   }

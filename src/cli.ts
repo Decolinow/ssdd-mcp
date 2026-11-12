@@ -122,7 +122,7 @@ export async function runCli(
     if (command === "dashboard") {
       try {
         const options = parseDashboardOptions(commandArgs);
-        startDashboardServer(options.workspace, options.port, (message) => stderr.write(`${message}\n`));
+        await startDashboardServer(options.workspace, options.port, (message) => stderr.write(`${message}\n`));
         return 0;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Erro inesperado.";

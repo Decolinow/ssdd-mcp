@@ -17,6 +17,7 @@ import { SkillsClient } from "@modelcontextprotocol/client/ext/skills";
 import { parse as parseJsonc } from "jsonc-parser";
 import { parse as parseToml } from "smol-toml";
 import { it } from "node:test";
+import { mcpProfiles } from "../../src/mcp/profiles.js";
 
 const repositoryRoot = resolve(process.cwd());
 const installerPath = join(repositoryRoot, "scripts", "install-agent-stack.mjs");
@@ -24,14 +25,25 @@ const installerPath = join(repositoryRoot, "scripts", "install-agent-stack.mjs")
 it("dry-run and check do not create files in the target repository", () => {
   const target = createGitRepository();
   try {
+    const help = runInstaller(target, ["--help"]);
+    assert.equal(help.status, 0, `${help.stdout}\n${help.stderr}`);
+    for (const profile of mcpProfiles) assert.ok(help.stdout.includes(profile), `Installer help omits MCP profile ${profile}`);
+
     const dryRun = runInstaller(target);
     assert.equal(dryRun.status, 0, `${dryRun.stdout}\n${dryRun.stderr}`);
     const plan = JSON.parse(dryRun.stdout) as InstallPlan;
     assert.equal(plan.mode, "dry-run");
     assert.equal(plan.target, target);
     assert.equal(plan.conflicts.length, 0);
-    assert.equal(plan.actions.filter((action) => action.path.startsWith(".agents/skills/") && action.action === "create").length, 5);
-    assert.equal(plan.actions.filter((action) => action.path.startsWith(".opencode/skills/") && action.action === "create").length, 5);
+    const focusedPlanResult = runInstaller(target, ["--profile", "tech_lead"]);
+    assert.equal(focusedPlanResult.status, 0, `${focusedPlanResult.stdout}\n${focusedPlanResult.stderr}`);
+    const focusedPlan = JSON.parse(focusedPlanResult.stdout) as InstallPlan;
+    assert.equal(focusedPlan.profile, "tech_lead");
+    const invalidProfile = runInstaller(target, ["--profile", "unknown"]);
+    assert.equal(invalidProfile.status, 1);
+    assert.match(invalidProfile.stderr, /Perfil MCP inválido/);
+    assert.equal(plan.actions.filter((action) => action.path.startsWith(".agents/skills/") && action.action === "create").length, 10);
+    assert.equal(plan.actions.filter((action) => action.path.startsWith(".opencode/skills/") && action.action === "create").length, 10);
     assert.ok(plan.actions.some((action) => action.path === ".ssdd/agent-runtime/node_modules" && action.action === "install"));
     assert.equal(existsSync(join(target, ".ssdd")), false);
     assert.equal(existsSync(join(target, ".mcp.json")), false);
@@ -89,40 +101,48 @@ it("installs the local MCP runtime and native Claude, Codex, and OpenCode files"
   ].join("\n");
   writeFileSync(join(target, "opencode.jsonc"), openCodeJsonc, "utf8");
 
-  const applied = runInstaller(target, ["--apply"], 300_000);
+  const applied = runInstaller(target, ["--apply", "--profile", "tech_lead"], 300_000);
   assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`);
-  const summary = JSON.parse(applied.stdout) as { mode: string; skills: number; agents: number; clients: string[] };
+  const summary = JSON.parse(applied.stdout) as { mode: string; profile?: string; skills: number; agents: number; clients: string[] };
   assert.equal(summary.mode, "apply");
-  assert.equal(summary.skills, 5);
-  assert.equal(summary.agents, 5);
+  assert.equal(summary.profile, "tech_lead");
+  assert.equal(summary.skills, 10);
+  assert.equal(summary.agents, 10);
   assert.deepEqual(summary.clients, ["Claude Code", "Codex", "OpenCode"]);
 
   const claudeConfig = JSON.parse(readFileSync(join(target, ".mcp.json"), "utf8")) as {
-    mcpServers: Record<string, { command: string; args: string[] }>;
+    mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
   };
   assert.ok(claudeConfig.mcpServers.existing);
   assert.equal(claudeConfig.mcpServers.ssdd_mcp?.command, "node");
   assert.match(claudeConfig.mcpServers.ssdd_mcp?.args[0] ?? "", /CLAUDE_PROJECT_DIR/);
+  assert.equal(claudeConfig.mcpServers.ssdd_mcp?.env?.SSDD_PROFILE, "tech_lead");
 
   const codexConfig = parseToml(readFileSync(join(target, ".codex", "config.toml"), "utf8")) as {
     model: string;
-    mcp_servers: Record<string, { command: string; args: string[]; cwd: string }>;
+    mcp_servers: Record<string, { command: string; args: string[]; cwd: string; env?: Record<string, string> }>;
   };
   assert.equal(codexConfig.model, "gpt-5");
   assert.ok(codexConfig.mcp_servers.other);
   assert.equal(codexConfig.mcp_servers.ssdd_mcp?.cwd, ".");
+  assert.equal(codexConfig.mcp_servers.ssdd_mcp?.env?.SSDD_PROFILE, "tech_lead");
 
   const openCodeText = readFileSync(join(target, "opencode.jsonc"), "utf8");
   assert.match(openCodeText, /Keep this user-owned comment and server/);
   const openCodeConfig = parseJsonc(openCodeText) as {
     model: string;
-    mcp: { servers: Record<string, { type: string; command: string[]; cwd?: string }> };
+    mcp: { servers: Record<string, { type: string; command: string[]; cwd?: string; environment?: Record<string, string> }> };
   };
   assert.equal(openCodeConfig.model, "provider/model");
   assert.ok(openCodeConfig.mcp.servers.other);
   assert.equal(openCodeConfig.mcp.servers.ssdd_mcp?.type, "local");
+  assert.equal(openCodeConfig.mcp.servers.ssdd_mcp?.environment?.SSDD_PROFILE, "tech_lead");
 
-  const skillIds = ["ssdd-developer", "ssdd-product-owner", "ssdd-quality-assurance", "ssdd-release-manager", "ssdd-technical-lead"];
+  const skillIds = [
+    "ssdd-business-analyst", "ssdd-delivery-facilitator", "ssdd-developer", "ssdd-product-owner",
+    "ssdd-quality-assurance", "ssdd-release-manager", "ssdd-security-reviewer", "ssdd-system-administrator",
+    "ssdd-technical-lead", "ssdd-test-designer",
+  ];
   for (const id of skillIds) {
     const installedSkill = readFileSync(join(target, ".agents", "skills", id, "SKILL.md"), "utf8");
     assert.equal(installedSkill, readFileSync(join(repositoryRoot, "skills", id, "SKILL.md"), "utf8"));
@@ -140,8 +160,8 @@ it("installs the local MCP runtime and native Claude, Codex, and OpenCode files"
     assert.match(openCodeAgent, new RegExp(`.opencode/skills/${id}/SKILL.md`));
     assert.equal(readFileSync(join(target, ".opencode", "skills", id, "SKILL.md"), "utf8"), installedSkill);
   }
-  assert.equal(readdirSync(join(target, ".agents", "skills")).length, 5);
-  assert.equal(readdirSync(join(target, ".opencode", "skills")).length, 5);
+  assert.equal(readdirSync(join(target, ".agents", "skills")).length, 10);
+  assert.equal(readdirSync(join(target, ".opencode", "skills")).length, 10);
   const gitignore = readFileSync(join(target, ".gitignore"), "utf8");
   assert.ok(gitignore.includes("# Preserve this project ignore note."));
   assert.ok(gitignore.includes("/.ssdd/agent-runtime/"));
@@ -153,6 +173,7 @@ it("installs the local MCP runtime and native Claude, Codex, and OpenCode files"
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [cliPath, "stdio", "--workspace", target],
+    stderr: "ignore",
   });
   const initialized = spawnSync(process.execPath, [
     cliPath,
@@ -176,11 +197,11 @@ it("installs the local MCP runtime and native Claude, Codex, and OpenCode files"
   assert.ok(projects.structuredContent);
   assert.equal((projects.structuredContent as { projects: Array<{ key: string }> }).projects[0]?.key, "TEST");
 
-  const check = runInstaller(target, ["--check"]);
+  const check = runInstaller(target, ["--check", "--profile", "tech_lead"]);
   assert.equal(check.status, 0, `${check.stdout}\n${check.stderr}`);
   const checkedPlan = JSON.parse(check.stdout) as InstallPlan;
   assert.equal(checkedPlan.actions.every((action) => action.action === "unchanged"), true);
-  const repeatedApply = runInstaller(target, ["--apply"], 30_000);
+  const repeatedApply = runInstaller(target, ["--apply", "--profile", "tech_lead"], 30_000);
   assert.equal(repeatedApply.status, 0, `${repeatedApply.stdout}\n${repeatedApply.stderr}`);
   assert.equal(JSON.parse(repeatedApply.stdout).changedFiles, 0);
 
@@ -265,6 +286,7 @@ interface InstallAction {
 interface InstallPlan {
   readonly mode: string;
   readonly target: string;
+  readonly profile?: string;
   readonly actions: InstallAction[];
   readonly conflicts: string[];
 }

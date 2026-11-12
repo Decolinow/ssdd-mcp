@@ -6,21 +6,27 @@ import { join, resolve } from "node:path";
 import { z } from "zod";
 import { ApplicationError } from "../application/errors.js";
 import { getOrCreateLocalPrincipal } from "../application/local-identity.js";
+import { isAuthKeySessionActive, resolveAuthKeySessionIdentity } from "../application/user-management.js";
 import { getProject, listProjects } from "../application/project-queries.js";
 import { listAuditEvents } from "../application/audit-queries.js";
 import { getProjectDashboardMetrics } from "../application/dashboard-metrics.js";
+import { getProjectHistorySnapshot } from "../application/project-history.js";
+import { getProjectFeatureRoadmap } from "../application/prioritized-roadmap.js";
 import { getDeveloperExecutionMetrics, listDeploymentEvents, listDevelopmentSessions } from "../application/development-lifecycle.js";
 import { listProjectTeams } from "../application/team-directory.js";
 import { getWorkItemQualityReport, listProjectQualitySummaries } from "../application/quality-queries.js";
 import { getTaskContext, taskContextProfiles, taskContextSections } from "../application/task-context.js";
 import { getSprint, listSprints } from "../application/sprint-queries.js";
 import { getSprintRetrospective, setSprintRetrospective } from "../application/sprint-retrospectives.js";
+import { startTaskDevelopment } from "../application/task-development-start.js";
+import { getTaskWorkflow } from "../application/task-workflow-queries.js";
+import { proposeTaskWorkflow, publishTaskWorkflow, transitionTaskWorkflowStep } from "../application/task-workflow-commands.js";
 import { getWorkItem, listWorkItemRevisions, listWorkItems } from "../application/work-item-queries.js";
 import { createWorkItem } from "../application/create-work-item.js";
 import { proposeWorkItemRevision, publishWorkItemRevision } from "../application/work-item-revisions.js";
 import { createScenario, proposeScenarioRevision, publishScenarioRevision, recordTestRun } from "../application/scenario-commands.js";
 import { getScenario, listScenarioRevisionWorkItems, listScenarios, listTestRuns } from "../application/scenario-queries.js";
-import { transitionWorkItem } from "../application/work-item-workflow.js";
+import { getTaskStartReadiness, transitionWorkItem } from "../application/work-item-workflow.js";
 import { scenarioKinds, testRunResults } from "../domain/scenarios.js";
 import { sprintStates } from "../domain/sprints.js";
 import { workItemStates, workItemTypes } from "../domain/work-items.js";
@@ -33,6 +39,8 @@ const maximumRequestBytes = 128 * 1_024;
 
 interface LocalSession {
   readonly id: string;
+  readonly principalId: string;
+  readonly authKeyId: string | null;
   readonly csrfToken: string;
   readonly expiresAt: number;
 }
@@ -58,10 +66,10 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
   const database = openSqliteDatabase(databasePath);
   try {
     applyMigrations(database);
-    const principal = getOrCreateLocalPrincipal(database);
+    const bootstrapPrincipal = getOrCreateLocalPrincipal(database);
     const bootstrapToken = randomBytes(32).toString("base64url");
     let bootstrapClaimed = false;
-    let localSession: LocalSession | undefined;
+    const localSessions = new Map<string, LocalSession>();
     let origin: string | undefined;
 
     const server = createServer((request, response) => {
@@ -81,13 +89,14 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
       if (origin === undefined || !isAllowedHost(request.headers.host, origin)) {
         throw new ApplicationError("ORIGIN_NOT_ALLOWED", "The dashboard API accepts loopback hosts only.");
       }
-      const isBootstrapRoute = route === "/api/v1/session/claim" || (route === "/" && requestUrl.searchParams.has("token"));
+      const isBootstrapRoute = route === "/api/v1/session/claim" ||
+        (route === "/" && requestUrl.searchParams.has("token"));
       validateOrigin(request, origin, isBootstrapRoute);
 
       if (request.method === "GET" && route === "/") {
         if (requestUrl.searchParams.has("token")) {
-          const session = claimLocalSession(requestUrl, bootstrapToken, bootstrapClaimed, (claimedSession) => {
-            localSession = claimedSession;
+          const session = claimLocalSession(requestUrl, bootstrapToken, bootstrapClaimed, bootstrapPrincipal.id, (claimedSession) => {
+            localSessions.set(claimedSession.id, claimedSession);
             bootstrapClaimed = true;
           });
           setSessionCookie(response, session);
@@ -104,8 +113,8 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
         return;
       }
       if (request.method === "GET" && route === "/api/v1/session/claim") {
-        const session = claimLocalSession(requestUrl, bootstrapToken, bootstrapClaimed, (claimedSession) => {
-          localSession = claimedSession;
+        const session = claimLocalSession(requestUrl, bootstrapToken, bootstrapClaimed, bootstrapPrincipal.id, (claimedSession) => {
+          localSessions.set(claimedSession.id, claimedSession);
           bootstrapClaimed = true;
         });
         setSessionCookie(response, session);
@@ -113,18 +122,57 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
         return;
       }
 
-      const session = requireLocalSession(request, localSession);
+      if (request.method === "POST" && route === "/api/v1/session/login") {
+        const input = dashboardLoginBodySchema.parse(await readJsonBody(request));
+        const identity = resolveAuthKeySessionIdentity(database, input.authKey);
+        if (identity === undefined) {
+          throw new ApplicationError("SESSION_INVALID", "The supplied SSDD credential is invalid or revoked.");
+        }
+        const session = createDashboardSession(identity.principalId, identity.keyId);
+        storeDashboardSession(localSessions, session);
+        setSessionCookie(response, session);
+        const authenticatedPrincipal = getDashboardPrincipal(database, identity.principalId);
+        sendJson(response, 200, {
+          principal: authenticatedPrincipal,
+          projects: listProjects(database, identity.principalId),
+          csrfToken: session.csrfToken,
+          expiresAt: new Date(session.expiresAt).toISOString(),
+        });
+        return;
+      }
+
+      const session = requireLocalSession(request, localSessions, database);
+      const principal = getDashboardPrincipal(database, session.principalId);
+      if (request.method === "POST" && route === "/api/v1/session/logout") {
+        assertSameOriginMutation(request, origin, session);
+        localSessions.delete(session.id);
+        clearSessionCookie(response);
+        sendJson(response, 200, { loggedOut: true });
+        return;
+      }
       if (request.method === "GET" && route === "/api/v1/session") {
         sendJson(response, 200, {
-          principal: { id: principal.id, displayName: principal.displayName },
-          projects: listProjects(database, principal.id),
+          principal: getDashboardPrincipal(database, session.principalId),
+          projects: listProjects(database, session.principalId),
           csrfToken: session.csrfToken,
           expiresAt: new Date(session.expiresAt).toISOString(),
         });
         return;
       }
       if (request.method === "GET" && route === "/api/v1/projects") {
-        sendJson(response, 200, { projects: listProjects(database, principal.id) });
+        sendJson(response, 200, { projects: listProjects(database, session.principalId) });
+        return;
+      }
+
+      const projectHistoryMatch = /^\/api\/v1\/projects\/([^/]+)\/history$/.exec(route);
+      if (request.method === "GET" && projectHistoryMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(projectHistoryMatch[1]));
+        const filters = parseProjectHistoryFilters(requestUrl.searchParams);
+        sendJson(response, 200, getProjectHistorySnapshot(database, {
+          projectId,
+          principalId: principal.id,
+          ...filters,
+        }));
         return;
       }
 
@@ -138,6 +186,26 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
           ...filters,
         });
         sendJson(response, 200, result);
+        return;
+      }
+
+      const featureRoadmapMatch = /^\/api\/v1\/projects\/([^/]+)\/feature-roadmap$/.exec(route);
+      if (request.method === "GET" && featureRoadmapMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(featureRoadmapMatch[1]));
+        const teamIdValue = requestUrl.searchParams.get("teamId") ?? undefined;
+        const asOfDateValue = requestUrl.searchParams.get("asOfDate") ?? undefined;
+        if (teamIdValue !== undefined && !z.string().uuid().safeParse(teamIdValue).success) {
+          throw new ApplicationError("VALIDATION_FAILED", "Team ID must be a UUID.");
+        }
+        if (asOfDateValue !== undefined && !/^\d{4}-\d{2}-\d{2}$/u.test(asOfDateValue)) {
+          throw new ApplicationError("VALIDATION_FAILED", "Roadmap cutoff must use YYYY-MM-DD.");
+        }
+        sendJson(response, 200, getProjectFeatureRoadmap(database, {
+          projectId,
+          principalId: principal.id,
+          ...(teamIdValue === undefined ? {} : { teamId: teamIdValue }),
+          ...(asOfDateValue === undefined ? {} : { asOfDate: asOfDateValue }),
+        }));
         return;
       }
 
@@ -175,7 +243,8 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
       const projectQualityMatch = /^\/api\/v1\/projects\/([^/]+)\/quality$/.exec(route);
       if (request.method === "GET" && projectQualityMatch !== null) {
         const projectId = parseUuid(decodePathSegment(projectQualityMatch[1]));
-        sendJson(response, 200, { items: listProjectQualitySummaries(database, { projectId, principalId: principal.id }) });
+        const page = parseListPageFilters(requestUrl.searchParams);
+        sendJson(response, 200, listProjectQualitySummaries(database, { projectId, principalId: principal.id, ...page }));
         return;
       }
 
@@ -219,6 +288,8 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
           ...(input.relatedStoryId === undefined ? {} : { relatedStoryId: input.relatedStoryId }),
           ...(input.description === undefined ? {} : { description: input.description }),
           ...(input.priority === undefined ? {} : { priority: input.priority }),
+          ...(input.businessValueScore === undefined ? {} : { businessValueScore: input.businessValueScore }),
+          ...(input.businessValueRationale === undefined ? {} : { businessValueRationale: input.businessValueRationale }),
           ...(input.criteria === undefined ? {} : { criteria: input.criteria.map((criterion) => ({
             description: criterion.description,
             ...(criterion.id === undefined ? {} : { id: criterion.id }),
@@ -232,7 +303,8 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
       const projectScenariosMatch = /^\/api\/v1\/projects\/([^/]+)\/scenarios$/.exec(route);
       if (request.method === "GET" && projectScenariosMatch !== null) {
         const projectId = parseUuid(decodePathSegment(projectScenariosMatch[1]));
-        sendJson(response, 200, { scenarios: listScenarios(database, projectId, principal.id) });
+        const page = parseListPageFilters(requestUrl.searchParams);
+        sendJson(response, 200, listScenarios(database, projectId, principal.id, page));
         return;
       }
       if (request.method === "POST" && projectScenariosMatch !== null) {
@@ -361,6 +433,8 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
           ...(input.title === undefined ? {} : { title: input.title }),
           ...(input.description === undefined ? {} : { description: input.description }),
           ...(input.priority === undefined ? {} : { priority: input.priority }),
+          ...(input.businessValueScore === undefined ? {} : { businessValueScore: input.businessValueScore }),
+          ...(input.businessValueRationale === undefined ? {} : { businessValueRationale: input.businessValueRationale }),
           ...(input.criteria === undefined ? {} : { criteria: input.criteria.map((criterion) => ({
             description: criterion.description,
             ...(criterion.id === undefined ? {} : { id: criterion.id }),
@@ -483,6 +557,97 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
       }
 
       const transitionMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/transition$/.exec(route);
+      const taskWorkflowMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/task-workflow$/.exec(route);
+      if (request.method === "GET" && taskWorkflowMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(taskWorkflowMatch[1]));
+        const taskIdOrKey = decodePathSegment(taskWorkflowMatch[2]);
+        const revisionValue = requestUrl.searchParams.get("revisionNumber");
+        const revisionNumber = revisionValue === null ? undefined : Number(revisionValue);
+        const workflow = getTaskWorkflow(database, {
+          projectId, principalId: principal.id, taskIdOrKey,
+          ...(revisionNumber === undefined ? {} : { revisionNumber }),
+        });
+        sendJson(response, 200, { workflow });
+        return;
+      }
+
+      const taskWorkflowRevisionsMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/task-workflow\/revisions$/.exec(route);
+      if (request.method === "POST" && taskWorkflowRevisionsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(taskWorkflowRevisionsMatch[1]));
+        const taskIdOrKey = decodePathSegment(taskWorkflowRevisionsMatch[2]);
+        assertSameOriginMutation(request, origin, session);
+        const input = taskWorkflowProposalBodySchema.parse(await readJsonBody(request));
+        const receipt = proposeTaskWorkflow(database, {
+          projectId, principalId: principal.id, taskIdOrKey,
+          requestId: input.requestId, expectedTaskVersion: input.expectedTaskVersion,
+          expectedWorkflowVersion: input.expectedWorkflowVersion, reason: input.reason,
+          steps: input.steps.map((step) => ({
+            title: step.title, description: step.description, effortPercent: step.effortPercent,
+            ...(step.id === undefined ? {} : { id: step.id }),
+          })),
+        });
+        sendJson(response, 200, { workflow: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
+      const taskWorkflowPublishMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/task-workflow\/revisions\/(\d+)\/publish$/.exec(route);
+      if (request.method === "POST" && taskWorkflowPublishMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(taskWorkflowPublishMatch[1]));
+        const taskIdOrKey = decodePathSegment(taskWorkflowPublishMatch[2]);
+        const revisionNumber = Number(taskWorkflowPublishMatch[3]);
+        assertSameOriginMutation(request, origin, session);
+        const input = taskWorkflowPublishBodySchema.parse(await readJsonBody(request));
+        const receipt = publishTaskWorkflow(database, {
+          projectId, principalId: principal.id, taskIdOrKey, revisionNumber,
+          requestId: input.requestId, expectedTaskVersion: input.expectedTaskVersion, reason: input.reason,
+        });
+        sendJson(response, 200, { ...receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
+      const taskWorkflowStepMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/task-workflow\/steps\/([^/]+)\/status$/.exec(route);
+      if (request.method === "POST" && taskWorkflowStepMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(taskWorkflowStepMatch[1]));
+        const taskIdOrKey = decodePathSegment(taskWorkflowStepMatch[2]);
+        const stepId = parseUuid(decodePathSegment(taskWorkflowStepMatch[3]));
+        assertSameOriginMutation(request, origin, session);
+        const input = taskWorkflowStepBodySchema.parse(await readJsonBody(request));
+        const receipt = transitionTaskWorkflowStep(database, {
+          projectId, principalId: principal.id, taskIdOrKey, stepId,
+          requestId: input.requestId, revisionNumber: input.revisionNumber,
+          expectedTaskVersion: input.expectedTaskVersion, targetStatus: input.targetStatus, reason: input.reason,
+        });
+        sendJson(response, 200, { transition: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
+      const taskStartReadinessMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/start-readiness$/.exec(route);
+      if (request.method === "GET" && taskStartReadinessMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(taskStartReadinessMatch[1]));
+        const itemIdOrKey = decodePathSegment(taskStartReadinessMatch[2]);
+        sendJson(response, 200, { readiness: getTaskStartReadiness(database, {
+          projectId, principalId: principal.id, itemIdOrKey,
+        }) });
+        return;
+      }
+
+      const taskStartMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/start$/.exec(route);
+      if (request.method === "POST" && taskStartMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(taskStartMatch[1]));
+        const itemIdOrKey = decodePathSegment(taskStartMatch[2]);
+        assertSameOriginMutation(request, origin, session);
+        const body = await readJsonBody(request);
+        const input = taskStartBodySchema.parse(body);
+        const receipt = startTaskDevelopment(database, {
+          projectId, principalId: principal.id, itemIdOrKey,
+          requestId: input.requestId, expectedVersion: input.expectedVersion, reason: input.reason,
+          ...(input.sessionReference === undefined ? {} : { sessionReference: input.sessionReference }),
+        });
+        const { operationAuditEventIds, ...result } = receipt.value;
+        sendJson(response, 200, { ...result, auditEventIds: [...operationAuditEventIds, ...receipt.auditEventIds] });
+        return;
+      }
+
       if (request.method === "POST" && transitionMatch !== null) {
         const projectId = parseUuid(decodePathSegment(transitionMatch[1]));
         const itemIdOrKey = decodePathSegment(transitionMatch[2]);
@@ -544,20 +709,21 @@ export function listenDashboardApiServer(
   });
 }
 
-export function startDashboardServer(
+export async function startDashboardServer(
   workspace: string,
   port = 4318,
   writeLine: (message: string) => void = (message) => process.stderr.write(`${message}\n`),
-): DashboardApiServer {
+): Promise<DashboardApiServer> {
   const handle = createDashboardApiServer(workspace);
-  void listenDashboardApiServer(handle, port).then(({ origin }) => {
+  try {
+    const { origin } = await listenDashboardApiServer(handle, port);
     writeLine(`Dashboard: ${origin}/?token=${encodeURIComponent(handle.bootstrapToken)}`);
     writeLine(`Dashboard API: ${origin}/api/v1`);
-  }).catch((error: unknown) => {
-    writeLine(`Dashboard API error: ${error instanceof Error ? error.message : "Erro inesperado."}`);
-    void handle.close();
-  });
-  return handle;
+    return handle;
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
 }
 
 const transitionBodySchema = z.object({
@@ -566,6 +732,40 @@ const transitionBodySchema = z.object({
   expectedVersion: z.number().int().positive(),
   reason: z.string().trim().min(1).max(1_000),
   buildId: z.string().trim().min(1).max(128).optional(),
+});
+
+const taskStartBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(100),
+  expectedVersion: z.number().int().positive(),
+  reason: z.string().trim().min(1).max(1_000),
+  sessionReference: z.string().trim().min(1).max(160).optional(),
+});
+
+const taskWorkflowProposalBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(128),
+  expectedTaskVersion: z.number().int().positive(),
+  expectedWorkflowVersion: z.number().int().nonnegative(),
+  steps: z.array(z.object({ id: z.string().uuid().optional(), title: z.string().trim().min(1).max(160),
+    description: z.string().trim().min(1).max(4_000), effortPercent: z.number().positive().max(100) })).min(1).max(50),
+  reason: z.string().trim().min(1).max(1_000),
+});
+
+const taskWorkflowPublishBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(128),
+  expectedTaskVersion: z.number().int().positive(),
+  reason: z.string().trim().min(1).max(1_000),
+});
+
+const taskWorkflowStepBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(128),
+  revisionNumber: z.number().int().positive(),
+  expectedTaskVersion: z.number().int().positive(),
+  targetStatus: z.enum(["pending", "in_progress", "done"]),
+  reason: z.string().trim().min(1).max(1_000),
+});
+
+const dashboardLoginBodySchema = z.object({
+  authKey: z.string().trim().min(1).max(64),
 });
 
 const sprintRetrospectiveBodySchema = z.object({
@@ -598,6 +798,8 @@ const createWorkItemBodySchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().max(10_000).optional(),
   priority: z.number().int().min(1).max(4).optional(),
+  businessValueScore: z.number().int().min(0).max(100).nullable().optional(),
+  businessValueRationale: z.string().trim().max(1000).nullable().optional(),
   criteria: workItemCriteriaBodySchema.optional(),
 });
 
@@ -607,6 +809,8 @@ const proposeWorkItemRevisionBodySchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   description: z.string().max(10_000).nullable().optional(),
   priority: z.number().int().min(1).max(4).optional(),
+  businessValueScore: z.number().int().min(0).max(100).nullable().optional(),
+  businessValueRationale: z.string().trim().max(1000).nullable().optional(),
   criteria: workItemCriteriaBodySchema.optional(),
 });
 
@@ -725,6 +929,24 @@ function parseDashboardMetricsFilters(searchParams: URLSearchParams): {
     ...(parsed.data.asOfDate === undefined ? {} : { asOfDate: parsed.data.asOfDate }),
     ...(parsed.data.milestoneId === undefined ? {} : { milestoneId: parsed.data.milestoneId }),
     ...(parsed.data.sprintId === undefined ? {} : { sprintId: parsed.data.sprintId }),
+  };
+}
+
+function parseProjectHistoryFilters(searchParams: URLSearchParams): {
+  readonly asOfDate?: string;
+  readonly workItemCursor?: string;
+} {
+  const parsed = z.object({
+    asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+    cursor: z.string().trim().min(1).max(4_096).optional(),
+  }).safeParse({
+    ...(searchParams.has("asOfDate") ? { asOfDate: searchParams.get("asOfDate") ?? "" } : {}),
+    ...(searchParams.has("cursor") ? { cursor: searchParams.get("cursor") ?? "" } : {}),
+  });
+  if (!parsed.success) throw new ApplicationError("VALIDATION_FAILED", "Dashboard history filters are invalid.");
+  return {
+    ...(parsed.data.asOfDate === undefined ? {} : { asOfDate: parsed.data.asOfDate }),
+    ...(parsed.data.cursor === undefined ? {} : { workItemCursor: parsed.data.cursor }),
   };
 }
 
@@ -870,6 +1092,21 @@ function parseEvidenceFilters(searchParams: URLSearchParams): { readonly evidenc
   return parsed.data.cursor === undefined ? {} : { evidenceCursor: parsed.data.cursor };
 }
 
+function parseListPageFilters(searchParams: URLSearchParams): { readonly limit?: number; readonly cursor?: string } {
+  const parsed = z.object({
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    cursor: z.string().min(1).max(4_096).optional(),
+  }).safeParse({
+    ...(searchParams.has("limit") ? { limit: searchParams.get("limit") } : {}),
+    ...(searchParams.has("cursor") ? { cursor: searchParams.get("cursor") } : {}),
+  });
+  if (!parsed.success) throw new ApplicationError("VALIDATION_FAILED", "Dashboard list page filters are invalid.");
+  return {
+    ...(parsed.data.limit === undefined ? {} : { limit: parsed.data.limit }),
+    ...(parsed.data.cursor === undefined ? {} : { cursor: parsed.data.cursor }),
+  };
+}
+
 function parseAuditFilters(searchParams: URLSearchParams): {
   readonly entityType?: string;
   readonly entityId?: string;
@@ -922,19 +1159,34 @@ function claimLocalSession(
   requestUrl: URL,
   bootstrapToken: string,
   bootstrapClaimed: boolean,
+  principalId: string,
   storeSession: (session: LocalSession) => void,
 ): LocalSession {
   const suppliedToken = requestUrl.searchParams.get("token") ?? "";
   if (bootstrapClaimed || !safeTokenMatches(bootstrapToken, suppliedToken)) {
     throw new ApplicationError("SESSION_INVALID", "Dashboard session bootstrap token is invalid or already used.");
   }
-  const session: LocalSession = {
+  const session = createDashboardSession(principalId, null);
+  storeSession(session);
+  return session;
+}
+
+function createDashboardSession(principalId: string, authKeyId: string | null): LocalSession {
+  return {
     id: randomBytes(32).toString("base64url"),
+    principalId,
+    authKeyId,
     csrfToken: randomBytes(32).toString("base64url"),
     expiresAt: Date.now() + sessionLifetimeMs,
   };
-  storeSession(session);
-  return session;
+}
+
+function storeDashboardSession(sessions: Map<string, LocalSession>, session: LocalSession): void {
+  const now = Date.now();
+  for (const [id, current] of sessions) {
+    if (current.expiresAt <= now) sessions.delete(id);
+  }
+  sessions.set(session.id, session);
 }
 
 function setSessionCookie(response: ServerResponse, session: LocalSession): void {
@@ -944,14 +1196,38 @@ function setSessionCookie(response: ServerResponse, session: LocalSession): void
   );
 }
 
-function requireLocalSession(request: IncomingMessage, session: LocalSession | undefined): LocalSession {
+function requireLocalSession(
+  request: IncomingMessage,
+  sessions: Map<string, LocalSession>,
+  database: SqliteDatabase,
+): LocalSession {
   const cookie = request.headers.cookie?.split(";").map((entry) => entry.trim())
     .find((entry) => entry.startsWith(`${sessionCookieName}=`));
   const suppliedId = cookie?.slice(sessionCookieName.length + 1);
-  if (session === undefined || session.expiresAt <= Date.now() || suppliedId !== session.id) {
+  const session = suppliedId === undefined ? undefined : sessions.get(suppliedId);
+  if (session === undefined || session.expiresAt <= Date.now()) {
+    if (session !== undefined) sessions.delete(session.id);
     throw new ApplicationError("SESSION_REQUIRED", "Claim a local dashboard session before using this API.");
   }
+  if (session.authKeyId !== null && !isAuthKeySessionActive(database, session.principalId, session.authKeyId)) {
+    sessions.delete(session.id);
+    throw new ApplicationError("SESSION_INVALID", "The SSDD credential for this session has been revoked.");
+  }
   return session;
+}
+
+function clearSessionCookie(response: ServerResponse): void {
+  response.setHeader("Set-Cookie", `${sessionCookieName}=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0`);
+}
+
+function getDashboardPrincipal(database: SqliteDatabase, principalId: string): { id: string; displayName: string } {
+  const principal = database.prepare(
+    "SELECT principal_id AS id, display_name AS displayName FROM principals WHERE principal_id = ?",
+  ).get(principalId) as { id: string; displayName: string } | undefined;
+  if (principal === undefined) {
+    throw new ApplicationError("SESSION_INVALID", "The dashboard principal no longer exists.");
+  }
+  return principal;
 }
 
 function assertSameOriginMutation(request: IncomingMessage, origin: string, session: LocalSession): void {

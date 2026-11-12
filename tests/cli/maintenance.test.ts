@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
@@ -63,6 +64,40 @@ describe("ssdd-mcp maintenance CLI", () => {
     const invalidFormat = createOutput();
     assert.equal(await runCli(["export", "--workspace", workspace, "--format", "yaml"], invalidFormat.stdout, invalidFormat.stderr), 1);
     assert.match(invalidFormat.error(), /json.*markdown.*gherkin/u);
+  });
+
+  it("returns a failing exit code when the dashboard port is already occupied", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ssdd-mcp-dashboard-cli-"));
+    workspaces.push(root);
+    const workspace = join(root, "project");
+    initializeProject({
+      workspace,
+      key: "PAY",
+      name: "Payments",
+      productGoal: "Pagamentos confiáveis",
+      timezone: "America/Sao_Paulo",
+    });
+    const occupied = createServer();
+    await new Promise<void>((resolve, reject) => {
+      occupied.once("error", reject);
+      occupied.listen(0, "127.0.0.1", resolve);
+    });
+    const address = occupied.address();
+    try {
+      assert.ok(address !== null && typeof address !== "string");
+      const output = createOutput();
+      assert.equal(await runCli(
+        ["dashboard", "--workspace", workspace, "--port", String(address.port)],
+        output.stdout,
+        output.stderr,
+      ), 1);
+      assert.match(output.error(), /EADDRINUSE/u);
+      assert.doesNotMatch(output.error(), /Dashboard API error/u);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        occupied.close((error) => error === undefined ? resolve() : reject(error));
+      });
+    }
   });
 });
 

@@ -52,16 +52,19 @@ test("release E2E delivers a story through distinct OIDC MCP clients and verifie
   });
 
   const database = openSqliteDatabase(initialized.databasePath);
+  const externalPrincipalIds = new Map<string, string>();
   try {
     const localAdminId = (database.prepare(
       "SELECT created_by_principal_id FROM projects WHERE project_id = ?",
     ).get(initialized.project.id) as { created_by_principal_id: string }).created_by_principal_id;
     for (const [subject, displayName, roles] of [
       ["release-po", "Release PO", ["po"]],
+      ["release-tech-lead", "Release Tech Lead", ["tech_lead"]],
       ["release-dev", "Release Developer", ["developer"]],
       ["release-qa", "Release QA", ["qa"]],
+      ["release-manager", "Release Manager", ["tech_lead"]],
     ] as const) {
-      grantExternalIdentity(database, {
+      const identity = grantExternalIdentity(database, {
         projectId: initialized.project.id,
         principalId: localAdminId,
         requestId: `release-grant-${subject}`,
@@ -72,6 +75,7 @@ test("release E2E delivers a story through distinct OIDC MCP clients and verifie
         roles,
         reason: "Provision identity for the release end-to-end fixture.",
       });
+      externalPrincipalIds.set(subject, identity.value.principalId);
     }
   } finally {
     database.close();
@@ -81,21 +85,26 @@ test("release E2E delivers a story through distinct OIDC MCP clients and verifie
   await servers.mcp.ready;
   const mcpAddress = await listenMcpHttpServer(servers.mcp, 0);
   const requestUrl = `${mcpAddress.origin}/mcp`;
-  const po = await connectOidcClient(clients, "release-po", await issueToken(privateKey, keyId, issuer, "release-po", resourceUrl), requestUrl);
-  const developer = await connectOidcClient(clients, "release-developer", await issueToken(privateKey, keyId, issuer, "release-dev", resourceUrl), requestUrl);
-  const qa = await connectOidcClient(clients, "release-qa", await issueToken(privateKey, keyId, issuer, "release-qa", resourceUrl), requestUrl);
+  const po = await connectOidcClient(clients, "release-po", await issueToken(privateKey, keyId, issuer, "release-po", resourceUrl), requestUrl, "po");
+  const techLead = await connectOidcClient(clients, "release-tech-lead", await issueToken(privateKey, keyId, issuer, "release-tech-lead", resourceUrl), requestUrl, "tech_lead");
+  const developer = await connectOidcClient(clients, "release-developer", await issueToken(privateKey, keyId, issuer, "release-dev", resourceUrl), requestUrl, "dev");
+  const qa = await connectOidcClient(clients, "release-qa", await issueToken(privateKey, keyId, issuer, "release-qa", resourceUrl), requestUrl, "qa");
+  const release = await connectOidcClient(clients, "release-manager", await issueToken(privateKey, keyId, issuer, "release-manager", resourceUrl), requestUrl, "release");
 
-  const deniedEpic = await developer.callTool({
-    name: "work_item_create",
-    arguments: {
-      projectId: initialized.project.id,
-      requestId: "release-dev-forbidden-epic",
-      type: "epic",
-      title: "Developer cannot create a PO epic",
-    },
-  });
-  assert.equal(deniedEpic.isError, true);
-  assert.equal(readToolErrorCode(deniedEpic), "FORBIDDEN");
+  const [poTools, techLeadTools, developerTools, qaTools, releaseTools] = await Promise.all([
+    po.listTools(), techLead.listTools(), developer.listTools(), qa.listTools(), release.listTools(),
+  ]);
+  const toolNames = (list: { readonly tools: readonly { readonly name: string }[] }): string[] => list.tools.map((tool) => tool.name);
+  assert.ok(toolNames(poTools).includes("work_item_create"));
+  assert.equal(toolNames(poTools).includes("test_run_certify"), false);
+  assert.ok(toolNames(techLeadTools).includes("spec_revision_publish"));
+  assert.equal(toolNames(techLeadTools).includes("deployment_event_record"), false);
+  assert.ok(toolNames(developerTools).includes("development_session_start"));
+  assert.equal(toolNames(developerTools).includes("test_run_certify"), false);
+  assert.ok(toolNames(qaTools).includes("test_run_certify"));
+  assert.equal(toolNames(qaTools).includes("deployment_event_record"), false);
+  assert.ok(toolNames(releaseTools).includes("deployment_event_record"));
+  assert.equal(toolNames(releaseTools).includes("work_item_transition"), false);
 
   const epic = await callTool<{ workItem: { id: string } }>(po, "work_item_create", {
     projectId: initialized.project.id,
@@ -122,6 +131,50 @@ test("release E2E delivers a story through distinct OIDC MCP clients and verifie
     criteria: [{ description: "A valid order returns a unique identifier" }],
   });
   const story = storyResult.workItem;
+  const taskResult = await callTool<{ workItem: { id: string; key: string; version: number } }>(developer, "work_item_create", {
+    projectId: initialized.project.id,
+    requestId: "release-task",
+    type: "task",
+    parentId: story.id,
+    title: "Implement order confirmation response",
+    description: "Persist the confirmed order and return its generated identifier.",
+  });
+  const task = taskResult.workItem;
+
+  const apiContract = await callTool<{ revision: { specId: string; key: string; revisionNumber: number } }>(techLead, "spec_create", {
+    projectId: initialized.project.id,
+    requestId: "release-api-contract",
+    key: "PAY-ORDER-API",
+    kind: "api_contract",
+    title: "Order confirmation contract",
+    content: {
+      method: "POST",
+      path: "/orders/confirm",
+      response: { status: 201, fields: ["orderId"] },
+    },
+  });
+  await callTool(techLead, "spec_revision_publish", {
+    projectId: initialized.project.id,
+    requestId: "release-api-contract-publish",
+    specIdOrKey: apiContract.revision.specId,
+    revisionNumber: apiContract.revision.revisionNumber,
+    expectedVersion: 1,
+  });
+  await callTool(techLead, "trace_link_add", {
+    projectId: initialized.project.id,
+    requestId: "release-api-contract-implements-story",
+    sourceIdOrKey: task.id,
+    targetIdOrKey: apiContract.revision.key,
+    type: "implements",
+  });
+  const taskContext = await callTool<{ sections: { technicalDecisions: Array<{ key: string; source: { relationship?: string } }> } }>(techLead, "task_context_get", {
+    projectId: initialized.project.id,
+    taskIdOrKey: task.id,
+    profile: "dev",
+    include: ["technicalDecisions"],
+  });
+  assert.ok(taskContext.sections.technicalDecisions.some((entry) =>
+    entry.key === apiContract.revision.key && entry.source.relationship === "task_direct_link"));
 
   const scenario = await callTool<{ revision: { scenarioId: string } }>(qa, "scenario_create", {
     projectId: initialized.project.id,
@@ -131,6 +184,7 @@ test("release E2E delivers a story through distinct OIDC MCP clients and verifie
     title: "Order confirmation returns its identifier",
     steps: [{ action: "Confirm a valid order", expected: "A unique order identifier is returned" }],
     coverage: [{ targetType: "criterion", reference: `${story.key}:AC-1` }],
+    workItemIdOrKeys: [task.id],
   });
   await callTool(qa, "scenario_revision_publish", {
     projectId: initialized.project.id,
@@ -165,6 +219,41 @@ test("release E2E delivers a story through distinct OIDC MCP clients and verifie
     reason: "PO approved the published criteria and estimate.",
   });
   assert.equal(ready.baseline.sequence, 1);
+
+  const developerPrincipalId = externalPrincipalIds.get("release-dev");
+  assert.ok(developerPrincipalId);
+  const taskAssignment = await callTool<{ assignment: { version: number } }>(developer, "work_item_assign", {
+    projectId: initialized.project.id,
+    requestId: "release-task-assign",
+    itemIdOrKey: task.id,
+    assigneeId: developerPrincipalId,
+    expectedVersion: task.version,
+  });
+  const taskReady = await callTool<{ transition: { itemVersion: number } }>(developer, "work_item_transition", {
+    projectId: initialized.project.id,
+    requestId: "release-task-ready",
+    itemIdOrKey: task.id,
+    targetState: "ready",
+    expectedVersion: taskAssignment.assignment.version,
+    reason: "Developer confirmed task owner, output, and parent baseline.",
+  });
+  const taskStarted = await callTool<{
+    task: { version: number };
+    session: {
+      id: string; version: number;
+      technicalSpecifications: Array<{ key: string; revisionNumber: number }>;
+      scenarios: Array<{ key: string; revisionNumber: number }>;
+    };
+  }>(developer, "task_start", {
+    projectId: initialized.project.id,
+    requestId: "release-task-in-progress",
+    taskIdOrKey: task.id,
+    expectedVersion: taskReady.transition.itemVersion,
+    reason: "Developer started the assigned implementation task.",
+  });
+  const developmentSession = { session: taskStarted.session };
+  assert.deepEqual(developmentSession.session.technicalSpecifications.map(({ key }) => key), [apiContract.revision.key]);
+  assert.deepEqual(developmentSession.session.scenarios.map(({ key }) => key), ["PAY-RELEASE-01"]);
 
   await callTool(developer, "work_item_transition", {
     projectId: initialized.project.id,
@@ -210,6 +299,7 @@ test("release E2E delivers a story through distinct OIDC MCP clients and verifie
     buildId: candidateBuild,
     result: "passed",
     notes: "QA executed the published scenario against the release candidate.",
+    workItemIdOrKeys: [task.id],
   });
   await callTool(qa, "test_run_certify", {
     projectId: initialized.project.id,
@@ -219,6 +309,49 @@ test("release E2E delivers a story through distinct OIDC MCP clients and verifie
     expectedVersion: 7,
     reason: "QA approved the latest passing run for the candidate build.",
   });
+  await callTool(developer, "evidence_add", {
+    projectId: initialized.project.id,
+    requestId: "release-task-evidence",
+    itemIdOrKey: task.id,
+    kind: "build",
+    uri: "https://ci.example/builds/release-build-2026.11.09.1",
+    buildId: candidateBuild,
+    description: "The implemented task is included in the QA-approved candidate build.",
+  });
+  const taskReview = await callTool<{ transition: { itemVersion: number } }>(developer, "work_item_transition", {
+    projectId: initialized.project.id,
+    requestId: "release-task-in-review",
+    itemIdOrKey: task.id,
+    targetState: "in_review",
+    expectedVersion: taskStarted.task.version,
+    reason: "Implementation evidence is attached for review.",
+  });
+  const taskValidation = await callTool<{ transition: { itemVersion: number } }>(developer, "work_item_transition", {
+    projectId: initialized.project.id,
+    requestId: "release-task-in-validation",
+    itemIdOrKey: task.id,
+    targetState: "in_validation",
+    expectedVersion: taskReview.transition.itemVersion,
+    reason: "Review passed and implementation is ready for validation.",
+  });
+  const taskDone = await callTool<{ transition: { itemVersion: number } }>(developer, "work_item_transition", {
+    projectId: initialized.project.id,
+    requestId: "release-task-done",
+    itemIdOrKey: task.id,
+    targetState: "done",
+    expectedVersion: taskValidation.transition.itemVersion,
+    reason: "Task evidence matches the candidate build.",
+    buildId: candidateBuild,
+  });
+  await callTool(developer, "development_session_transition", {
+    projectId: initialized.project.id,
+    requestId: "release-task-session-complete",
+    sessionId: developmentSession.session.id,
+    action: "complete",
+    expectedVersion: developmentSession.session.version,
+    reason: "Implementation task is complete and ready for release validation.",
+  });
+  assert.equal(taskDone.transition.itemVersion, taskValidation.transition.itemVersion + 1);
   await callTool(developer, "work_item_transition", {
     projectId: initialized.project.id,
     requestId: "release-done",
@@ -228,6 +361,52 @@ test("release E2E delivers a story through distinct OIDC MCP clients and verifie
     reason: "QA passed and the candidate build has traceable evidence.",
     buildId: candidateBuild,
   });
+
+  const productionBeforeHomologation = await release.callTool({
+    name: "deployment_event_record",
+    arguments: {
+      projectId: initialized.project.id,
+      requestId: "release-production-before-homologation",
+      environment: "production",
+      buildId: candidateBuild,
+      outcome: "succeeded",
+      itemIdOrKeys: [story.key],
+      notes: "This attempt must remain blocked until the homologation gate passes.",
+    },
+  });
+  assert.equal(productionBeforeHomologation.isError, true);
+  assert.equal(readToolErrorCode(productionBeforeHomologation), "GATE_BLOCKED");
+  const homologation = await callTool<{ event: { id: string; buildId: string; outcome: string } }>(release, "deployment_event_record", {
+    projectId: initialized.project.id,
+    requestId: "release-homologation-success",
+    environment: "homologation",
+    buildId: candidateBuild,
+    releaseVersion: "1.0.0-rc.1",
+    pipelineRunId: "pipeline-homologation-1001",
+    outcome: "succeeded",
+    itemIdOrKeys: [story.key],
+    notes: "Homologation approved by the release manager simulation.",
+  });
+  const production = await callTool<{ event: { id: string; buildId: string; outcome: string } }>(release, "deployment_event_record", {
+    projectId: initialized.project.id,
+    requestId: "release-production-success",
+    environment: "production",
+    buildId: candidateBuild,
+    releaseVersion: "1.0.0",
+    pipelineRunId: "pipeline-production-1002",
+    outcome: "succeeded",
+    itemIdOrKeys: [story.key],
+    notes: "Production uses the exact build approved in homologation.",
+  });
+  assert.equal(homologation.event.buildId, candidateBuild);
+  assert.equal(production.event.buildId, homologation.event.buildId);
+  const deployments = await callTool<{ events: Array<{ id: string; environment: string; buildId: string }> }>(release, "deployment_event_list", {
+    projectId: initialized.project.id,
+    itemIdOrKey: story.key,
+    limit: 20,
+  });
+  assert.deepEqual(deployments.events.map((event) => event.environment).sort(), ["homologation", "production"]);
+  assert.ok(deployments.events.every((event) => event.buildId === candidateBuild));
 
   servers.dashboard = createDashboardApiServer(workspace);
   const dashboardAddress = await listenDashboardApiServer(servers.dashboard, 0);
@@ -263,6 +442,7 @@ async function connectOidcClient(
   name: string,
   token: string,
   requestUrl: string,
+  profile: string,
 ): Promise<Client> {
   const client = new Client(
     { name, version: "0.1.0" },
@@ -273,6 +453,7 @@ async function connectOidcClient(
     fetch: async (input, init) => {
       const headers = new Headers(init?.headers);
       headers.set("authorization", `Bearer ${token}`);
+      headers.set("x-ssdd-profile", profile);
       return fetch(input, { ...init, headers });
     },
   });

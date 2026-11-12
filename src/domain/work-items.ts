@@ -76,6 +76,8 @@ export interface WorkItemContentRevision {
     readonly title: string;
     readonly description: string | null;
     readonly priority: number;
+    readonly businessValueScore: number | null;
+    readonly businessValueRationale: string | null;
     readonly criteria: readonly AcceptanceCriterion[];
   };
   readonly createdByPrincipalId: string;
@@ -96,6 +98,8 @@ export interface WorkItem {
   readonly description: string | null;
   readonly state: string;
   readonly priority: number;
+  readonly businessValueScore: number | null;
+  readonly businessValueRationale: string | null;
   readonly rank: number;
   readonly version: number;
   readonly revision: number;
@@ -115,8 +119,14 @@ export interface WorkItemListItem {
   readonly title: string;
   readonly state: WorkItemState;
   readonly priority: number;
+  readonly businessValueScore: number | null;
+  readonly businessValueRationale: string | null;
   readonly rank: number;
   readonly version: number;
   readonly revision: number;
   readonly updatedAt: string;
+  readonly taskWorkflowRevisionNumber: number | null;
+  readonly taskWorkflowProgressPercent: number | null;
+  readonly taskWorkflowCompletedSteps: number | null;
+  readonly taskWorkflowTotalSteps: number | null;
 }

@@ -205,6 +205,23 @@ describe("project metrics projections", () => {
     assert.ok(velocity.sprints.every((sprint) => sprint.teamId === teamId));
     assert.deepEqual(velocity.byTeamGeneration.map((generation) => [generation.teamId, generation.generationNumber, generation.sprintCount]), [[teamId, 1, 2]]);
 
+    const historicalDashboard = getProjectDashboardMetrics(database, {
+      projectId, principalId, asOfDate: addDays(startDate, -1), milestoneId: "none", sprintId: "none",
+    });
+    assert.equal(historicalDashboard.selectedTeamGenerationNumber, null);
+    assert.equal(historicalDashboard.velocity.sampleSize, 0);
+
+    setTeamCapacityConfiguration(database, {
+      projectId, principalId, teamId, requestId: requestId("capacity-generation-change"), expectedVersion: 1,
+      teamName: "Payments team", timezone: "America/Sao_Paulo", hoursPerDay: 6, workingDays: [1, 2, 3, 4, 5],
+      members: [{ principalId, dedicationPercent: 90 }], reason: "Separar a velocidade após mudança de capacidade do time.",
+    });
+    const currentGenerationDashboard = getProjectDashboardMetrics(database, {
+      projectId, principalId, asOfDate: startDate, milestoneId: "none", sprintId: "none",
+    });
+    assert.equal(currentGenerationDashboard.selectedTeamGenerationNumber, 2);
+    assert.equal(currentGenerationDashboard.velocity.sampleSize, 0);
+
     const wip = getProjectWipMetrics(database, { projectId, principalId });
     assert.ok(wip.watermarkSequence > 0);
     assert.equal(wip.totalWipCount, 1);
@@ -237,6 +254,18 @@ describe("project metrics projections", () => {
       (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "VALIDATION_FAILED");
     assert.throws(() => getProjectWipMetrics(database, { projectId, principalId, itemLimit: 5_001 }),
       (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "VALIDATION_FAILED");
+  });
+
+  it("uses the project, event type, and item index for point estimate history", () => {
+    const itemIds = pbis.map((item) => item.id);
+    const placeholders = itemIds.map(() => "?").join(",");
+    const plan = database.prepare(
+      `EXPLAIN QUERY PLAN
+       SELECT sequence, entity_id, occurred_at, payload_json FROM audit_events
+       WHERE project_id = ? AND event_type = ? AND entity_id IN (${placeholders})
+       ORDER BY entity_id, occurred_at, sequence`,
+    ).all(projectId, "work_item.estimate_confirmed", ...itemIds) as Array<{ detail: string }>;
+    assert.ok(plan.some((entry) => entry.detail.includes("audit_events_by_project_type_entity_time")), JSON.stringify(plan));
   });
 
   it("limits coverage details while preserving totals for the whole project", () => {

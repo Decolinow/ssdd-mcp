@@ -8,7 +8,7 @@ import type {
 import type { MilestoneSummary } from "../domain/milestones.js";
 import type { SprintOption } from "./sprint-queries.js";
 import type { SqliteDatabase } from "../storage-sqlite/database.js";
-import { forecastMilestoneDelivery } from "./forecast-queries.js";
+import { forecastMilestoneDelivery, nextLocalDayStart } from "./forecast-queries.js";
 import { ApplicationError } from "./errors.js";
 import { getMilestoneBurnupMetrics, getProjectCoverageMetrics, getProjectVelocityMetrics,
   getProjectWipMetrics, getSprintDeliveryMetrics, normalizeMetricsAsOfDate } from "./metrics-queries.js";
@@ -30,6 +30,7 @@ export interface ProjectDashboardMetrics {
   readonly projectId: string;
   readonly teams: readonly TeamSummary[];
   readonly selectedTeamId: string | null;
+  readonly selectedTeamGenerationNumber: number | null;
   readonly asOfDate: string;
   readonly observedAt: string;
   readonly watermarkSequence: number;
@@ -69,10 +70,15 @@ export function getProjectDashboardMetrics(
     const asOfDate = normalizeMetricsAsOfDate(input.asOfDate, project.timezone);
     const teams = listProjectTeams(database, input.projectId, input.principalId);
     const selectedTeamId = resolveProjectTeamId(database, input.projectId, input.teamId);
+    const velocityCutoff = nextLocalDayStart(asOfDate, project.timezone);
+    const selectedTeamGenerationNumber = selectedTeamId === null
+      ? null
+      : readTeamGenerationAt(database, input.projectId, selectedTeamId, velocityCutoff);
     const cacheKey = JSON.stringify([
       input.projectId,
       input.principalId,
       selectedTeamId,
+      selectedTeamGenerationNumber,
       asOfDate,
       input.milestoneId ?? null,
       input.sprintId ?? null,
@@ -137,7 +143,12 @@ export function getProjectDashboardMetrics(
       projectId: input.projectId,
       principalId: input.principalId,
       limit: 12,
-      ...(selectedTeamId === null ? {} : { teamId: selectedTeamId }),
+      ...(selectedTeamId === null
+        ? {}
+        : selectedTeamGenerationNumber === null
+          ? { teamId: selectedTeamId }
+          : { team: { teamId: selectedTeamId, generationNumber: selectedTeamGenerationNumber } }),
+      closedBefore: velocityCutoff,
     });
     const wip = getProjectWipMetrics(database, { projectId: input.projectId, principalId: input.principalId, itemLimit: 200 });
     const coverage = getProjectCoverageMetrics(database, { projectId: input.projectId, principalId: input.principalId });
@@ -147,6 +158,7 @@ export function getProjectDashboardMetrics(
       projectId: input.projectId,
       teams,
       selectedTeamId,
+      selectedTeamGenerationNumber,
       asOfDate,
       observedAt,
       watermarkSequence: wip.watermarkSequence,
@@ -172,6 +184,20 @@ export function getProjectDashboardMetrics(
     pruneDashboardMetricsCache(cache, now);
     return result;
   })();
+}
+
+function readTeamGenerationAt(
+  database: SqliteDatabase,
+  projectId: string,
+  teamId: string,
+  cutoffExclusive: string,
+): number | null {
+  const row = database.prepare(
+    `SELECT generation_number FROM team_config_versions
+     WHERE project_id = ? AND team_id = ? AND created_at < ?
+     ORDER BY version DESC LIMIT 1`,
+  ).get(projectId, teamId, cutoffExclusive) as { generation_number: number } | undefined;
+  return row?.generation_number ?? null;
 }
 
 function getDashboardMetricsCache(database: SqliteDatabase): Map<string, CachedDashboardMetrics> {

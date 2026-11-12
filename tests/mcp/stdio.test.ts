@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { SkillsClient } from "@modelcontextprotocol/client/ext/skills";
@@ -8,6 +9,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { initializeProject } from "../../src/application/initialize-project.js";
+import { createWorkItem } from "../../src/application/create-work-item.js";
+import { assignWorkItem } from "../../src/application/work-item-commands.js";
+import { createManagedUser, ensureBootstrapAdministrator } from "../../src/application/user-management.js";
 import { packageVersion } from "../../src/package-version.js";
 import { openSqliteDatabase } from "../../src/storage-sqlite/database.js";
 
@@ -26,6 +30,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [cliPath, "stdio", "--workspace", workspace],
+    stderr: "ignore",
   });
 
   context.after(async () => {
@@ -39,6 +44,9 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   assert.deepEqual(
     listedTools.tools.map((tool) => tool.name).sort(),
     [
+      "adr_create",
+      "adr_link_task",
+      "adr_search",
       "approval_issue",
       "approval_revoke",
       "azure_work_item_import_apply",
@@ -69,6 +77,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "milestone_get",
       "milestone_list",
       "milestone_scope_change",
+      "project_feature_roadmap_get",
       "project_get",
       "project_list",
       "roadmap_id_bind",
@@ -85,6 +94,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "spec_list",
       "spec_revision_propose",
       "spec_revision_publish",
+      "spec_revision_withdraw",
       "sprint_cancel",
       "sprint_close",
       "sprint_draft",
@@ -95,6 +105,13 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "sprint_scope_change",
       "sprint_start",
       "task_context_get",
+      "task_execution_queue_get",
+      "task_start",
+      "task_start_check",
+      "task_workflow_get",
+      "task_workflow_propose",
+      "task_workflow_publish",
+      "task_workflow_step_transition",
       "team_capacity_get",
       "team_capacity_set",
       "team_create",
@@ -105,6 +122,10 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "trace_link_add",
       "trace_link_remove",
       "trace_query",
+      "user_auth_key_revoke",
+      "user_auth_key_rotate",
+      "user_create",
+      "user_list",
       "work_item_assign",
       "work_item_create",
       "work_item_estimate",
@@ -117,6 +138,8 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "work_item_revision_list",
       "work_item_revision_propose",
       "work_item_revision_publish",
+      "work_item_semantic_index",
+      "work_item_semantic_search",
       "work_item_transition",
     ],
   );
@@ -129,10 +152,12 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
 
   const prompts = await client.listPrompts();
   assert.deepEqual(prompts.prompts.map((prompt) => prompt.name).sort(), [
+    "ssdd_design_tests",
     "ssdd_plan_sprint",
     "ssdd_refine_backlog",
     "ssdd_refine_technical_design",
     "ssdd_release_readiness",
+    "ssdd_security_review",
     "ssdd_start_task",
     "ssdd_validate_quality",
   ]);
@@ -140,11 +165,16 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   assert.equal(skillsClient.supported, true);
   const skillListing = await skillsClient.list();
   assert.deepEqual(skillListing.skills.map((skill) => skill.frontmatter.name).sort(), [
+    "ssdd-business-analyst",
+    "ssdd-delivery-facilitator",
     "ssdd-developer",
     "ssdd-product-owner",
     "ssdd-quality-assurance",
     "ssdd-release-manager",
+    "ssdd-security-reviewer",
+    "ssdd-system-administrator",
     "ssdd-technical-lead",
+    "ssdd-test-designer",
   ]);
   const developerSkill = await skillsClient.read(
     skillListing.skills.find((skill) => skill.frontmatter.name === "ssdd-developer")!,
@@ -183,10 +213,11 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   };
   const promptExpectations = [
     ["ssdd_refine_backlog", /não invente chaves/i],
-    ["ssdd_refine_technical_design", /work item → specification/i],
+    ["ssdd_refine_technical_design", /100\.00%/i],
     ["ssdd_plan_sprint", /capacidade/i],
-    ["ssdd_start_task", /testes de regressão/i],
+    ["ssdd_start_task", /task_workflow_get/i],
     ["ssdd_validate_quality", /Nunca invente/i],
+    ["ssdd_design_tests", /contrato publicado/i],
     ["ssdd_release_readiness", /Não publique/i],
   ] as const;
   for (const [name, expectedInstruction] of promptExpectations) {
@@ -194,7 +225,17 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
     const promptContent = prompt.messages[0]?.content;
     assert.ok(promptContent && promptContent.type === "text");
     assert.match(promptContent.text, expectedInstruction);
+    if (name === "ssdd_refine_technical_design") {
+      assert.match(promptContent.text, /\bspec_get\b.*\bspec_list\b/i);
+      assert.match(promptContent.text, /etapas ordenadas/i);
+      assert.doesNotMatch(promptContent.text, /\bspecification_(?:get|list)\b/i);
+    }
     if (name === "ssdd_validate_quality") assert.match(promptContent.text, /work_item_quality_get/);
+    if (name === "ssdd_start_task") assert.match(promptContent.text, /100% não significa QA aprovado/i);
+    if (name === "ssdd_validate_quality") assert.match(promptContent.text, /progresso ponderado.*não é resultado/i);
+    if (["ssdd_refine_backlog", "ssdd_refine_technical_design", "ssdd_start_task", "ssdd_validate_quality", "ssdd_design_tests"].includes(name)) {
+      assert.match(promptContent.text, /glossário automaticamente.*spec_get.*SSDD-GLOSS-CORE-01/i);
+    }
   }
   const dodSetResult = await client.callTool({
     name: "definition_of_done_set",
@@ -241,16 +282,20 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       requestId: "stdio-epic-1",
       type: "epic",
       title: "Pagamentos seguros",
+      priority: 1,
+      businessValueScore: 86,
+      businessValueRationale: "Prioriza a proteção dos pagamentos com maior impacto ao cliente.",
     },
   });
   assert.notEqual(epicResult.isError, true);
   assert.ok(epicResult.structuredContent);
   const epic = epicResult.structuredContent as {
-    workItem: { id: string; key: string; type: string };
+    workItem: { id: string; key: string; type: string; businessValueScore: number; businessValueRationale: string };
     auditEventIds: string[];
   };
   assert.equal(epic.workItem.key, "PAY-1");
   assert.equal(epic.workItem.type, "epic");
+  assert.equal(epic.workItem.businessValueScore, 86);
   assert.equal(epic.auditEventIds.length, 1);
 
   const featureResult = await client.callTool({
@@ -286,6 +331,16 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   assert.equal(story.workItem.key, "PAY-3");
   assert.equal(story.workItem.criteria[0]?.key, "AC-1");
 
+  const executionQueue = await client.callTool({ name: "task_execution_queue_get", arguments: { projectId } });
+  assert.notEqual(executionQueue.isError, true);
+  assert.deepEqual((executionQueue.structuredContent as { tasks: unknown[] }).tasks, []);
+  const featureRoadmap = await client.callTool({ name: "project_feature_roadmap_get", arguments: { projectId } });
+  assert.notEqual(featureRoadmap.isError, true);
+  const roadmap = featureRoadmap.structuredContent as { velocitySampleSize: number; minimumVelocitySamples: number; forecastUnavailableReason: string };
+  assert.equal(roadmap.velocitySampleSize, 0);
+  assert.equal(roadmap.minimumVelocitySamples, 3);
+    assert.equal(roadmap.forecastUnavailableReason, "team_required");
+
   const readResult = await client.callTool({
     name: "work_item_get",
     arguments: { projectId, itemIdOrKey: story.workItem.key },
@@ -315,10 +370,16 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
     title: "Entrar com fator adicional",
     state: "draft",
     priority: 2,
+    businessValueScore: null,
+    businessValueRationale: null,
     rank: 1024,
     version: 1,
     revision: 1,
     updatedAt: (storyResult.structuredContent as { workItem: { updatedAt: string } }).workItem.updatedAt,
+    taskWorkflowRevisionNumber: null,
+    taskWorkflowProgressPercent: null,
+    taskWorkflowCompletedSteps: null,
+    taskWorkflowTotalSteps: null,
   }]);
   assert.equal(backlog.nextCursor, null);
 
@@ -518,6 +579,41 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   const scenarioRevisionText = scenarioRevisionResource.contents[0];
   assert.ok(scenarioRevisionText && "text" in scenarioRevisionText);
   assert.equal(JSON.parse(scenarioRevisionText.text).revisionNumber, 1);
+  const secondScenario = await client.callTool({
+    name: "scenario_create",
+    arguments: {
+      projectId,
+      requestId: "stdio-scenario-create-page-two",
+      key: "PAY-TC-02",
+      kind: "acceptance",
+      title: "Recuperar sessão autenticada",
+      preconditions: [],
+      steps: [{ action: "Retomar a sessão", expected: "O usuário retorna ao fluxo" }],
+    },
+  });
+  assert.notEqual(secondScenario.isError, true);
+  const scenarioFirstPage = await client.callTool({
+    name: "scenario_list",
+    arguments: { projectId, kind: "acceptance", limit: 1 },
+  });
+  assert.notEqual(scenarioFirstPage.isError, true);
+  const scenarioFirstPageValue = scenarioFirstPage.structuredContent as {
+    scenarios: Array<{ key: string }>;
+    nextCursor: string | null;
+  };
+  assert.equal(scenarioFirstPageValue.scenarios[0]?.key, "PAY-TC-01");
+  assert.ok(scenarioFirstPageValue.nextCursor);
+  const scenarioSecondPage = await client.callTool({
+    name: "scenario_list",
+    arguments: { projectId, kind: "acceptance", limit: 1, cursor: scenarioFirstPageValue.nextCursor! },
+  });
+  assert.notEqual(scenarioSecondPage.isError, true);
+  const scenarioSecondPageValue = scenarioSecondPage.structuredContent as {
+    scenarios: Array<{ key: string }>;
+    nextCursor: string | null;
+  };
+  assert.deepEqual(scenarioSecondPageValue.scenarios.map(({ key }) => key), ["PAY-TC-02"]);
+  assert.equal(scenarioSecondPageValue.nextCursor, null);
   const recordedPassed = await client.callTool({
     name: "test_run_record",
     arguments: {
@@ -658,23 +754,68 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
     { revisionNumber: 1, status: "superseded" },
     { revisionNumber: 2, status: "published" },
   ]);
+  const obsoleteSpec = await client.callTool({
+    name: "spec_create",
+    arguments: {
+      projectId, requestId: "stdio-spec-create-obsolete", key: "ADR-10", kind: "adr",
+      title: "Obsolete proposal", content: { decision: "Initial proposal awaiting review." },
+    },
+  });
+  assert.notEqual(obsoleteSpec.isError, true);
+  const withdrawnSpec = await client.callTool({
+    name: "spec_revision_withdraw",
+    arguments: {
+      projectId, requestId: "stdio-spec-withdraw-obsolete", specIdOrKey: "ADR-10", revisionNumber: 1,
+      expectedVersion: 1, reason: "Replaced by a proposal that matches the implementation and test evidence.",
+    },
+  });
+  assert.notEqual(withdrawnSpec.isError, true);
+  assert.equal((withdrawnSpec.structuredContent as { revision: { status: string } }).revision.status, "withdrawn");
+  const withdrawnRead = await client.callTool({ name: "spec_get", arguments: { projectId, specIdOrKey: "ADR-10" } });
+  assert.notEqual(withdrawnRead.isError, true);
+  assert.deepEqual((withdrawnRead.structuredContent as { specification: { revisions: Array<{ status: string }> } })
+    .specification.revisions.map(({ status }) => status), ["withdrawn"]);
   const specificationRevisionResource = await client.readResource({
     uri: `ssdd://projects/${projectId}/specs/BR-04/revisions/2`,
   });
   const specificationRevisionText = specificationRevisionResource.contents[0];
   assert.ok(specificationRevisionText && "text" in specificationRevisionText);
   assert.equal(JSON.parse(specificationRevisionText.text).revisionNumber, 2);
+  const secondSpec = await client.callTool({
+    name: "spec_create",
+    arguments: {
+      projectId,
+      requestId: "stdio-spec-create-page-two",
+      key: "BR-05",
+      kind: "business_rule",
+      title: "Limite adicional",
+      content: { text: "A regra permanece rastreável." },
+    },
+  });
+  assert.notEqual(secondSpec.isError, true);
 
   const specList = await client.callTool({
     name: "spec_list",
-    arguments: { projectId, kind: "business_rule" },
+    arguments: { projectId, kind: "business_rule", limit: 1 },
   });
   assert.notEqual(specList.isError, true);
   assert.ok(specList.structuredContent);
+  const specFirstPage = specList.structuredContent as { specifications: Array<{ key: string }>; nextCursor: string | null };
   assert.equal(
-    (specList.structuredContent as { specifications: Array<{ key: string }> }).specifications[0]?.key,
+    specFirstPage.specifications[0]?.key,
     "BR-04",
   );
+  assert.ok(specFirstPage.nextCursor);
+  const specSecondPage = await client.callTool({
+    name: "spec_list",
+    arguments: { projectId, kind: "business_rule", limit: 1, cursor: specFirstPage.nextCursor! },
+  });
+  assert.notEqual(specSecondPage.isError, true);
+  assert.deepEqual(
+    (specSecondPage.structuredContent as { specifications: Array<{ key: string }>; nextCursor: string | null }).specifications.map(({ key }) => key),
+    ["BR-05"],
+  );
+  assert.equal((specSecondPage.structuredContent as { nextCursor: string | null }).nextCursor, null);
 
   const traceLinkResult = await client.callTool({
     name: "trace_link_add",
@@ -982,4 +1123,78 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   assert.equal((retrospectiveGet.structuredContent as {
     retrospective: { actions: Array<{ linkedWorkItemKey: string | null }> };
   }).retrospective.actions[0]?.linkedWorkItemKey, story.workItem.key);
+});
+
+test("stdio authenticates a user key and applies the selected profile before listing tools", async (context) => {
+  const workspace = mkdtempSync(join(tmpdir(), "ssdd-mcp-stdio-user-profile-"));
+  const initialized = initializeProject({
+    workspace, key: "PAY", name: "Payments", productGoal: "Pagamentos confiáveis", timezone: "UTC",
+  });
+  const database = openSqliteDatabase(initialized.databasePath);
+  let userAuthKey: string;
+  let assignedStoryId: string;
+  try {
+    const adminId = (database.prepare("SELECT created_by_principal_id FROM projects WHERE project_id = ?")
+      .get(initialized.project.id) as { created_by_principal_id: string }).created_by_principal_id;
+    ensureBootstrapAdministrator(database, adminId);
+    const user = createManagedUser(database, {
+      actorPrincipalId: adminId,
+      requestId: randomUUID(),
+      displayName: "Stdio Developer",
+      principalType: "human",
+      projects: [{ projectId: initialized.project.id, roles: ["developer"] }],
+      reason: "Teste de identidade stdio",
+    });
+    userAuthKey = user.authKey!;
+    const epic = createWorkItem(database, {
+      projectId: initialized.project.id, principalId: adminId, requestId: randomUUID(),
+      type: "epic", title: "Payment epic",
+    }).value;
+    const feature = createWorkItem(database, {
+      projectId: initialized.project.id, principalId: adminId, requestId: randomUUID(),
+      type: "feature", parentId: epic.id, title: "Payment feature",
+    }).value;
+    const story = createWorkItem(database, {
+      projectId: initialized.project.id, principalId: adminId, requestId: randomUUID(),
+      type: "story", parentId: feature.id, title: "Assigned stdio work",
+    }).value;
+    assignedStoryId = story.id;
+    assignWorkItem(database, {
+      projectId: initialized.project.id, principalId: adminId, requestId: randomUUID(),
+      itemIdOrKey: story.key, assigneeId: user.principalId, expectedVersion: story.version,
+    });
+  } finally {
+    database.close();
+  }
+
+  const environment = Object.fromEntries(
+    Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  );
+  const client = new Client({ name: "ssdd-stdio-user-profile-tests", version: "0.1.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [fileURLToPath(new URL("../../src/cli.js", import.meta.url)), "stdio", "--workspace", workspace],
+    env: { ...environment, SSDD_AUTH_KEY: userAuthKey, SSDD_PROFILE: "dev" },
+    stderr: "ignore",
+  });
+  context.after(async () => {
+    await client.close();
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  await client.connect(transport);
+  const tools = await client.listTools();
+  assert.ok(tools.tools.some((tool) => tool.name === "development_session_start"));
+  assert.ok(tools.tools.some((tool) => tool.name === "work_item_semantic_search"));
+  assert.equal(tools.tools.some((tool) => tool.name === "user_create"), false);
+  assert.equal(tools.tools.some((tool) => tool.name === "test_run_certify"), false);
+  const prompts = await client.listPrompts();
+  assert.deepEqual(prompts.prompts.map((prompt) => prompt.name), ["ssdd_start_task"]);
+  const skillsClient = new SkillsClient(client);
+  const skillListing = await skillsClient.list();
+  assert.deepEqual(skillListing.skills.map((skill) => skill.frontmatter.name), ["ssdd-developer"]);
+  const projects = await client.callTool({ name: "project_list", arguments: {} });
+  const projectId = (projects.structuredContent as { projects: Array<{ id: string }> }).projects[0]!.id;
+  const assigned = await client.callTool({ name: "work_item_list", arguments: { projectId, assignedToMe: true } });
+  assert.deepEqual((assigned.structuredContent as { items: Array<{ id: string }> }).items.map((item) => item.id), [assignedStoryId]);
 });

@@ -13,6 +13,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { initializeProject } from "../../src/application/initialize-project.js";
 import { createWorkItem } from "../../src/application/create-work-item.js";
+import { assignWorkItem } from "../../src/application/work-item-commands.js";
 import { applyMigrations } from "../../src/storage-sqlite/migrations.js";
 import { openSqliteDatabase } from "../../src/storage-sqlite/database.js";
 import { createMcpHttpServer, listenMcpHttpServer, maximumMcpHttpRequestBytes } from "../../src/mcp/http-server.js";
@@ -103,6 +104,118 @@ test("Streamable HTTP negotiates MCP and serves the same project tools as stdio"
   assert.equal(unsupportedVersion.status, 400);
 });
 
+test("auth keys bind HTTP requests to users and profiles reduce the visible tool set", async (context) => {
+  const workspace = createWorkspace();
+  const handle = createMcpHttpServer(workspace);
+  const bootstrapAuthKey = handle.bootstrapAuthKey;
+  assert.match(bootstrapAuthKey ?? "", /^ssdd_[A-Za-z0-9_-]{43}$/u);
+  const address = await listenMcpHttpServer(handle, 0);
+  const url = new URL(`${address.origin}/mcp`);
+  const clients: Client[] = [];
+  context.after(async () => {
+    await Promise.all(clients.map((client) => client.close()));
+    await handle.close();
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const connect = async (name: string, authKey: string, profile: string): Promise<Client> => {
+    const client = new Client({ name, version: "0.1.0" });
+    const transport = new StreamableHTTPClientTransport(url, {
+      fetch: async (input, init) => {
+        const headers = new Headers(init?.headers);
+        headers.set("authorization", `Bearer ${authKey}`);
+        headers.set("x-ssdd-profile", profile);
+        return fetch(input, { ...init, headers });
+      },
+    });
+    await client.connect(transport);
+    clients.push(client);
+    return client;
+  };
+
+  const admin = await connect("ssdd-admin-auth-key", bootstrapAuthKey!, "full");
+  const adminTools = await admin.listTools();
+  assert.ok(adminTools.tools.some((tool) => tool.name === "user_create"));
+  assert.ok(adminTools.tools.some((tool) => tool.name === "user_auth_key_rotate"));
+  const projectResult = await admin.callTool({ name: "project_list", arguments: {} });
+  const projectId = (projectResult.structuredContent as { projects: Array<{ id: string }> }).projects[0]!.id;
+  const createdResult = await admin.callTool({
+    name: "user_create",
+    arguments: {
+      requestId: "http-create-developer",
+      displayName: "HTTP Developer",
+      principalType: "human",
+      projects: [{ projectId, roles: ["developer"] }],
+      reason: "Teste do fluxo de autenticação",
+    },
+  });
+  assert.notEqual(createdResult.isError, true);
+  const created = createdResult.structuredContent as { principalId: string; authKey: string };
+  assert.match(created.authKey, /^ssdd_[A-Za-z0-9_-]{43}$/u);
+
+  const database = openSqliteDatabase(join(workspace, ".ssdd", "ssdd.sqlite"));
+  let storyId: string;
+  try {
+    const adminId = (database.prepare("SELECT created_by_principal_id FROM projects WHERE project_id = ?")
+      .get(projectId) as { created_by_principal_id: string }).created_by_principal_id;
+    const epic = createWorkItem(database, {
+      projectId, principalId: adminId, requestId: "http-auth-epic", type: "epic", title: "Payment epic",
+    }).value;
+    const feature = createWorkItem(database, {
+      projectId, principalId: adminId, requestId: "http-auth-feature", type: "feature", parentId: epic.id, title: "Payment feature",
+    }).value;
+    const story = createWorkItem(database, {
+      projectId, principalId: adminId, requestId: "http-auth-story", type: "story", parentId: feature.id, title: "Assigned refund work",
+    }).value;
+    storyId = story.id;
+    assignWorkItem(database, {
+      projectId, principalId: adminId, requestId: "http-auth-assignment", itemIdOrKey: story.key,
+      assigneeId: created.principalId, expectedVersion: story.version,
+    });
+  } finally {
+    database.close();
+  }
+
+  let developerProfile = "dev";
+  const developer = new Client({ name: "ssdd-developer-auth-key", version: "0.1.0" });
+  const developerTransport = new StreamableHTTPClientTransport(url, {
+    fetch: async (input, init) => {
+      const headers = new Headers(init?.headers);
+      headers.set("authorization", `Bearer ${created.authKey}`);
+      headers.set("x-ssdd-profile", developerProfile);
+      return fetch(input, { ...init, headers });
+    },
+  });
+  await developer.connect(developerTransport);
+  clients.push(developer);
+  const developerTools = await developer.listTools();
+  assert.ok(developerTools.tools.some((tool) => tool.name === "work_item_semantic_search"));
+  assert.ok(developerTools.tools.some((tool) => tool.name === "development_session_start"));
+  assert.equal(developerTools.tools.some((tool) => tool.name === "user_create"), false);
+  assert.equal(developerTools.tools.some((tool) => tool.name === "test_run_certify"), false);
+  const nonAdminWithAdminProfile = await connect("ssdd-nonadmin-admin-profile", created.authKey, "admin");
+  const nonAdminAdminTools = await nonAdminWithAdminProfile.listTools();
+  assert.equal(nonAdminAdminTools.tools.some((tool) => tool.name === "user_create"), false,
+    "The admin tool profile must not grant instance administration");
+  const facilitator = await connect("ssdd-facilitator-profile", created.authKey, "facilitator");
+  const facilitatorTools = await facilitator.listTools();
+  assert.ok(facilitatorTools.tools.some((tool) => tool.name === "sprint_retrospective_get"));
+  assert.ok(facilitatorTools.tools.some((tool) => tool.name === "sprint_retrospective_set"));
+  assert.equal(facilitatorTools.tools.some((tool) => tool.name === "test_run_record"), false);
+  const myWork = await developer.callTool({ name: "work_item_list", arguments: { projectId, assignedToMe: true } });
+  assert.deepEqual((myWork.structuredContent as { items: Array<{ id: string }> }).items.map((item) => item.id), [storyId]);
+
+  developerProfile = "qa";
+  await assert.rejects(() => developer.listTools());
+  developerProfile = "dev";
+  const revokeResult = await admin.callTool({
+    name: "user_auth_key_revoke",
+    arguments: { requestId: "http-revoke-developer", principalId: created.principalId, reason: "Fim do teste" },
+  });
+  assert.notEqual(revokeResult.isError, true);
+  await assert.rejects(() => developer.listTools());
+});
+
 test("Streamable HTTP supports the MCP 2026-07-28 stateless protocol era", async (context) => {
   const workspace = createWorkspace();
   const handle = createMcpHttpServer(workspace);
@@ -130,11 +243,11 @@ test("Streamable HTTP supports the MCP 2026-07-28 stateless protocol era", async
   const tools = await client.listTools();
   assert.ok(tools.tools.some((tool) => tool.name === "project_list"));
   const prompts = await client.listPrompts();
-  assert.equal(prompts.prompts.length, 6);
+  assert.equal(prompts.prompts.length, 8);
   const skillClient = new SkillsClient(client);
   assert.equal(skillClient.supported, true);
   const skillListing = await skillClient.list();
-  assert.equal(skillListing.skills.length, 5);
+  assert.equal(skillListing.skills.length, 10);
   const qualitySkill = await skillClient.read(
     skillListing.skills.find((skill) => skill.frontmatter.name === "ssdd-quality-assurance")!,
   );

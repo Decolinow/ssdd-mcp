@@ -12,10 +12,20 @@
     done: "Done",
     cancelled: "Cancelado",
     active: "Ativa",
+    paused: "Pausada",
+    completed: "Concluída",
     closed: "Fechada",
   };
-  const typeLabels = { story: "História", bug: "Bug" };
-  const typeMarks = { story: "H", bug: "B" };
+  const typeLabels = { epic: "Épico", feature: "Feature", story: "História", bug: "Bug", task: "Tarefa" };
+  const typeMarks = { epic: "E", feature: "F", story: "H", bug: "B", task: "T" };
+  const scenarioKindLabels = {
+    acceptance: "Aceitação", regression: "Regressão", integration: "Integração",
+    performance: "Performance", security: "Segurança", manual: "Manual",
+  };
+  const specificationKindLabels = {
+    business_rule: "Regra de negócio", glossary: "Glossário", api_contract: "Contrato de API",
+    adr: "Decisão de arquitetura", non_functional: "Requisito não funcional",
+  };
   const transitions = {
     draft: ["ready", "cancelled"],
     ready: ["in_progress", "cancelled"],
@@ -27,6 +37,12 @@
   };
 
   const elements = {
+    loginScreen: document.querySelector("#login-screen"),
+    loginForm: document.querySelector("#login-form"),
+    authKey: document.querySelector("#auth-key"),
+    loginError: document.querySelector("#login-error"),
+    loginSubmit: document.querySelector("#login-submit"),
+    appShell: document.querySelector("#app-shell"),
     projectSelect: document.querySelector("#project-select"),
     teamSelect: document.querySelector("#team-select"),
     principalName: document.querySelector("#principal-name"),
@@ -35,10 +51,30 @@
     filters: document.querySelector(".filters"),
     metricsTab: document.querySelector("#metrics-tab"),
     metricsView: document.querySelector("#metrics-view"),
+    roadmapTab: document.querySelector("#roadmap-tab"),
+    roadmapView: document.querySelector("#roadmap-view"),
+    roadmapDate: document.querySelector("#roadmap-date"),
+    roadmapMeta: document.querySelector("#roadmap-meta"),
+    roadmapError: document.querySelector("#roadmap-error"),
+    roadmapContent: document.querySelector("#roadmap-content"),
+    historyTab: document.querySelector("#history-tab"),
+    historyView: document.querySelector("#history-view"),
+    historyDate: document.querySelector("#history-date"),
+    historyDateHelp: document.querySelector("#history-date-help"),
+    historyApply: document.querySelector("#history-apply"),
+    historyToday: document.querySelector("#history-today"),
+    historyMeta: document.querySelector("#history-meta"),
+    historyError: document.querySelector("#history-error"),
+    historyContent: document.querySelector("#history-content"),
     metricsMilestone: document.querySelector("#metrics-milestone"),
     metricsSprint: document.querySelector("#metrics-sprint"),
     metricsDate: document.querySelector("#metrics-date"),
     metricsToday: document.querySelector("#metrics-today"),
+    metricsEffortFrom: document.querySelector("#metrics-effort-from"),
+    metricsEffortTo: document.querySelector("#metrics-effort-to"),
+    metricsDeveloper: document.querySelector("#metrics-developer"),
+    metricsEffortApply: document.querySelector("#metrics-effort-apply"),
+    metricsEffortReset: document.querySelector("#metrics-effort-reset"),
     metricsMeta: document.querySelector("#metrics-meta"),
     metricsError: document.querySelector("#metrics-error"),
     metricsContent: document.querySelector("#metrics-content"),
@@ -76,15 +112,28 @@
     errorMessage: document.querySelector("#error-message"),
     retry: document.querySelector("#retry-button"),
     refresh: document.querySelector("#refresh-button"),
+    logout: document.querySelector("#logout-button"),
     toast: document.querySelector("#toast"),
     itemDialog: document.querySelector("#item-dialog"),
     itemKicker: document.querySelector("#item-kicker"),
     itemTitle: document.querySelector("#item-title"),
     itemDetails: document.querySelector("#item-details"),
+    taskWorkflowDialog: document.querySelector("#task-workflow-dialog"),
+    taskWorkflowForm: document.querySelector("#task-workflow-form"),
+    taskWorkflowFormTitle: document.querySelector("#task-workflow-form-title"),
+    taskWorkflowFormHelp: document.querySelector("#task-workflow-form-help"),
+    taskWorkflowStepList: document.querySelector("#task-workflow-step-list"),
+    addTaskWorkflowStep: document.querySelector("#add-task-workflow-step"),
+    taskWorkflowTotal: document.querySelector("#task-workflow-total"),
+    taskWorkflowValidation: document.querySelector("#task-workflow-validation"),
+    taskWorkflowReason: document.querySelector("#task-workflow-reason"),
+    submitTaskWorkflow: document.querySelector("#submit-task-workflow"),
+    publishTaskWorkflow: document.querySelector("#publish-task-workflow"),
     detailMove: document.querySelector("#detail-move-button"),
     transitionDialog: document.querySelector("#transition-dialog"),
     transitionForm: document.querySelector("#transition-form"),
     transitionItemLabel: document.querySelector("#transition-item-label"),
+    transitionStartHint: document.querySelector("#transition-start-hint"),
     targetState: document.querySelector("#target-state"),
     reason: document.querySelector("#transition-reason"),
     buildIdField: document.querySelector("#build-id-field"),
@@ -96,10 +145,17 @@
     workItemForm: document.querySelector("#work-item-form"),
     workItemFormTitle: document.querySelector("#work-item-form-title"),
     workItemType: document.querySelector("#work-item-type"),
+    workItemParentField: document.querySelector("#work-item-parent-field"),
+    workItemParentLabel: document.querySelector("#work-item-parent-label"),
     workItemParent: document.querySelector("#work-item-parent"),
     workItemTitle: document.querySelector("#work-item-title"),
     workItemDescription: document.querySelector("#work-item-description"),
     workItemPriority: document.querySelector("#work-item-priority"),
+    workItemBusinessValue: document.querySelector("#work-item-business-value"),
+    workItemBusinessRationale: document.querySelector("#work-item-business-rationale"),
+    workItemValueField: document.querySelector("#work-item-value-field"),
+    workItemRationaleField: document.querySelector("#work-item-rationale-field"),
+    workItemCriteriaField: document.querySelector("#work-item-criteria-field"),
     workItemCriteria: document.querySelector("#work-item-criteria"),
     submitWorkItem: document.querySelector("#submit-work-item"),
     qaRunChart: document.querySelector("#qa-run-chart"),
@@ -135,11 +191,17 @@
     teams: [],
     selectedTeamId: null,
     project: null,
+    historySnapshot: null,
+    historyDate: null,
+    historyCursor: null,
+    historyLoading: false,
+    historyRequestId: 0,
     items: [],
     qualitySummaries: [],
     scenarios: [],
     testRuns: [],
     parentFeatures: [],
+    parentWorkItems: [],
     activityEvents: [],
     activityCursor: null,
     activityWatermark: 0,
@@ -148,15 +210,25 @@
     selectedRetrospectiveSprintId: null,
     retrospective: null,
     dashboardMetrics: null,
+    projectRoadmap: null,
+    roadmapLoading: false,
     selectedMetricsMilestoneId: null,
     selectedMetricsSprintId: null,
     selectedMetricsDate: null,
     metricsFiltersInitialized: false,
+    developerMetricsFrom: null,
+    developerMetricsTo: null,
+    developerMetricsRangeCustomized: false,
+    selectedMetricsDeveloperId: null,
+    metricsVelocityWindow: 8,
     metricsLoading: false,
     metricsRefreshPending: false,
     currentItem: null,
     currentQuality: null,
     currentTaskContext: null,
+    currentTaskWorkflow: null,
+    currentTaskSessions: [],
+    workflowEditorDirty: false,
     currentRevisions: [],
     editingItem: null,
     editingScenario: null,
@@ -165,6 +237,7 @@
     loading: false,
     projectReloadPending: false,
     toastTimer: null,
+    refreshTimer: null,
   };
 
   function escapeHtml(value) {
@@ -175,6 +248,14 @@
 
   function itemTypeLabel(type) {
     return typeLabels[type] ?? type;
+  }
+
+  function scenarioKindLabel(kind) {
+    return scenarioKindLabels[kind] ?? kind;
+  }
+
+  function specificationKindLabel(kind) {
+    return specificationKindLabels[kind] ?? kind;
   }
 
   function stateLabel(state) {
@@ -208,11 +289,12 @@
   }
 
   function showError(error) {
+    if (error?.code === "SESSION_REQUIRED" || error?.code === "SESSION_INVALID") {
+      showLogin("Sua sessão expirou ou a authKey foi revogada. Entre novamente para continuar.");
+      return;
+    }
     const detail = error?.details ? `\n${JSON.stringify(error.details, null, 2)}` : "";
     elements.errorMessage.textContent = `${error?.code ? `${error.code}: ` : ""}${error?.message ?? "Erro inesperado."}${detail}`;
-    if (error?.code === "SESSION_REQUIRED") {
-      elements.errorMessage.textContent += "\nA sessão local expirou. Reinicie `ssdd-mcp dashboard` e abra a nova URL de acesso impressa no terminal.";
-    }
     elements.error.hidden = false;
     elements.loading.hidden = true;
     elements.backlogView.hidden = true;
@@ -220,7 +302,9 @@
     elements.qualityView.hidden = true;
     elements.activityView.hidden = true;
     elements.retrospectiveView.hidden = true;
+    elements.historyView.hidden = true;
     elements.metricsView.hidden = true;
+    elements.roadmapView.hidden = true;
   }
 
   function showWorkspace() {
@@ -232,8 +316,10 @@
     elements.qualityView.hidden = selectedTab !== "quality-tab";
     elements.activityView.hidden = selectedTab !== "activity-tab";
     elements.retrospectiveView.hidden = selectedTab !== "retrospective-tab";
+    elements.historyView.hidden = selectedTab !== "history-tab";
     elements.metricsView.hidden = selectedTab !== "metrics-tab";
-    elements.filters.hidden = selectedTab === "metrics-tab";
+    elements.roadmapView.hidden = selectedTab !== "roadmap-tab";
+    elements.filters.hidden = selectedTab === "metrics-tab" || selectedTab === "history-tab" || selectedTab === "roadmap-tab";
   }
 
   async function loadWorkItems(projectId) {
@@ -259,9 +345,54 @@
     return [];
   }
 
+  async function loadProjectCollection(projectId, collectionName, collectionField) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const values = [];
+      let cursor = null;
+      try {
+        do {
+          const params = new URLSearchParams({ limit: "100" });
+          if (cursor) params.set("cursor", cursor);
+          const page = await api(`/api/v1/projects/${encodeURIComponent(projectId)}/${collectionName}?${params}`);
+          values.push(...page[collectionField]);
+          cursor = page.nextCursor;
+        } while (cursor);
+        return values;
+      } catch (error) {
+        if (error.code !== "STALE_CURSOR" || attempt === 2) throw error;
+      }
+    }
+    return [];
+  }
+
+  async function loadQualitySummaries(projectId) {
+    return loadProjectCollection(projectId, "quality", "items");
+  }
+
+  async function loadScenarioSummaries(projectId) {
+    return loadProjectCollection(projectId, "scenarios", "scenarios");
+  }
+
   async function loadParentFeatures(projectId) {
     const params = new URLSearchParams({ type: "feature", limit: "100" });
     return (await api(`/api/v1/projects/${encodeURIComponent(projectId)}/work-items?${params}`)).items;
+  }
+
+  async function loadParentItems(projectId) {
+    const types = ["epic", "feature", "story", "bug"];
+    const results = await Promise.all(types.map(async (type) => {
+      const items = [];
+      let cursor = null;
+      do {
+        const params = new URLSearchParams({ type, limit: "100" });
+        if (cursor) params.set("cursor", cursor);
+        const page = await api(`/api/v1/projects/${encodeURIComponent(projectId)}/work-items?${params}`);
+        items.push(...page.items);
+        cursor = page.nextCursor;
+      } while (cursor);
+      return items;
+    }));
+    return results.flat();
   }
 
   async function loadChildTasks(projectId, parentId) {
@@ -320,20 +451,30 @@
         api(`/api/v1/projects/${encodeURIComponent(projectId)}`),
         activeSprints,
         loadWorkItems(projectId),
-        api(`/api/v1/projects/${encodeURIComponent(projectId)}/quality`),
+        loadQualitySummaries(projectId),
         loadActivityFirstPage(projectId),
         closedSprints,
-        api(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios`),
+        loadScenarioSummaries(projectId),
         api(`/api/v1/projects/${encodeURIComponent(projectId)}/test-runs?limit=100`),
         loadParentFeatures(projectId),
       ]);
       model.project = projectResult.project;
+      const minimumHistoryDate = projectLocalDate(new Date(model.project.createdAt), model.project.timezone);
+      const maximumHistoryDate = projectLocalDate(new Date(), model.project.timezone);
+      elements.historyDate.min = minimumHistoryDate;
+      elements.historyDate.max = maximumHistoryDate;
+      if (model.historyDate === null || model.historyDate < minimumHistoryDate || model.historyDate > maximumHistoryDate) {
+        model.historyDate = maximumHistoryDate;
+      }
+      elements.historyDate.value = model.historyDate;
+      if (!elements.roadmapDate.value) elements.roadmapDate.value = maximumHistoryDate;
+      elements.historyDateHelp.textContent = `Disponível de ${metricDate(minimumHistoryDate)} a ${metricDate(maximumHistoryDate)} · ${model.project.timezone}`;
       model.sprint = sprintResult.sprints.length > 0
         ? (await api(`/api/v1/projects/${encodeURIComponent(projectId)}/sprints/${encodeURIComponent(sprintResult.sprints[0].id)}`)).sprint
         : null;
       model.items = items;
-      model.qualitySummaries = qualityResult.items;
-      model.scenarios = scenariosResult.scenarios;
+      model.qualitySummaries = qualityResult;
+      model.scenarios = scenariosResult;
       model.testRuns = testRunsResult.runs;
       model.parentFeatures = parentFeatures;
       model.activityEvents = activityPage.events;
@@ -349,6 +490,9 @@
       render();
       elements.lastUpdated.textContent = `Atualizado às ${new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date())}`;
       showWorkspace();
+      if (document.querySelector('[role="tab"][aria-selected="true"]')?.id === "history-tab") {
+        await loadProjectHistory();
+      }
     } catch (error) {
       showError(error);
     } finally {
@@ -358,6 +502,8 @@
         void loadProjectData();
       } else if (document.querySelector('[role="tab"][aria-selected="true"]')?.id === "metrics-tab") {
         void loadDashboardMetrics();
+      } else if (document.querySelector('[role="tab"][aria-selected="true"]')?.id === "roadmap-tab") {
+        void loadProjectRoadmap();
       }
     }
   }
@@ -403,8 +549,15 @@
       const suffix = params.size ? `?${params}` : "";
       const result = await api(`/api/v1/projects/${encodeURIComponent(projectId)}/dashboard-metrics${suffix}`);
       const developerParams = new URLSearchParams();
-      developerParams.set("from", `${result.asOfDate.slice(0, 7)}-01`);
-      developerParams.set("to", result.asOfDate);
+      if (!model.developerMetricsRangeCustomized) {
+        model.developerMetricsFrom = `${result.asOfDate.slice(0, 7)}-01`;
+        model.developerMetricsTo = result.asOfDate;
+      } else {
+        if (model.developerMetricsTo > result.asOfDate) model.developerMetricsTo = result.asOfDate;
+        if (model.developerMetricsFrom > model.developerMetricsTo) model.developerMetricsFrom = model.developerMetricsTo;
+      }
+      developerParams.set("from", model.developerMetricsFrom);
+      developerParams.set("to", model.developerMetricsTo);
       const developerExecutionMetrics = await api(`/api/v1/projects/${encodeURIComponent(projectId)}/developer-execution-metrics?${developerParams}`);
       if (projectId !== model.projectId || teamId !== model.selectedTeamId) {
         model.metricsRefreshPending = true;
@@ -430,6 +583,198 @@
     }
   }
 
+  async function loadProjectRoadmap() {
+    if (!model.projectId || model.roadmapLoading) return;
+    if (model.teams.length > 1 && model.selectedTeamId === null) {
+      elements.roadmapMeta.textContent = "Selecione um time para filtrar velocity e projeção por geração.";
+      elements.roadmapContent.innerHTML = "";
+      return;
+    }
+    model.roadmapLoading = true;
+    elements.roadmapError.hidden = true;
+    elements.roadmapMeta.textContent = "Calculando ordem e timeline por feature…";
+    try {
+      const params = new URLSearchParams();
+      if (model.selectedTeamId) params.set("teamId", model.selectedTeamId);
+      if (elements.roadmapDate.value) params.set("asOfDate", elements.roadmapDate.value);
+      const suffix = params.size ? `?${params}` : "";
+      const roadmap = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/feature-roadmap${suffix}`);
+      if (roadmap.projectId !== model.projectId || roadmap.teamId !== model.selectedTeamId) return;
+      model.projectRoadmap = roadmap;
+      renderProjectRoadmap();
+    } catch (error) {
+      elements.roadmapError.textContent = `${error.code ?? "Erro"}: ${error.message}`;
+      elements.roadmapError.hidden = false;
+      elements.roadmapMeta.textContent = "O roadmap não pôde ser carregado.";
+      elements.roadmapContent.innerHTML = "";
+    } finally {
+      model.roadmapLoading = false;
+    }
+  }
+
+  function renderProjectRoadmap() {
+    const roadmap = model.projectRoadmap;
+    if (!roadmap || !elements.roadmapContent) return;
+    const features = roadmap.features ?? [];
+    const valueMissing = features.filter((feature) => feature.businessValueScore === null).length;
+    const sample = `${roadmap.velocitySampleSize}/${roadmap.minimumVelocitySamples} sprints comparáveis`;
+    const team = roadmap.teamName ? `${roadmap.teamName} · geração ${roadmap.teamGenerationNumber}` : "time não selecionado";
+    elements.roadmapMeta.textContent = `${team} · corte ${metricDate(roadmap.asOfDate)} · ${sample} · ${valueMissing} feature(s) sem valor de negócio definido · watermark ${roadmap.watermarkSequence}`;
+    if (!features.length) {
+      elements.roadmapContent.innerHTML = `<div class="metrics-empty-chart">Nenhuma feature cadastrada para este projeto.</div>`;
+      return;
+    }
+    const timeline = roadmap.sprintTimeline ?? [];
+    const chart = timeline.length && features.some((feature) => feature.forecast.status === "forecast_ready")
+      ? `<div class="roadmap-axis"><span>Feature</span><span>${timeline.slice(0, 6).map((sprint) => `<span title="${escapeHtml(metricDate(sprint.startsOn))}–${escapeHtml(metricDate(sprint.endsOn))}">S${sprint.index} · ${escapeHtml(metricDate(sprint.endsOn))}</span>`).join("")}${timeline.length > 6 ? "<span title=\"Sprints após a sexta janela visível\">S7+</span>" : ""}</span></div>`
+      : "";
+    const rows = features.map((feature, index) => {
+      const value = feature.businessValueScore === null
+        ? "Valor pendente"
+        : `Valor ${feature.businessValueScore}/100${feature.businessValueSource ? ` · ${escapeHtml(feature.businessValueSource)}` : ""}`;
+      const valueRationale = feature.businessValueRationale ? ` title="${escapeHtml(feature.businessValueRationale)}"` : "";
+      const progress = feature.progressPercent === null ? null : Number(feature.progressPercent);
+      const forecast = feature.forecast;
+      const ready = forecast.status === "forecast_ready" && timeline.length > 0;
+      const visibleTimelineLength = Math.min(timeline.length > 6 ? 7 : 6, timeline.length);
+      const startPercent = ready ? ((Math.min(visibleTimelineLength, Math.max(1, forecast.favorableSprint ?? 1)) - 1) / visibleTimelineLength) * 100 : 0;
+      const endPercent = ready ? (Math.min(visibleTimelineLength, forecast.cautiousSprint ?? visibleTimelineLength) / visibleTimelineLength) * 100 : 0;
+      const medianPercent = ready ? ((Math.min(visibleTimelineLength, Math.max(1, forecast.baseSprint ?? 1)) - 1) / visibleTimelineLength) * 100 : 0;
+      const progressMarkup = progress === null
+        ? `<small class="roadmap-unknown">Progresso sem estimativa publicada</small>`
+        : `<div class="roadmap-progress"><progress max="100" value="${progress}" aria-label="${escapeHtml(feature.key)}: ${progress}% dos pontos estimados concluídos"></progress><small>${escapeHtml(metricNumber(progress))}% · ${escapeHtml(metricNumber(feature.completedPoints))}/${escapeHtml(metricNumber(feature.completedPoints + feature.remainingPoints))} pts</small></div>`;
+      const timelineMarkup = ready
+        ? `<div class="roadmap-track" role="img" aria-label="${escapeHtml(feature.key)}: conclusão provável entre sprint ${forecast.favorableSprint} e ${forecast.cautiousSprint}, mediana ${forecast.baseDate ? metricDate(forecast.baseDate) : "indisponível"}" style="--roadmap-slot:${100 / visibleTimelineLength}%"><span class="roadmap-range" style="left:${startPercent}%;width:${Math.max(1, endPercent - startPercent)}%"></span><span class="roadmap-median" style="left:${medianPercent}%"></span></div><small class="roadmap-date">P25 S${forecast.favorableSprint > 6 ? "7+" : forecast.favorableSprint} · ${escapeHtml(metricDate(forecast.favorableDate))} · P50 S${forecast.baseSprint > 6 ? "7+" : forecast.baseSprint} · ${escapeHtml(metricDate(forecast.baseDate))} · P75 S${forecast.cautiousSprint > 6 ? "7+" : forecast.cautiousSprint} · ${escapeHtml(metricDate(forecast.cautiousDate))}</small>`
+        : `<small class="roadmap-unknown">${escapeHtml(roadmapForecastReason(forecast.status, feature, roadmap.forecastUnavailableReason))}</small>`;
+      const dependencyNote = feature.externalBlockers.length
+        ? `<small class="roadmap-blockers">Dependências: ${feature.externalBlockers.map((dependency) => escapeHtml(`${dependency.key} (${stateLabel(dependency.state)})`)).join(", ")}</small>`
+        : "";
+      return `<article class="roadmap-feature" aria-label="Feature ${escapeHtml(index + 1)}: ${escapeHtml(feature.key)}">
+        <div class="roadmap-feature-heading"><span class="roadmap-order">${index + 1}</span><div><button class="link-button" type="button" data-open-item="${escapeHtml(feature.id)}"><strong>${escapeHtml(feature.key)}</strong> · ${escapeHtml(feature.title)}</button><small>Prioridade efetiva P${escapeHtml(feature.effectivePriority)} · <span${valueRationale}>${escapeHtml(value)}</span> · ${escapeHtml(stateLabel(feature.state))}</small></div></div>
+        <div class="roadmap-feature-progress">${progressMarkup}<div class="roadmap-timeline-cell">${timelineMarkup}${dependencyNote}</div></div>
+      </article>`;
+    }).join("");
+    const warning = roadmap.forecastUnavailableReason
+      ? `<div class="roadmap-warning" role="status"><strong>Previsão por data indisponível.</strong> ${escapeHtml(roadmapForecastReason(null, null, roadmap.forecastUnavailableReason))}</div>`
+      : `<p class="table-note">${escapeHtml(roadmap.forecastAssumption)} Valores ausentes continuam sem posição de negócio até avaliação do PO.</p>`;
+    elements.roadmapContent.innerHTML = `${warning}${chart}<div class="roadmap-features">${rows}</div>`;
+  }
+
+  function roadmapForecastReason(status, feature, reason) {
+    const reasonLabels = {
+      team_required: "Selecione um time para definir a geração de velocity.",
+      insufficient_velocity_samples: `A amostra tem menos de ${model.projectRoadmap?.minimumVelocitySamples ?? 3} sprints fechadas comparáveis; não mostramos datas estimadas.`,
+      unknown_feature_scope: "Há itens sem estimativa em story points; complete a avaliação para calcular a sequência.",
+      external_dependency: "Há dependência externa não concluída; resolva a dependência antes de assumir uma data.",
+      zero_velocity: "As sprints comparáveis não registraram entrega de pontos.",
+    };
+    if (reason) return reasonLabels[reason] ?? "A projeção não tem dados suficientes.";
+    if (status === "completed") return "Escopo estimado concluído.";
+    if (status === "incomplete_scope") return "Escopo sem estimativa; data omitida.";
+    if (status === "blocked") return `Bloqueada por dependência: ${(feature?.externalBlockers ?? []).map((item) => item.key).join(", ")}.`;
+    if (status === "zero_velocity") return reasonLabels.zero_velocity;
+    return "Data ainda indisponível para esta feature.";
+  }
+
+  function applyDeveloperMetricFilters() {
+    const from = elements.metricsEffortFrom.value;
+    const to = elements.metricsEffortTo.value;
+    const cutoff = model.dashboardMetrics?.asOfDate;
+    if (!from || !to) {
+      elements.metricsError.textContent = "Informe as datas inicial e final do período de esforço.";
+      elements.metricsError.hidden = false;
+      return;
+    }
+    if (from > to) {
+      elements.metricsError.textContent = "A data inicial do período não pode ser posterior à data final.";
+      elements.metricsError.hidden = false;
+      return;
+    }
+    if (cutoff && to > cutoff) {
+      elements.metricsError.textContent = "A data final do esforço não pode ultrapassar a data de corte do projeto.";
+      elements.metricsError.hidden = false;
+      return;
+    }
+    model.developerMetricsFrom = from;
+    model.developerMetricsTo = to;
+    model.developerMetricsRangeCustomized = true;
+    elements.metricsError.hidden = true;
+    void loadDashboardMetrics();
+  }
+
+  function showLogin(message = "") {
+    model.session = null;
+    if (model.refreshTimer !== null) {
+      window.clearInterval(model.refreshTimer);
+      model.refreshTimer = null;
+    }
+    elements.appShell.hidden = true;
+    elements.loginScreen.hidden = false;
+    elements.loginError.textContent = message;
+    elements.loginError.hidden = !message;
+    elements.loading.hidden = true;
+    elements.authKey.focus();
+  }
+
+  async function startAuthenticatedDashboard(session) {
+    model.session = session;
+    model.projects = session.projects;
+    elements.loginScreen.hidden = true;
+    elements.appShell.hidden = false;
+    elements.principalName.textContent = session.principal.displayName;
+    elements.projectSelect.innerHTML = model.projects.map((project) =>
+      `<option value="${escapeHtml(project.id)}">${escapeHtml(project.key)} · ${escapeHtml(project.name)}</option>`).join("");
+    if (model.projects.length === 0) {
+      elements.loading.innerHTML = "<strong>Nenhum projeto disponível para este principal.</strong><p>Solicite associação a um projeto ao administrador.</p>";
+      elements.loading.hidden = false;
+      return;
+    }
+    model.projectId = model.projects[0].id;
+    await loadProjectData();
+    if (model.refreshTimer !== null) window.clearInterval(model.refreshTimer);
+    model.refreshTimer = window.setInterval(() => { void loadProjectData(); }, 30_000);
+  }
+
+  async function submitLogin(event) {
+    event.preventDefault();
+    elements.loginError.hidden = true;
+    elements.loginSubmit.disabled = true;
+    const submittedKey = elements.authKey.value.trim();
+    try {
+      const session = await api("/api/v1/session/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ authKey: submittedKey }),
+      });
+      elements.authKey.value = "";
+      await startAuthenticatedDashboard(session);
+    } catch (error) {
+      elements.loginError.textContent = error?.code === "ORIGIN_NOT_ALLOWED"
+        ? "A origem do dashboard não foi validada. Recarregue a página local e tente novamente."
+        : "Não foi possível autenticar. Verifique a authKey ou confirme com o administrador se ela continua ativa.";
+      elements.loginError.hidden = false;
+    } finally {
+      elements.authKey.value = "";
+      elements.loginSubmit.disabled = false;
+    }
+  }
+
+  async function logout() {
+    try {
+      await api("/api/v1/session/logout", {
+        method: "POST",
+        headers: { "X-SSDD-CSRF": model.session.csrfToken },
+      });
+    } catch (error) {
+      if (error?.code !== "SESSION_REQUIRED" && error?.code !== "SESSION_INVALID") {
+        toast("Não foi possível encerrar a sessão. Tente novamente.", true);
+        return;
+      }
+    }
+    elements.appShell.hidden = true;
+    showLogin("Sessão encerrada.");
+  }
+
   async function initialize() {
     const query = new URLSearchParams(window.location.search);
     if (query.has("token")) {
@@ -438,20 +783,10 @@
       window.history.replaceState(null, "", cleanLocation);
     }
     try {
-      model.session = await api("/api/v1/session");
-      model.projects = model.session.projects;
-      elements.principalName.textContent = model.session.principal.displayName;
-      elements.projectSelect.innerHTML = model.projects.map((project) =>
-        `<option value="${escapeHtml(project.id)}">${escapeHtml(project.key)} · ${escapeHtml(project.name)}</option>`).join("");
-      if (model.projects.length === 0) {
-        elements.loading.innerHTML = "<strong>Nenhum projeto disponível para este principal.</strong><p>Associe o principal local a um projeto para continuar.</p>";
-        return;
-      }
-      model.projectId = model.projects[0].id;
-      await loadProjectData();
-      window.setInterval(() => { void loadProjectData(); }, 30_000);
+      await startAuthenticatedDashboard(await api("/api/v1/session"));
     } catch (error) {
-      showError(error);
+      if (error?.code === "SESSION_REQUIRED" || error?.code === "SESSION_INVALID") showLogin();
+      else showError(error);
     }
   }
 
@@ -497,6 +832,154 @@
     renderActivity();
     renderRetrospective();
     renderMetrics();
+    renderProjectRoadmap();
+    renderProjectHistory();
+  }
+
+  function projectLocalDate(value, timezone) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(value);
+    const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${fields.year}-${fields.month}-${fields.day}`;
+  }
+
+  function isHistoryDateSelectable(value = elements.historyDate.value) {
+    return Boolean(value && value >= elements.historyDate.min && value <= elements.historyDate.max);
+  }
+
+  function historyDateBoundsMessage() {
+    return `Selecione uma data entre ${metricDate(elements.historyDate.min)} e ${metricDate(elements.historyDate.max)} no fuso ${model.project.timezone}.`;
+  }
+
+  async function loadProjectHistory(cursor = null) {
+    if (!model.projectId || !elements.historyDate.value) return;
+    if (!isHistoryDateSelectable()) {
+      model.historySnapshot = null;
+      model.historyCursor = null;
+      elements.historyApply.disabled = false;
+      elements.historyError.textContent = historyDateBoundsMessage();
+      elements.historyError.hidden = false;
+      elements.historyMeta.textContent = "A data escolhida está fora do período disponível.";
+      elements.historyContent.innerHTML = "";
+      return;
+    }
+    const projectId = model.projectId;
+    const asOfDate = elements.historyDate.value;
+    const requestId = ++model.historyRequestId;
+    model.historyLoading = true;
+    elements.historyError.hidden = true;
+    elements.historyApply.disabled = true;
+    elements.historyMeta.textContent = `Reconstruindo o estado de ${metricDate(asOfDate)}…`;
+    if (cursor === null) {
+      model.historySnapshot = null;
+      model.historyCursor = null;
+      elements.historyContent.innerHTML = '<div class="history-empty">Carregando o retrato histórico…</div>';
+    }
+    else elements.historyContent.setAttribute("aria-busy", "true");
+    try {
+      const params = new URLSearchParams({ asOfDate });
+      if (cursor) params.set("cursor", cursor);
+      const snapshot = await api(`/api/v1/projects/${encodeURIComponent(projectId)}/history?${params}`);
+      if (requestId !== model.historyRequestId || projectId !== model.projectId || asOfDate !== elements.historyDate.value) return;
+      const previousItems = cursor === null ? [] : model.historySnapshot?.workItems.items ?? [];
+      model.historySnapshot = {
+        ...snapshot,
+        workItems: { ...snapshot.workItems, items: [...previousItems, ...snapshot.workItems.items] },
+      };
+      model.historyCursor = snapshot.workItems.nextCursor;
+      model.historyDate = asOfDate;
+      renderProjectHistory();
+    } catch (error) {
+      if (requestId !== model.historyRequestId) return;
+      if (cursor !== null && error.code === "STALE_CURSOR") {
+        model.historySnapshot = null;
+        model.historyCursor = null;
+        await loadProjectHistory();
+        return;
+      }
+      elements.historyError.textContent = `${error.code ?? "ERRO"}: ${error.message}`;
+      elements.historyError.hidden = false;
+      elements.historyMeta.textContent = "Não foi possível reconstruir o retrato para esta data.";
+      if (cursor === null) elements.historyContent.innerHTML = "";
+    } finally {
+      if (requestId === model.historyRequestId) {
+        model.historyLoading = false;
+        elements.historyApply.disabled = false;
+        elements.historyContent.removeAttribute("aria-busy");
+        renderProjectHistory();
+      }
+    }
+  }
+
+  function renderProjectHistory() {
+    const snapshot = model.historySnapshot;
+    if (!snapshot) return;
+    const observedCutoff = formatDate(snapshot.cutoffAt);
+    const range = snapshot.asOfDate < snapshot.historyFromDate
+      ? `sem atividade até ${metricDate(snapshot.asOfDate)}`
+      : `${metricDate(snapshot.historyFromDate)}–${metricDate(snapshot.asOfDate)}`;
+    elements.historyMeta.textContent = `Corte ${observedCutoff} (${snapshot.timezone}) · atividade ${range} · watermark ${snapshot.asOfWatermark}/${snapshot.sourceWatermark} · consultado ${formatDate(snapshot.capturedAt)}`;
+    const summary = snapshot.summary;
+    const resultCounts = summary.testRunsByResult;
+    const cards = [
+      [summary.workItemsTotal, "itens de trabalho"],
+      [`${summary.specificationsPublished}/${summary.specificationsTotal}`, "especificações publicadas"],
+      [`${summary.scenariosPublished}/${summary.scenariosTotal}`, "cenários publicados"],
+      [summary.testRunsTotal, "execuções QA"],
+      [`${summary.developmentSessionsActive}/${summary.developmentSessionsTotal}`, "sessões de desenvolvimento ativas"],
+      [summary.deploymentsTotal, "eventos de homologação e produção"],
+      [summary.sprintsTotal, "sprints"],
+      [summary.milestonesTotal, "marcos"],
+    ];
+    const stateOrder = ["draft", "ready", "in_progress", "in_review", "in_validation", "done", "cancelled"];
+    const stateRows = stateOrder.map((state) => {
+      const count = summary.workItemsByState[state] ?? 0;
+      const width = summary.workItemsTotal ? Math.round(count / summary.workItemsTotal * 100) : 0;
+      return `<div class="history-state-row"><span>${escapeHtml(stateLabel(state))}</span><div class="history-meter" role="img" aria-label="${escapeHtml(stateLabel(state))}: ${count} de ${summary.workItemsTotal}"><span style="width:${width}%"></span></div><strong>${count}</strong></div>`;
+    }).join("");
+    const itemRows = snapshot.workItems.items.map((item) => `
+        <tr>
+        <th scope="row"><span class="history-item-key">${escapeHtml(item.key)}</span><span class="history-item-title">${escapeHtml(item.title)}</span></th>
+        <td>${escapeHtml(itemTypeLabel(item.type))}</td>
+        <td><span class="state-badge ${escapeHtml(item.state)}">${escapeHtml(stateLabel(item.state))}</span></td>
+        <td>${item.revisionNumber ? `r${item.revisionNumber}` : "—"}</td>
+      </tr>`).join("");
+    const specRows = snapshot.specifications.map((item) => `<li><strong>${escapeHtml(item.key)}</strong><span>${escapeHtml(item.title)}</span><small>${escapeHtml(specificationKindLabel(item.kind))} · ${item.revisionNumber ? `r${item.revisionNumber}` : "sem publicação no corte"}</small></li>`).join("");
+    const scenarioRows = snapshot.scenarios.map((item) => `<li><strong>${escapeHtml(item.key)}</strong><span>${escapeHtml(item.title)}</span><small>${escapeHtml(scenarioKindLabel(item.kind))} · ${item.revisionNumber ? `r${item.revisionNumber}` : "sem publicação no corte"}</small></li>`).join("");
+    const runRows = snapshot.testRuns.map((run) => `<li><span class="run-result result-${escapeHtml(run.result)}">${escapeHtml(run.result)}</span><strong>${escapeHtml(run.scenarioKey)} · r${run.revisionNumber}</strong><span>${escapeHtml(run.buildId)} · ${escapeHtml(run.workItemKeys.join(", ") || "sem tarefa vinculada")}</span><time datetime="${escapeHtml(run.executedAt)}">${escapeHtml(formatDate(run.executedAt))}</time><small>${escapeHtml(run.executedBy)}</small></li>`).join("");
+    const sessionRows = snapshot.developmentSessions.map((session) => `<li><span class="history-session-status status-${escapeHtml(session.status)}">${escapeHtml(stateLabel(session.status))}</span><strong>${escapeHtml(session.itemKey)} · ${escapeHtml(session.developerName)}</strong><span>${escapeHtml(session.reference ?? "sem referência")}</span><time datetime="${escapeHtml(session.startedAt)}">Início ${escapeHtml(formatDate(session.startedAt))}</time><small>${(session.activeSeconds / 3600).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h ativas${session.endedAt ? ` · fim ${escapeHtml(formatDate(session.endedAt))}` : ""}</small></li>`).join("");
+    const environmentLabels = { homologation: "Homologação", production: "Produção" };
+    const outcomeLabels = { succeeded: "Aprovado", failed: "Falhou", rolled_back: "Rollback" };
+    const deploymentRows = snapshot.deployments.map((deployment) => `<li><span class="history-deployment-status outcome-${escapeHtml(deployment.outcome)}">${escapeHtml(environmentLabels[deployment.environment])} · ${escapeHtml(outcomeLabels[deployment.outcome])}</span><strong>${escapeHtml(deployment.buildId)}</strong><span>${escapeHtml(deployment.itemKeys.join(", ") || "sem tarefa vinculada")}</span><time datetime="${escapeHtml(deployment.deployedAt)}">${escapeHtml(formatDate(deployment.deployedAt))}</time><small>${escapeHtml(deployment.principalName)}${deployment.notes ? ` · ${escapeHtml(deployment.notes)}` : ""}</small></li>`).join("");
+    const sprintRows = snapshot.sprints.map((sprint) => `<li><strong>${escapeHtml(sprint.key)}</strong><span>${escapeHtml(sprint.title)}</span><small>${escapeHtml(stateLabel(sprint.status))} · ${escapeHtml(metricDate(sprint.startsOn))}–${escapeHtml(metricDate(sprint.endsOn))} · ${sprint.scopeItemCount} itens no escopo</small></li>`).join("");
+    const milestoneRows = snapshot.milestones.map((milestone) => `<li><strong>${escapeHtml(milestone.key)}</strong><span>${escapeHtml(milestone.title)}</span><small>Meta ${escapeHtml(metricDate(milestone.targetDate))} · ${milestone.scopeItemCount} itens no escopo</small></li>`).join("");
+    const activityRows = snapshot.activity.map((event) => `<li><time datetime="${escapeHtml(event.occurredAt)}">${escapeHtml(formatDate(event.occurredAt))}</time><strong>${escapeHtml(eventTitle(event))}</strong><span>${escapeHtml(event.entityType)} · ${escapeHtml(event.principalName)}</span><small>${escapeHtml(event.reason ?? event.eventType)}</small></li>`).join("");
+    const resultTotal = Math.max(summary.testRunsTotal, 1);
+    const resultLegend = [["passed", "Aprovado"], ["failed", "Reprovado"], ["blocked", "Bloqueado"], ["skipped", "Ignorado"]]
+      .map(([key, label]) => `<span><i class="qa-swatch result-color-${key}" aria-hidden="true"></i>${label} <strong>${resultCounts[key] ?? 0}</strong> · ${Math.round((resultCounts[key] ?? 0) / resultTotal * 100)}%</span>`).join("");
+    elements.historyContent.innerHTML = `
+      <div class="history-summary-grid">${cards.map(([value, label]) => `<article class="history-summary-card"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></article>`).join("")}</div>
+      <p class="history-limits"><strong>Escopo do retrato:</strong> estados e conteúdo publicado de PBIs, publicações de especificações/cenários, escopos de sprint/marco, execuções QA, sessões, releases e auditoria. Sessões abertas contam tempo até a consulta. Responsável de PBI, ordenação e estimativas não são apresentados como históricos porque esta visão não reconstrói esses campos. Métricas da aba própria continuam mostrando os indicadores definidos nela.</p>
+      <section class="history-panel"><div class="history-panel-heading"><div><h3>Estado dos itens</h3><p>${snapshot.workItems.items.length} de ${summary.workItemsTotal} itens carregados · estados no fim do dia selecionado</p></div><span class="history-total">${summary.workItemsTotal} itens</span></div>
+        <div class="history-state-grid">${stateRows}</div>
+        ${snapshot.workItems.items.length ? `<div class="history-table-wrap"><table class="history-table"><thead><tr><th scope="col">Item de trabalho</th><th scope="col">Tipo</th><th scope="col">Estado no corte</th><th scope="col">Revisão</th></tr></thead><tbody>${itemRows}</tbody></table></div>` : `<div class="history-empty">Nenhum item existia nesta data.</div>`}
+        <div class="history-more-wrap"><button id="history-load-more" class="button button-secondary" type="button" ${model.historyCursor && !model.historyLoading ? "" : "hidden"}>Carregar mais itens</button></div>
+      </section>
+      <div class="history-two-column">
+        <section class="history-panel"><div class="history-panel-heading"><div><h3>Especificações</h3><p>Revisão mais recente publicada até o corte</p></div><span class="history-total">${summary.specificationsTotal}</span></div>${specRows ? `<ul class="history-entity-list">${specRows}</ul>` : `<div class="history-empty">Nenhuma especificação existia nesta data.</div>`}${snapshot.specificationsTruncated ? `<p class="history-truncated">Mostrando 200 especificações.</p>` : ""}</section>
+        <section class="history-panel"><div class="history-panel-heading"><div><h3>Cenários</h3><p>Revisão mais recente publicada até o corte</p></div><span class="history-total">${summary.scenariosTotal}</span></div>${scenarioRows ? `<ul class="history-entity-list">${scenarioRows}</ul>` : `<div class="history-empty">Nenhum cenário existia nesta data.</div>`}${snapshot.scenariosTruncated ? `<p class="history-truncated">Mostrando 200 cenários.</p>` : ""}</section>
+      </div>
+      <section class="history-panel"><div class="history-panel-heading"><div><h3>Execuções QA até o corte</h3><p>Resultados imutáveis associados à data real da execução</p></div><span class="history-total">${summary.testRunsTotal}</span></div>${summary.testRunsTotal ? `<div class="history-result-legend">${resultLegend}</div><ul class="history-run-list">${runRows}</ul>${snapshot.testRunsTruncated ? `<p class="history-truncated">Mostrando as 200 execuções mais recentes.</p>` : ""}` : `<div class="history-empty">Nenhuma execução QA existia nesta data.</div>`}</section>
+      <div class="history-two-column">
+        <section class="history-panel"><div class="history-panel-heading"><div><h3>Sessões de desenvolvimento</h3><p>Estado reconstituído pelo log de iniciar, pausar, retomar e concluir</p></div><span class="history-total">${summary.developmentSessionsActive} ativas / ${summary.developmentSessionsTotal}</span></div>${sessionRows ? `<ul class="history-run-list history-session-list">${sessionRows}</ul>${snapshot.developmentSessionsTruncated ? `<p class="history-truncated">Mostrando as 200 sessões mais recentes.</p>` : ""}` : `<div class="history-empty">Nenhuma sessão existia nesta data.</div>`}</section>
+        <section class="history-panel"><div class="history-panel-heading"><div><h3>Homologação e produção</h3><p>Eventos de release registrados até a data escolhida</p></div><span class="history-total">${summary.deploymentsTotal} eventos</span></div>${deploymentRows ? `<ul class="history-run-list history-deployment-list">${deploymentRows}</ul>${snapshot.deploymentsTruncated ? `<p class="history-truncated">Mostrando os 200 releases mais recentes.</p>` : ""}` : `<div class="history-empty">Nenhum evento de release existia nesta data.</div>`}</section>
+      </div>
+      <div class="history-two-column">
+        <section class="history-panel"><div class="history-panel-heading"><div><h3>Sprints</h3><p>Estado e escopo reconstituídos pelas transições registradas</p></div><span class="history-total">${summary.sprintsTotal}</span></div>${sprintRows ? `<ul class="history-entity-list">${sprintRows}</ul>${snapshot.sprintsTruncated ? `<p class="history-truncated">Mostrando 200 sprints.</p>` : ""}` : `<div class="history-empty">Nenhuma sprint existia nesta data.</div>`}</section>
+        <section class="history-panel"><div class="history-panel-heading"><div><h3>Marcos</h3><p>Escopo aprovado na data selecionada</p></div><span class="history-total">${summary.milestonesTotal}</span></div>${milestoneRows ? `<ul class="history-entity-list">${milestoneRows}</ul>${snapshot.milestonesTruncated ? `<p class="history-truncated">Mostrando 200 marcos.</p>` : ""}` : `<div class="history-empty">Nenhum marco existia nesta data.</div>`}</section>
+      </div>
+      <section class="history-panel"><div class="history-panel-heading"><div><h3>Atividade mais recente</h3><p>Até ${snapshot.activity.length} eventos auditados anteriores ao fim do corte</p></div></div>${activityRows ? `<ul class="history-activity-list">${activityRows}</ul>` : `<div class="history-empty">Nenhum evento auditado existia nesta data.</div>`}</section>`;
   }
 
   function renderSprintSummary() {
@@ -522,7 +1005,7 @@
     const items = backlogItems();
     elements.backlogCount.textContent = `${items.length} ${items.length === 1 ? "item" : "itens"}`;
     if (!items.length) {
-      elements.backlogList.innerHTML = `<div class="empty-state"><strong>${model.items.length ? "Nenhum item encontrado." : "O Product Backlog está vazio."}</strong><p>${model.items.length ? "Ajuste os filtros de busca ou tipo." : "Crie histórias e bugs pelo fluxo de especificação no MCP."}</p></div>`;
+      elements.backlogList.innerHTML = `<div class="empty-state"><strong>${model.items.length ? "Nenhum item encontrado." : "O Product Backlog está vazio."}</strong><p>${model.items.length ? "Ajuste os filtros de busca ou tipo." : "Crie itens de trabalho pelo botão Novo PBI ou pelas ferramentas MCP."}</p></div>`;
       return;
     }
     elements.backlogList.innerHTML = items.map((item) => `
@@ -611,7 +1094,7 @@
           ? `<button class="button button-secondary" type="button" data-revise-scenario="${escapeHtml(scenario.key)}">Propor revisão</button>`
           : "";
         const published = scenario.publishedRevision === null ? "Sem revisão publicada" : `Publicada r${scenario.publishedRevision}`;
-        return `<article class="scenario-row"><div><strong>${escapeHtml(scenario.key)} · ${escapeHtml(scenario.title)}</strong><span>${escapeHtml(scenario.kind)} · ${escapeHtml(published)} · v${scenario.version}</span></div><div class="scenario-actions">${publishButton}${reviseButton}</div></article>`;
+        return `<article class="scenario-row"><div><strong>${escapeHtml(scenario.key)} · ${escapeHtml(scenario.title)}</strong><span>${escapeHtml(scenarioKindLabel(scenario.kind))} · ${escapeHtml(published)} · v${scenario.version}</span></div><div class="scenario-actions">${publishButton}${reviseButton}</div></article>`;
       }).join("");
 
     const publishedScenarios = model.scenarios.filter((scenario) => scenario.publishedRevision !== null);
@@ -633,18 +1116,60 @@
     const titles = {
       "project.initialized": "Projeto inicializado",
       "work_item.created": "PBI criado",
+      "work_item.assigned": "Responsável alterado",
+      "work_item.comment_added": "Comentário adicionado",
+      "work_item.estimate_proposed": "Estimativa proposta",
+      "work_item.estimate_confirmed": "Estimativa confirmada",
+      "work_item.ranked": "Ordem do item alterada",
       "work_item.state_transitioned": "Estado do PBI alterado",
       "work_item.evidence_added": "Evidência adicionada",
+      "work_item.baseline_fixed": "Baseline criada",
+      "work_item.baseline_revalidated": "Baseline revalidada",
       "test_run.recorded": "Execução de cenário registrada",
       "test_run.certified": "Execução certificada por QA",
-      "work_item.revision.published": "Conteúdo do PBI publicado",
-      "work_item.baseline.revalidated": "Baseline revalidada",
+      "work_item.revision_proposed": "Revisão de PBI proposta",
+      "work_item.revision_published": "Conteúdo do PBI publicado",
+      "specification.revision_proposed": "Revisão de especificação proposta",
+      "specification.revision_published": "Especificação publicada",
+      "milestone.created": "Marco criado",
+      "milestone.scope_changed": "Escopo do marco alterado",
+      "sprint.scope_changed": "Escopo da sprint alterado",
+      "sprint.retrospective_recorded": "Retrospectiva registrada",
+      "sprint.retrospective_revised": "Retrospectiva revisada",
+      "project.definition_of_done_revised": "Definição de pronto revisada",
+      "tool_approval.issued": "Aprovação de ferramenta emitida",
+      "tool_approval.revoked": "Aprovação de ferramenta revogada",
+      "external_identity.roles_granted": "Papéis de identidade concedidos",
+      "external_identity.roles_revoked": "Papéis de identidade revogados",
+      "roadmap_id.bound": "Identificador do roadmap associado",
+      "trace_link.added": "Vínculo de rastreabilidade criado",
+      "trace_link.removed": "Vínculo de rastreabilidade removido",
+      "specification.created": "Especificação criada",
+      "scenario.created": "Cenário de teste criado",
+      "scenario.revision_proposed": "Revisão de cenário proposta",
+      "scenario.revision_published": "Cenário publicado",
+      "sprint.drafted": "Sprint planejada",
+      "sprint.started": "Sprint iniciada",
+      "sprint.closed": "Sprint encerrada",
+      "sprint.cancelled": "Sprint cancelada",
+      "development_session.started": "Sessão de desenvolvimento iniciada",
+      "task.development_started": "Tarefa iniciada para desenvolvimento",
+      "development_session.paused": "Sessão de desenvolvimento pausada",
+      "development_session.resumed": "Sessão de desenvolvimento retomada",
+      "development_session.completed": "Sessão de desenvolvimento concluída",
+      "deployment.recorded": "Evento de implantação registrado",
     };
     return titles[event.eventType] ?? event.eventType;
   }
 
   function eventDetail(event) {
     const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+    const relatedEntities = Array.isArray(event.relatedEntities) ? event.relatedEntities : [];
+    if (relatedEntities.length > 0) {
+      const linkLabels = { depends_on: "depende de", relates_to: "relacionado a", implements: "implementa" };
+      const relationship = linkLabels[payload.type] ?? "vinculado a";
+      return relatedEntities.map((entity) => entity.label ?? entity.key ?? entity.entityType).join(" " + relationship + " ");
+    }
     if (payload.fromState || payload.toState) {
       const version = payload.itemVersion ? ` · v${payload.itemVersion}` : "";
       const transitionId = payload.transitionId ? ` · transição ${String(payload.transitionId).slice(0, 8)}` : "";
@@ -652,17 +1177,18 @@
     }
     if (payload.buildId) return `Build ${payload.buildId}`;
     if (payload.kind) return String(payload.kind);
-    return event.entityType;
+    return event.entityReference?.label ?? event.entityType;
   }
 
   function renderActivityEvent(event, isTimeline = false) {
+    const entityLabel = event.entityReference?.label ?? event.entityId;
     const openItemButton = event.entityType === "work_item"
-      ? `<button class="event-entity" type="button" data-open-item="${escapeHtml(event.entityId)}">${escapeHtml(event.entityId)}</button>`
-      : `<span class="event-entity">${escapeHtml(event.entityType)}</span>`;
+      ? `<button class="event-entity" type="button" data-open-item="${escapeHtml(event.entityId)}" title="${escapeHtml(entityLabel)}">${escapeHtml(entityLabel)}</button>`
+      : `<span class="event-entity" title="${escapeHtml(event.entityId)}">${escapeHtml(entityLabel)}</span>`;
     const reason = event.reason ? escapeHtml(event.reason) : escapeHtml(eventDetail(event));
     return `<article class="${isTimeline ? "timeline-event" : "activity-event"}">
       <span class="event-time">${escapeHtml(formatDate(event.occurredAt))} · #${escapeHtml(event.sequence)}</span>
-      <p class="event-title">${escapeHtml(eventTitle(event))} · ${escapeHtml(eventDetail(event))}</p>
+      <p class="event-title">${escapeHtml(eventTitle(event))}</p>
       <span class="event-actor">${escapeHtml(event.principalName)}</span>
       <span class="event-reason">${reason}</span>
       ${isTimeline ? "" : openItemButton}
@@ -821,6 +1347,58 @@
       <div class="forecast-explanations"><section><h4>Bloqueios</h4>${blockers ? `<ul>${blockers}</ul>` : `<p>Nenhum bloqueio externo ou impacto aberto.</p>`}</section><section><h4>Riscos internos</h4>${risks ? `<ul>${risks}</ul>` : `<p>Nenhuma dependência interna aberta.</p>`}</section><section><h4>Premissas de capacidade</h4>${capacity ? `<ul>${capacity}</ul>` : `<p>Capacidade indisponível no horizonte.</p>`}</section></div>`;
   }
 
+  function medianMetric(values) {
+    if (!values.length) return null;
+    const sorted = [...values].sort((left, right) => left - right);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+  }
+
+  function signedMetric(value) {
+    return `${value > 0 ? "+" : ""}${metricNumber(value)}`;
+  }
+
+  function renderSprintSnapshot(sprintMetrics) {
+    const lastPoint = sprintMetrics?.series.at(-1);
+    if (!sprintMetrics || !lastPoint) return "";
+    const scopeChanges = sprintMetrics.series.reduce((total, point) => ({
+      added: total.added + point.addedPoints,
+      removed: total.removed + point.removedPoints,
+      reestimated: total.reestimated + point.reestimatedPoints,
+    }), { added: 0, removed: 0, reestimated: 0 });
+    return `<div class="sprint-snapshot-grid" aria-label="Resumo do escopo da sprint até o corte">
+      <div class="sprint-snapshot-cell"><span>Compromisso inicial</span><strong>${escapeHtml(metricNumber(sprintMetrics.plannedScopePoints))} pts</strong></div>
+      <div class="sprint-snapshot-cell"><span>Escopo no corte</span><strong>${escapeHtml(metricNumber(lastPoint.scopePoints))} pts</strong></div>
+      <div class="sprint-snapshot-cell"><span>Concluído no corte</span><strong>${escapeHtml(metricNumber(lastPoint.completedPoints))} pts</strong></div>
+      <div class="sprint-snapshot-cell"><span>Mudanças acumuladas</span><strong>+${escapeHtml(metricNumber(scopeChanges.added))} / −${escapeHtml(metricNumber(scopeChanges.removed))} pts</strong><small>Reestimativa líquida ${escapeHtml(signedMetric(scopeChanges.reestimated))} pts</small></div>
+    </div>`;
+  }
+
+  function renderSprintComparison(sprintMetrics, data, windowSize) {
+    if (!sprintMetrics) return `<div class="sprint-comparison"><strong>Comparação com sprints anteriores</strong><p>Selecione uma sprint para calcular a referência histórica.</p></div>`;
+    if (sprintMetrics.status !== "closed") {
+      return `<div class="sprint-comparison"><strong>Comparação com sprints anteriores</strong><p>A sprint selecionada ainda não está encerrada; a comparação usa somente pontos aceitos em sprints fechadas.</p></div>`;
+    }
+    if (!data.selectedTeamId || data.selectedTeamGenerationNumber === null) {
+      return `<div class="sprint-comparison"><strong>Comparação com sprints anteriores</strong><p>Não há uma geração de time configurada no corte; a comparação fica indisponível para evitar misturar equipes ou gerações.</p></div>`;
+    }
+    if (data.selectedTeamGenerationNumber !== null && sprintMetrics.teamGenerationNumber !== data.selectedTeamGenerationNumber) {
+      return `<div class="sprint-comparison"><strong>Comparação com sprints anteriores</strong><p>Esta sprint pertence à geração ${escapeHtml(sprintMetrics.teamGenerationNumber)}. A amostra atual é da geração ${escapeHtml(data.selectedTeamGenerationNumber)}; as gerações não são misturadas.</p></div>`;
+    }
+    const selected = data.velocity.sprints.find((entry) => entry.sprintId === sprintMetrics.sprintId);
+    if (!selected) {
+      return `<div class="sprint-comparison"><strong>Comparação com sprints anteriores</strong><p>A sprint não está entre as até 12 sprints comparáveis disponíveis neste corte.</p></div>`;
+    }
+    const previous = data.velocity.sprints.filter((entry) => entry.teamId === selected.teamId &&
+      entry.teamGenerationNumber === selected.teamGenerationNumber && entry.closedAt < selected.closedAt).slice(-windowSize);
+    if (!previous.length) {
+      return `<div class="sprint-comparison"><strong>Comparação com sprints anteriores</strong><p>${escapeHtml(selected.sprintKey)}: ${escapeHtml(metricNumber(selected.deliveredPoints))} pts aceitos. Não há sprint anterior comparável nesta geração.</p></div>`;
+    }
+    const previousMedian = medianMetric(previous.map((entry) => entry.deliveredPoints));
+    const delta = selected.deliveredPoints - previousMedian;
+    return `<div class="sprint-comparison"><strong>Comparação de entregas aceitas</strong><p>${escapeHtml(selected.sprintKey)} entregou ${escapeHtml(metricNumber(selected.deliveredPoints))} pts; a mediana das ${previous.length} sprints anteriores comparáveis foi ${escapeHtml(metricNumber(previousMedian))} pts. Diferença: ${escapeHtml(signedMetric(delta))} pts.</p></div>`;
+  }
+
   function renderMetrics() {
     const data = model.dashboardMetrics;
     if (!data) return;
@@ -828,7 +1406,10 @@
     elements.metricsSprint.innerHTML = `<option value="none">Sem sprint</option>${data.sprints.map((sprint) => `<option value="${escapeHtml(sprint.id)}">${escapeHtml(sprint.key)} · ${escapeHtml(stateLabel(sprint.status))}</option>`).join("")}`;
     elements.metricsMilestone.value = model.selectedMetricsMilestoneId ?? data.selectedMilestoneId ?? "none";
     elements.metricsSprint.value = model.selectedMetricsSprintId ?? data.selectedSprintId ?? "none";
-    elements.metricsDate.value = model.selectedMetricsDate ?? "";
+    elements.metricsDate.value = model.selectedMetricsDate ?? data.asOfDate;
+    elements.metricsEffortFrom.value = model.developerMetricsFrom ?? "";
+    elements.metricsEffortTo.value = model.developerMetricsTo ?? "";
+    elements.metricsEffortTo.max = data.asOfDate;
     elements.metricsMeta.textContent = `Corte ${metricDate(data.asOfDate)} · watermark ${data.watermarkSequence} · atualizado ${formatDate(data.observedAt)}`;
     elements.metricsError.hidden = true;
 
@@ -844,23 +1425,42 @@
       <article class="metric-kpi"><span>Previsão base · P50</span><strong>${escapeHtml(metricDate(forecastBase?.estimatedDate))}</strong><small>${escapeHtml(metricStatusLabel(forecastBase?.status ?? data.forecast?.status ?? "insufficient_data"))}${data.forecast ? ` · ${data.forecast.sample.length} sprints na amostra` : ""}</small></article>
       <article class="metric-kpi"><span>WIP atual</span><strong>${data.wip.totalWipCount}</strong><small>${data.wip.blockedByOpenImpactCount} com impacto aberto · watermark ${data.wip.watermarkSequence}</small></article>
       <article class="metric-kpi"><span>Cobertura certificada</span><strong>${coverage.certifiedCoveragePercent === null ? "—" : `${coverage.certifiedCoveragePercent}%`}</strong><small>${coverage.certifiedRequiredCriteria}/${coverage.requiredCriteria} critérios · build: todos</small></article>`;
-    const velocityRows = data.velocity.sprints.slice(-8).reverse().map((sprint) => `<tr><td>${escapeHtml(sprint.sprintKey)}</td><td>${escapeHtml(metricDate(sprint.closedAt.slice(0, 10)))}</td><td>${escapeHtml(metricNumber(sprint.deliveredPoints))} pts</td><td>${escapeHtml(metricNumber(sprint.capacityHours))} h</td><td>${escapeHtml(metricNumber(sprint.pointsPerHour))} pts/h</td></tr>`).join("");
+    const velocityWindow = [4, 8, 12].includes(model.metricsVelocityWindow) ? model.metricsVelocityWindow : 8;
+    model.metricsVelocityWindow = velocityWindow;
+    const sameGenerationSprints = data.selectedTeamId === null || data.selectedTeamGenerationNumber === null
+      ? []
+      : data.velocity.sprints.filter((sprint) => sprint.teamId === data.selectedTeamId &&
+        sprint.teamGenerationNumber === data.selectedTeamGenerationNumber);
+    const visibleVelocitySprints = sameGenerationSprints.slice(-velocityWindow);
+    const velocityPoints = visibleVelocitySprints.map((sprint) => sprint.deliveredPoints);
+    const velocityAverage = velocityPoints.length ? velocityPoints.reduce((total, points) => total + points, 0) / velocityPoints.length : null;
+    const velocityMedian = medianMetric(velocityPoints);
+    const velocityRows = [...visibleVelocitySprints].reverse().map((sprint) => `<tr><td>${escapeHtml(sprint.sprintKey)}</td><td>${escapeHtml(metricDate(sprint.closedAt.slice(0, 10)))}</td><td>${escapeHtml(metricNumber(sprint.deliveredPoints))} pts</td><td>${escapeHtml(metricNumber(sprint.capacityHours))} h</td><td>${escapeHtml(metricNumber(sprint.pointsPerHour))} pts/h</td></tr>`).join("");
+    const velocitySeries = visibleVelocitySprints.map((sprint) => ({ date: sprint.closedAt.slice(0, 10), deliveredPoints: sprint.deliveredPoints }));
     const developerMetrics = data.developerExecutionMetrics;
-    const developerRows = developerMetrics?.developers.map((developer) => `<tr><td>${escapeHtml(developer.name)}</td><td>${developer.completedTasks}</td><td>${escapeHtml(metricNumber(developer.activeHours))} h</td><td>${escapeHtml(metricNumber(developer.activeHoursOnCompletedTasks))} h</td><td>${escapeHtml(metricNumber(developer.estimatedHoursOnCompletedTasks))} h</td><td>${developer.effortCalibrationFactor === null ? "—" : `${escapeHtml(metricNumber(developer.effortCalibrationFactor))}×`}</td><td>${developer.estimateVariancePercent === null ? "—" : `${developer.estimateVariancePercent > 0 ? "+" : ""}${escapeHtml(metricNumber(developer.estimateVariancePercent))}%`}</td><td>${developer.sampleSufficient ? `${developer.completedTasks} tarefas` : `Amostra baixa · ${developer.completedTasks}/${developerMetrics.minimumSampleTasks}`}</td></tr>`).join("") ?? "";
+    const developers = developerMetrics?.developers ?? [];
+    if (model.selectedMetricsDeveloperId && !developers.some((developer) => developer.principalId === model.selectedMetricsDeveloperId)) {
+      model.selectedMetricsDeveloperId = null;
+    }
+    elements.metricsDeveloper.innerHTML = `<option value="">Todos os desenvolvedores</option>${developers.map((developer) => `<option value="${escapeHtml(developer.principalId)}">${escapeHtml(developer.name)}</option>`).join("")}`;
+    elements.metricsDeveloper.value = model.selectedMetricsDeveloperId ?? "";
+    const visibleDevelopers = developers.filter((developer) => !model.selectedMetricsDeveloperId || developer.principalId === model.selectedMetricsDeveloperId);
+    const developerRows = visibleDevelopers.map((developer) => `<tr><td>${escapeHtml(developer.name)}</td><td>${developer.completedTasks}</td><td>${escapeHtml(metricNumber(developer.activeHours))} h</td><td>${escapeHtml(metricNumber(developer.activeHoursOnEstimatedCompletedTasks))} h</td><td>${escapeHtml(metricNumber(developer.estimatedHoursOnCompletedTasks))} h</td><td>${developer.effortCalibrationFactor === null ? "—" : `${escapeHtml(metricNumber(developer.effortCalibrationFactor))}×`}</td><td>${developer.estimateVariancePercent === null ? "—" : `${developer.estimateVariancePercent > 0 ? "+" : ""}${escapeHtml(metricNumber(developer.estimateVariancePercent))}%`}</td><td>${developer.sampleSufficient ? `${developer.estimatedCompletedTasks} tarefas estimadas` : `Amostra baixa · ${developer.estimatedCompletedTasks}/${developerMetrics.minimumSampleTasks} estimadas`}</td></tr>`).join("");
     const wipRows = data.wip.items.slice(0, 20).map((item) => `<tr><td><button class="metric-item-link" type="button" data-open-item="${escapeHtml(item.itemId)}">${escapeHtml(item.itemKey)}</button><span>${escapeHtml(item.title)}</span></td><td>${escapeHtml(stateLabel(item.state))}</td><td>${item.ageDays} dias</td><td>${item.openImpactCount ? `<span class="blocker-pill">${item.openImpactCount} impacto(s)</span>` : "—"}</td></tr>`).join("");
     const coverageRows = coverage.items.slice(0, 20).map((item) => `<tr><td><button class="metric-item-link" type="button" data-open-item="${escapeHtml(item.itemId)}">${escapeHtml(item.itemKey)}</button><span>${escapeHtml(item.title)}</span></td><td>${item.coveredRequiredCriteria}/${item.requiredCriteria}</td><td>${item.certifiedRequiredCriteria}/${item.requiredCriteria}</td><td>${item.hasOpenImpact ? `<span class="blocker-pill">Impacto</span>` : "—"}</td></tr>`).join("");
     elements.metricsContent.innerHTML = `
+      <p class="metrics-cut-note">O corte histórico se aplica às séries de marco/sprint, à velocidade e à previsão. WIP e cobertura mostram o estado atual observado em ${escapeHtml(formatDate(data.observedAt))}; eles não são reconstruídos para uma data passada.</p>
       <div class="metric-kpi-grid">${kpis}</div>
       <div class="metrics-grid">
         <article class="metrics-panel"><div class="metrics-panel-heading"><div><p class="eyebrow">EXECUTIVO</p><h3>${burnup ? `${escapeHtml(burnup.milestoneKey)} · ${escapeHtml(data.milestones.find((entry) => entry.id === burnup.milestoneId)?.title ?? "Marco")}` : "Burnup do marco"}</h3><p>Pontos no escopo, entregues e restantes. Pontos representam estimativa relativa.</p></div><span class="unit-tag">pontos</span></div>${renderMetricChart(burnup?.series, [{ key: "scopePoints", label: "Escopo", className: "scope" }, { key: "completedPoints", label: "Concluído", className: "completed" }, { key: "remainingPoints", label: "Restante", className: "remaining" }], "Burnup do marco")}</article>
-        <article class="metrics-panel"><div class="metrics-panel-heading"><div><p class="eyebrow">EXECUTIVO</p><h3>${data.sprintMetrics ? `${escapeHtml(data.sprintMetrics.sprintKey)} · Burndown` : "Burndown da sprint"}</h3><p>Restante real e linha ideal a partir do escopo congelado no início.</p></div><span class="unit-tag">pontos</span></div>${renderMetricChart(data.sprintMetrics?.series, [{ key: "remainingPoints", label: "Restante", className: "remaining" }, { key: "idealRemainingPoints", label: "Ideal", className: "ideal" }], "Burndown da sprint")}</article>
+        <article class="metrics-panel"><div class="metrics-panel-heading"><div><p class="eyebrow">EXECUTIVO</p><h3>${data.sprintMetrics ? `${escapeHtml(data.sprintMetrics.sprintKey)} · Burndown` : "Burndown da sprint"}</h3><p>Restante real e linha ideal a partir do escopo congelado no início.</p></div><span class="unit-tag">pontos</span></div>${renderMetricChart(data.sprintMetrics?.series, [{ key: "remainingPoints", label: "Restante", className: "remaining" }, { key: "idealRemainingPoints", label: "Ideal", className: "ideal" }], "Burndown da sprint")}${renderSprintSnapshot(data.sprintMetrics)}${renderSprintComparison(data.sprintMetrics, data, velocityWindow)}</article>
         <article class="metrics-panel metrics-panel-wide"><div class="metrics-panel-heading"><div><p class="eyebrow">EXECUTIVO</p><h3>Previsão Monte Carlo</h3><p>Distribuição empírica de sprints comparáveis, com capacidade futura e chance até a meta. Story points não são convertidos em horas.</p></div><span class="unit-tag">${data.forecast?.remainingPoints === undefined ? "sem marco" : `${escapeHtml(metricNumber(data.forecast.remainingPoints))} pts restantes`}</span></div>${renderForecastPanel(data.forecast)}</article>
         <article class="metrics-panel metrics-panel-wide"><div class="metrics-panel-heading"><div><p class="eyebrow">DRILL-DOWN · MARCO</p><h3>Composição do burnup</h3><p>Totais reconstruídos a partir dos PBIs ativos no corte selecionado.</p></div><span class="unit-tag">${burnupPoint ? escapeHtml(metricDate(burnupPoint.date)) : "sem série"}</span></div>${renderScopeBreakdown("Escopo aprovado", burnup?.series ?? [], milestoneItems, data.asOfDate, "milestone")}</article>
         <article class="metrics-panel metrics-panel-wide"><div class="metrics-panel-heading"><div><p class="eyebrow">DRILL-DOWN · SPRINT</p><h3>Itens do burndown</h3><p>O estado e os pontos correspondem ao último dia da série exibida.</p></div><span class="unit-tag">${data.sprintMetrics?.series.length ? escapeHtml(metricDate(data.sprintMetrics.series.at(-1).date)) : "sem série"}</span></div>${renderScopeBreakdown("Escopo da sprint", data.sprintMetrics?.series ?? [], data.sprintMetrics?.items ?? [], data.asOfDate, "sprint")}</article>
         <article class="metrics-panel"><div class="metrics-panel-heading"><div><p class="eyebrow">TÉCNICO</p><h3>WIP e bloqueios</h3><p>Idade desde a entrada no estado; bloqueios por impacto de especificação.</p></div><span class="unit-tag">${data.wip.totalWipCount} itens</span></div><div class="metric-table-wrap"><table class="metric-table"><thead><tr><th>Item</th><th>Estado</th><th>Idade</th><th>Bloqueio</th></tr></thead><tbody>${wipRows || `<tr><td colspan="4">Nenhum item em andamento.</td></tr>`}</tbody></table></div>${data.wip.itemsTruncated ? `<p class="table-note">Lista limitada a ${data.wip.items.length} itens; o total considera todo o projeto.</p>` : ""}</article>
         <article class="metrics-panel"><div class="metrics-panel-heading"><div><p class="eyebrow">TÉCNICO</p><h3>Cobertura de critérios</h3><p>Critérios cobertos e certificações aprovadas por build.</p></div><span class="unit-tag">${coverage.coveragePercent === null ? "—" : `${coverage.coveragePercent}%`}</span></div><div class="metric-table-wrap"><table class="metric-table"><thead><tr><th>PBI</th><th>Cobertos</th><th>Certificados</th><th>Impacto</th></tr></thead><tbody>${coverageRows || `<tr><td colspan="4">Nenhum critério obrigatório para analisar.</td></tr>`}</tbody></table></div>${coverage.itemsTotal > 20 ? `<p class="table-note">Exibindo 20 de ${coverage.itemsTotal} PBIs; os detalhes estão limitados a ${coverage.items.length}. Totais consideram todo o projeto.</p>` : ""}</article>
-        <article class="metrics-panel metrics-panel-wide"><div class="metrics-panel-heading"><div><p class="eyebrow">TÉCNICO</p><h3>Velocidade recente</h3><p>Pontos entregues por sprint e horas de capacidade registradas; amostra segmentada por time/geração.</p></div><span class="unit-tag">${data.velocity.sampleSize} sprints</span></div><div class="metric-table-wrap"><table class="metric-table"><thead><tr><th>Sprint</th><th>Fechada</th><th>Entregue</th><th>Capacidade</th><th>Taxa histórica</th></tr></thead><tbody>${velocityRows || `<tr><td colspan="5">Feche sprints para formar uma série de velocidade.</td></tr>`}</tbody></table></div></article>
-        <article class="metrics-panel metrics-panel-wide"><div class="metrics-panel-heading"><div><p class="eyebrow">FLUXO DE DESENVOLVIMENTO</p><h3>Esforço por desenvolvedor</h3><p>${developerMetrics ? `${escapeHtml(metricDate(developerMetrics.period.from))}–${escapeHtml(metricDate(developerMetrics.period.to))} · amostras com menos de ${developerMetrics.minimumSampleTasks} tarefas são sinalizadas` : "Dados de sessões de desenvolvimento"}</p></div><span class="unit-tag">Horas e tarefas</span></div><div class="metric-table-wrap"><table class="metric-table"><thead><tr><th>Desenvolvedor</th><th>Tarefas concluídas</th><th>Horas ativas</th><th>Horas nas tarefas concluídas</th><th>Estimativa dessas tarefas</th><th>Fator de calibração</th><th>Variação</th><th>Amostra</th></tr></thead><tbody>${developerRows || `<tr><td colspan="8">Nenhuma sessão concluída no período.</td></tr>`}</tbody></table></div><p class="table-note">O fator multiplica horas estimadas pela razão observada entre horas registradas e estimadas nas tarefas concluídas; só aparece com pelo menos ${developerMetrics?.minimumSampleTasks ?? 5} tarefas e estimativas confirmadas. É uma referência para planejar esforço, não uma alteração automática nem um ranking. A velocidade do time continua sendo calculada em pontos de história.</p></article>
+        <article class="metrics-panel metrics-panel-wide"><div class="metrics-panel-heading"><div><p class="eyebrow">TÉCNICO</p><h3>Velocidade recente</h3><p>Pontos aceitos por sprint até o corte · geração ${escapeHtml(data.selectedTeamGenerationNumber ?? "indisponível")}. A comparação usa até ${velocityWindow} sprints desta geração.</p></div><label class="metrics-window-control" for="metrics-velocity-window">Janela<select id="metrics-velocity-window"><option value="4" ${velocityWindow === 4 ? "selected" : ""}>4 sprints</option><option value="8" ${velocityWindow === 8 ? "selected" : ""}>8 sprints</option><option value="12" ${velocityWindow === 12 ? "selected" : ""}>12 sprints</option></select></label></div><span class="unit-tag">${visibleVelocitySprints.length}/${velocityWindow} sprints · média ${escapeHtml(metricNumber(velocityAverage))} · mediana ${escapeHtml(metricNumber(velocityMedian))} pts/sprint</span>${renderMetricChart(velocitySeries, [{ key: "deliveredPoints", label: "Pontos aceitos", className: "completed" }], "Velocidade por sprint")}<div class="metric-table-wrap"><table class="metric-table"><thead><tr><th>Sprint</th><th>Fechada</th><th>Entregue</th><th>Capacidade</th><th>Pts/h · ref.</th></tr></thead><tbody>${velocityRows || `<tr><td colspan="5">Nenhuma sprint comparável fechada até esta data de corte.</td></tr>`}</tbody></table></div><p class="table-note">Capacidade e pts/h são referências descritivas; pts/h não converte pontos em esforço nem alimenta a previsão v2. Uma sprint sem entrega permanece na média e na mediana como zero.</p></article>
+        <article class="metrics-panel metrics-panel-wide"><div class="metrics-panel-heading"><div><p class="eyebrow">FLUXO DE DESENVOLVIMENTO</p><h3>Esforço por desenvolvedor</h3><p>${developerMetrics ? `${escapeHtml(metricDate(developerMetrics.period.from))}–${escapeHtml(metricDate(developerMetrics.period.to))} · datas no fuso do projeto · período limitado ao corte` : "Dados de sessões de desenvolvimento"}</p></div><span class="unit-tag">Horas e tarefas</span></div><div class="metric-table-wrap"><table class="metric-table"><thead><tr><th>Desenvolvedor</th><th>Tarefas concluídas</th><th>Horas ativas no período</th><th>Horas em tarefas estimadas</th><th>Estimativa confirmada</th><th>Fator de calibração</th><th>Variação</th><th>Amostra</th></tr></thead><tbody>${developerRows || `<tr><td colspan="8">Nenhuma tarefa concluída ou sessão no período para este filtro.</td></tr>`}</tbody></table></div><p class="table-note">A variação e o fator comparam horas de sessão com horas estimadas nas mesmas tarefas concluídas e estimadas. Só exibimos o fator com pelo menos ${developerMetrics?.minimumSampleTasks ?? 5} tarefas estimadas. Sessões ativas consideram o período escolhido; esforço e estimativas da coorte usam sessões encerradas até cada conclusão. A métrica apoia planejamento, não ranking nem ajuste automático. Velocidade do time é medida em story points.</p></article>
       </div>`;
   }
 
@@ -1076,6 +1676,14 @@
     </article>`;
   }
 
+  function renderWorkflowProgress(item) {
+    if (item.taskWorkflowRevisionNumber === null || item.taskWorkflowProgressPercent === null) return "<small class=\"workflow-not-configured\">Sem workflow publicado</small>";
+    const percent = Number(item.taskWorkflowProgressPercent);
+    const complete = item.taskWorkflowCompletedSteps ?? 0;
+    const total = item.taskWorkflowTotalSteps ?? 0;
+    return `<span class="workflow-summary"><span>r${escapeHtml(item.taskWorkflowRevisionNumber)} · ${escapeHtml(metricNumber(percent))}%</span><progress max="100" value="${escapeHtml(percent)}" aria-label="${escapeHtml(item.key)}: ${escapeHtml(metricNumber(percent))}% do esforço concluído"></progress><small>${complete}/${total} etapas concluídas</small></span>`;
+  }
+
   function formatEstimate(estimate) {
     return `${estimate.value} ${estimate.unit === "points" ? "pts" : "h"}`;
   }
@@ -1085,7 +1693,7 @@
       const base = `/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(itemId)}`;
       const result = await api(base);
       const item = result.workItem;
-      const [qualityResult, timeline, revisionsResult, sessionsResult, deploymentResult, childTasks, taskContext] = await Promise.all([
+      const [qualityResult, timeline, revisionsResult, sessionsResult, deploymentResult, childTasks, taskContext, workflowResult] = await Promise.all([
         item.type === "story" || item.type === "bug" ? api(`${base}/quality?limit=100`) : Promise.resolve(null),
         api(`${base}/timeline?limit=100`),
         api(`${base}/revisions`),
@@ -1097,10 +1705,13 @@
           : Promise.resolve({ events: [] }),
         item.type === "story" || item.type === "bug" ? loadChildTasks(model.projectId, item.id) : Promise.resolve([]),
         item.type === "task" ? loadTaskContext(model.projectId, item.id) : Promise.resolve(null),
+        item.type === "task" ? api(`${base}/task-workflow`) : Promise.resolve(null),
       ]);
       model.currentItem = item;
       model.currentQuality = qualityResult?.quality ?? null;
       model.currentTaskContext = taskContext;
+      model.currentTaskWorkflow = workflowResult?.workflow ?? null;
+      model.currentTaskSessions = sessionsResult.sessions;
       model.currentRevisions = revisionsResult.revisions;
       elements.itemKicker.textContent = `${item.key} · ${itemTypeLabel(item.type)} · ${stateLabel(item.state)}`;
       elements.itemTitle.textContent = item.title;
@@ -1112,18 +1723,22 @@
         : "<p>Sem estimativa confirmada.</p>";
       const parentReference = taskContext?.sections.hierarchy.find((entry) => entry.source.entityId === item.parentId);
       const parent = item.parentId ? `<p>${escapeHtml(parentReference ? `${parentReference.key} · ${parentReference.title}` : item.parentId)}</p>` : "<p>Sem item pai.</p>";
+      const businessValue = item.businessValueScore === null
+        ? "Ainda não avaliado"
+        : `${item.businessValueScore}/100 · ${item.businessValueRationale ? escapeHtml(item.businessValueRationale) : "sem justificativa"}`;
       const children = childTasks.length
-        ? `<ul class="child-task-list">${childTasks.map((task) => `<li><button class="link-button" type="button" data-open-item="${escapeHtml(task.id)}"><strong>${escapeHtml(task.key)}</strong> · ${escapeHtml(task.title)}</button><span>${escapeHtml(stateLabel(task.state))} · ${escapeHtml(task.assigneeId || "sem responsável")}</span></li>`).join("")}</ul>`
+        ? `<ul class="child-task-list">${childTasks.map((task) => `<li><div><button class="link-button" type="button" data-open-item="${escapeHtml(task.id)}"><strong>${escapeHtml(task.key)}</strong> · ${escapeHtml(task.title)}</button><span>${escapeHtml(stateLabel(task.state))} · ${escapeHtml(task.assigneeId || "sem responsável")}</span></div>${renderWorkflowProgress(task)}</li>`).join("")}</ul>`
         : "<p>Nenhuma tarefa filha cadastrada.</p>";
       const draftRevision = model.currentRevisions.find((revision) => revision.status === "draft");
       const revisions = model.currentRevisions.map((revision) => `<li>r${revision.revisionNumber} · ${escapeHtml(revision.status)} · ${escapeHtml(new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(revision.createdAt)))}</li>`).join("");
       elements.itemDetails.innerHTML = `
-        <div class="detail-meta"><span class="state-badge ${escapeHtml(item.state)}">${escapeHtml(stateLabel(item.state))}</span><span class="count-label">Versão ${escapeHtml(item.version)}</span><span class="count-label">Revisão ${escapeHtml(item.revision)}</span><span class="count-label">Prioridade ${escapeHtml(item.priority)}</span></div>
+        <div class="detail-meta"><span class="state-badge ${escapeHtml(item.state)}">${escapeHtml(stateLabel(item.state))}</span><span class="count-label">Versão ${escapeHtml(item.version)}</span><span class="count-label">Revisão ${escapeHtml(item.revision)}</span><span class="count-label">Prioridade P${escapeHtml(item.priority)}</span>${["epic", "feature", "task"].includes(item.type) ? `<span class="count-label">Valor ${businessValue}</span>` : ""}</div>
         <section class="detail-section"><h3>Descrição</h3><p>${escapeHtml(item.description || "Sem descrição registrada.")}</p></section>
         <section class="detail-section"><h3>Critérios de aceite</h3>${criteria}</section>
         <section class="detail-section"><h3>Estimativas confirmadas</h3>${estimates}</section>
         <section class="detail-section"><h3>Item pai</h3>${parent}</section>
         ${item.type === "story" || item.type === "bug" ? `<section class="detail-section"><h3>Tarefas de desenvolvimento · ${childTasks.length}</h3>${children}</section>` : ""}
+        ${item.type === "task" ? renderTaskWorkflow(item, workflowResult.workflow) : ""}
         <section class="detail-section"><h3>Responsável</h3><p>${escapeHtml(item.assigneeId || "Não atribuído")}</p></section>
         <section class="detail-section"><h3>Revisões de conteúdo</h3><ul>${revisions || "<li>Nenhuma revisão.</li>"}</ul>${draftRevision ? `<button class="button button-secondary" type="button" data-publish-item-revision="${draftRevision.revisionNumber}">Publicar rascunho r${draftRevision.revisionNumber}</button>` : ""}</section>
         ${qualityResult ? renderQualityDetail(qualityResult.quality) : renderTaskContext(taskContext)}
@@ -1137,28 +1752,263 @@
     }
   }
 
+  function renderTaskWorkflow(item, workflowView) {
+    const current = workflowView.workflow;
+    const draft = workflowView.draft;
+    const selected = workflowView.selectedRevision;
+    const revisionOptions = workflowView.revisionHistory.map((revision) =>
+      `<option value="${revision.revisionNumber}" ${revision.revisionNumber === workflowView.selectedRevisionNumber ? "selected" : ""}>r${revision.revisionNumber} · ${escapeHtml(revision.status)}</option>`).join("");
+    const history = workflowView.revisionHistory.length
+      ? `<label class="workflow-history-label" for="task-workflow-history">Histórico de revisões<select id="task-workflow-history">${revisionOptions}</select></label>${workflowView.revisionHistoryTruncated ? "<small>Mostrando as 50 revisões mais recentes.</small>" : ""}`
+      : "";
+    const draftBanner = draft
+      ? `<div class="workflow-draft-banner"><strong>Proposta r${draft.revisionNumber} aguardando publicação humana.</strong><span>${escapeHtml(draft.steps.length)} etapas · esforço total de 100,00%</span></div>`
+      : "";
+    const canUpdate = current !== null && item.state === "in_progress"
+      && item.assigneeId === model.session?.principal.id
+      && model.currentTaskSessions.some((session) => session.status === "active"
+        && session.developerPrincipalId === model.session?.principal.id
+        && session.taskWorkflowRevisionNumber === current.revisionNumber);
+    const isCurrentPublished = selected !== null && current !== null && selected.revisionNumber === current.revisionNumber;
+    const progress = selected?.progressPercent;
+    const steps = selected?.steps ?? [];
+    const stepRows = steps.map((step) => {
+      const controls = isCurrentPublished && canUpdate
+        ? step.status === "pending"
+          ? `<div class="workflow-step-actions"><button class="button button-secondary" type="button" data-workflow-status="in_progress" data-workflow-step="${escapeHtml(step.id)}">Iniciar etapa</button><button class="button button-secondary" type="button" data-workflow-status="done" data-workflow-step="${escapeHtml(step.id)}">Concluir</button></div>`
+          : step.status === "in_progress"
+            ? `<div class="workflow-step-actions"><button class="button button-secondary" type="button" data-workflow-status="pending" data-workflow-step="${escapeHtml(step.id)}">Voltar para pendente</button><button class="button button-secondary" type="button" data-workflow-status="done" data-workflow-step="${escapeHtml(step.id)}">Concluir etapa</button></div>`
+            : `<small class="workflow-step-complete">Etapa concluída</small>`
+        : `<small class="workflow-step-state">${escapeHtml(step.status === "in_progress" ? "Em andamento" : step.status === "done" ? "Concluída" : "Pendente")}</small>`;
+      const auditNote = step.statusChangedAt ? `<small>Atualizada em ${escapeHtml(formatDate(step.statusChangedAt))}${step.statusReason ? ` · ${escapeHtml(step.statusReason)}` : ""}</small>` : "";
+      return `<li class="workflow-step"><div class="workflow-step-main"><div class="workflow-step-title"><strong>${escapeHtml(step.position)}. ${escapeHtml(step.title)}</strong><span>${escapeHtml(Number(step.effortPercent).toFixed(2))}% do esforço</span></div><p>${escapeHtml(step.description)}</p>${auditNote}</div><div class="workflow-step-status">${controls}</div></li>`;
+    }).join("");
+    const empty = selected === null
+      ? "<p>Nenhum workflow foi definido. O andamento fica sem percentual até publicar uma decomposição.</p>"
+      : selected.status === "draft" || selected.status === "withdrawn"
+        ? `<p>r${selected.revisionNumber} · ${escapeHtml(selected.status)} · ${escapeHtml(selected.reason)}</p>`
+        : "";
+    const meter = progress === null || progress === undefined ? "" : `<div class="workflow-progress"><div><strong>${escapeHtml(Number(progress).toFixed(2))}%</strong><span>${selected.steps.filter((step) => step.status === "done").length}/${selected.steps.length} etapas concluídas · revisão r${selected.revisionNumber}</span></div><progress max="100" value="${escapeHtml(progress)}" aria-label="${escapeHtml(item.key)}: ${escapeHtml(Number(progress).toFixed(2))}% do esforço concluído"></progress></div>`;
+    const editorLabel = draft ? "Editar proposta" : current ? "Propor revisão" : "Definir etapas";
+    return `<section id="task-workflow-section" class="detail-section task-workflow-section"><div class="detail-section-heading"><div><h3>Workflow da tarefa</h3><p>Progresso ponderado pelo esforço das etapas concluídas. Não substitui QA nem aceite.</p></div><button class="button button-secondary" type="button" data-edit-task-workflow>${editorLabel}</button></div>${draftBanner}${history}${empty}${meter}${stepRows ? `<ol class="workflow-step-list">${stepRows}</ol>` : ""}${selected?.status === "superseded" ? "<small>Revisão histórica somente para consulta.</small>" : ""}</section>`;
+  }
+
+  function workflowEditorRow(step = {}, position = 1) {
+    const effort = step.effortPercent === undefined ? "" : Number(step.effortPercent).toFixed(2);
+    return `<fieldset class="workflow-step-editor"><legend>Etapa ${position}</legend><input type="hidden" data-workflow-step-id value="${escapeHtml(step.id ?? "")}"><div class="workflow-editor-order"><button class="button button-secondary" type="button" data-workflow-up aria-label="Mover etapa ${position} para cima" ${position === 1 ? "disabled" : ""}>↑</button><button class="button button-secondary" type="button" data-workflow-down aria-label="Mover etapa ${position} para baixo">↓</button><button class="button button-secondary" type="button" data-workflow-remove>Remover</button></div><label>Título<input data-workflow-title maxlength="160" required value="${escapeHtml(step.title ?? "")}"></label><label>Instruções e resultado esperado<textarea data-workflow-description rows="3" maxlength="4000" required>${escapeHtml(step.description ?? "")}</textarea></label><label>Esforço (%)<input data-workflow-effort type="number" min="0.01" max="100" step="0.01" required value="${escapeHtml(effort)}"></label></fieldset>`;
+  }
+
+  function updateWorkflowEditorOrder() {
+    const rows = [...elements.taskWorkflowStepList.querySelectorAll(".workflow-step-editor")];
+    rows.forEach((row, index) => {
+      row.querySelector("legend").textContent = `Etapa ${index + 1}`;
+      row.querySelector("[data-workflow-up]").disabled = index === 0;
+      row.querySelector("[data-workflow-down]").disabled = index === rows.length - 1;
+      row.querySelector("[data-workflow-up]").setAttribute("aria-label", `Mover etapa ${index + 1} para cima`);
+      row.querySelector("[data-workflow-down]").setAttribute("aria-label", `Mover etapa ${index + 1} para baixo`);
+    });
+  }
+
+  function updateWorkflowEditorState() {
+    const rows = [...elements.taskWorkflowStepList.querySelectorAll(".workflow-step-editor")];
+    const basisPoints = rows.map((row) => {
+      const value = Number(row.querySelector("[data-workflow-effort]").value);
+      return Number.isFinite(value) ? Math.round(value * 100) : 0;
+    });
+    const totalBasisPoints = basisPoints.reduce((sum, value) => sum + value, 0);
+    const total = totalBasisPoints / 100;
+    const valuesValid = rows.length >= 1 && rows.length <= 50 && rows.every((row, index) => {
+      const effortInput = row.querySelector("[data-workflow-effort]");
+      const effort = Number(effortInput.value);
+      return row.querySelector("[data-workflow-title]").value.trim().length > 0
+        && row.querySelector("[data-workflow-description]").value.trim().length > 0
+        && Number.isFinite(effort) && effort > 0 && effort <= 100
+        && Math.abs(effort * 100 - basisPoints[index]) <= 1e-7;
+    });
+    elements.taskWorkflowTotal.textContent = `${total.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+    const valid = valuesValid && totalBasisPoints === 10_000;
+    elements.taskWorkflowValidation.textContent = rows.length > 50 ? "O limite é 50 etapas." : valid ? "Soma válida. O percentual será calculado pelas etapas concluídas." : "Preencha as etapas e ajuste os pesos até 100,00%.";
+    elements.taskWorkflowValidation.classList.toggle("is-valid", valid);
+    elements.submitTaskWorkflow.disabled = !valid;
+    elements.publishTaskWorkflow.disabled = !model.currentTaskWorkflow?.draft || model.workflowEditorDirty || !elements.taskWorkflowReason.value.trim();
+    return valid;
+  }
+
+  function openTaskWorkflowEditor() {
+    if (!model.currentItem || model.currentItem.type !== "task" || !model.currentTaskWorkflow) return;
+    const view = model.currentTaskWorkflow;
+    const source = view.draft ?? view.workflow;
+    const steps = source?.steps ?? [{ title: "", description: "", effortPercent: 100 }];
+    model.workflowEditorDirty = false;
+    elements.taskWorkflowForm.reset();
+    elements.taskWorkflowFormTitle.textContent = view.draft ? `Revisar Draft r${view.draft.revisionNumber}` : view.workflow ? `Workflow r${view.workflow.revisionNumber}` : "Definir etapas da tarefa";
+    elements.taskWorkflowFormHelp.textContent = view.draft
+      ? "Salvar cria uma nova revisão imutável e retira o Draft anterior do fluxo ativo. O histórico será preservado."
+      : "Descreva cada etapa em ordem, com resultado verificável. Os pesos devem somar exatamente 100,00%.";
+    elements.submitTaskWorkflow.textContent = view.draft ? "Criar nova proposta" : view.workflow ? "Propor revisão" : "Salvar como Draft";
+    elements.publishTaskWorkflow.hidden = !view.draft;
+    elements.publishTaskWorkflow.textContent = view.draft ? `Publicar revisão r${view.draft.revisionNumber}` : "Publicar revisão";
+    elements.taskWorkflowReason.value = "";
+    elements.taskWorkflowStepList.innerHTML = steps.map((step, index) => workflowEditorRow(step, index + 1)).join("");
+    updateWorkflowEditorOrder();
+    updateWorkflowEditorState();
+    elements.taskWorkflowDialog.showModal();
+  }
+
+  async function submitTaskWorkflowForm(event) {
+    event.preventDefault();
+    if (!model.currentItem || !model.currentTaskWorkflow || !updateWorkflowEditorState()) return;
+    const item = model.currentItem;
+    const steps = [...elements.taskWorkflowStepList.querySelectorAll(".workflow-step-editor")].map((row) => ({
+      ...(row.querySelector("[data-workflow-step-id]").value ? { id: row.querySelector("[data-workflow-step-id]").value } : {}),
+      title: row.querySelector("[data-workflow-title]").value.trim(),
+      description: row.querySelector("[data-workflow-description]").value.trim(),
+      effortPercent: Number(row.querySelector("[data-workflow-effort]").value),
+    }));
+    elements.submitTaskWorkflow.disabled = true;
+    try {
+      const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(item.id)}/task-workflow/revisions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
+        body: JSON.stringify({
+          requestId: crypto.randomUUID(), expectedTaskVersion: item.version,
+          expectedWorkflowVersion: model.currentTaskWorkflow.latestRevisionNumber,
+          steps, reason: elements.taskWorkflowReason.value.trim(),
+        }),
+      });
+      elements.taskWorkflowDialog.close();
+      toast(`Workflow Draft r${result.workflow.revisionNumber} criado. Solicite publicação por um Tech Lead humano.`);
+      await loadProjectData();
+      await openItem(item.id);
+    } catch (error) {
+      const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
+      toast(`${error.code ?? "ERRO"}: ${error.message}${details}`, true);
+      if (["VERSION_CONFLICT", "STALE_CURSOR"].includes(error.code)) await loadProjectData();
+    } finally {
+      updateWorkflowEditorState();
+    }
+  }
+
+  async function publishTaskWorkflowDraft() {
+    const item = model.currentItem;
+    const draft = model.currentTaskWorkflow?.draft;
+    const reason = elements.taskWorkflowReason.value.trim();
+    if (!item || !draft) return;
+    if (!reason) {
+      elements.taskWorkflowValidation.textContent = "Informe o motivo antes de publicar.";
+      elements.taskWorkflowReason.focus();
+      return;
+    }
+    if (model.workflowEditorDirty) {
+      elements.taskWorkflowValidation.textContent = "Salve a nova proposta antes de publicar; a revisão mostrada ainda é o Draft atual.";
+      return;
+    }
+    if (!window.confirm(`Publicar a revisão r${draft.revisionNumber} do workflow? Tech Lead humano e ausência de sessões abertas são obrigatórios.`)) return;
+    elements.publishTaskWorkflow.disabled = true;
+    try {
+      await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(item.id)}/task-workflow/revisions/${draft.revisionNumber}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
+        body: JSON.stringify({ requestId: crypto.randomUUID(), expectedTaskVersion: item.version, reason }),
+      });
+      elements.taskWorkflowDialog.close();
+      toast(`Workflow r${draft.revisionNumber} publicado com sucesso.`);
+      await loadProjectData();
+      await openItem(item.id);
+    } catch (error) {
+      const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
+      toast(`${error.code ?? "ERRO"}: ${error.message}${details}`, true);
+      if (["VERSION_CONFLICT", "STALE_CURSOR"].includes(error.code)) await loadProjectData();
+    } finally {
+      updateWorkflowEditorState();
+    }
+  }
+
+  async function changeTaskWorkflowStep(button) {
+    const item = model.currentItem;
+    const workflow = model.currentTaskWorkflow;
+    if (!item || !workflow?.workflow) return;
+    const targetStatus = button.getAttribute("data-workflow-status");
+    const stepId = button.getAttribute("data-workflow-step");
+    const reason = targetStatus === "done" ? "Etapa concluída pelo Developer no dashboard."
+      : targetStatus === "pending" ? "Etapa reaberta para correção pelo Tech Lead no dashboard."
+        : "Etapa iniciada pelo Developer no dashboard.";
+    button.disabled = true;
+    try {
+      const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(item.id)}/task-workflow/steps/${encodeURIComponent(stepId)}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
+        body: JSON.stringify({ requestId: crypto.randomUUID(), revisionNumber: workflow.workflow.revisionNumber, expectedTaskVersion: item.version, targetStatus, reason }),
+      });
+      toast(`Etapa atualizada. Progresso concluído: ${Number(result.transition.progressPercent).toFixed(2)}%.`);
+      await loadProjectData();
+      await openItem(item.id);
+    } catch (error) {
+      const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
+      toast(`${error.code ?? "ERRO"}: ${error.message}${details}`, true);
+      if (["VERSION_CONFLICT", "STALE_CURSOR"].includes(error.code)) await loadProjectData();
+    }
+  }
+
+  async function loadTaskWorkflowRevision(revisionNumber) {
+    if (!model.currentItem) return;
+    try {
+      const base = `/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(model.currentItem.id)}/task-workflow`;
+      const result = await api(`${base}?revisionNumber=${encodeURIComponent(revisionNumber)}`);
+      model.currentTaskWorkflow = result.workflow;
+      const section = document.querySelector("#task-workflow-section");
+      if (section) section.outerHTML = renderTaskWorkflow(model.currentItem, result.workflow);
+    } catch (error) {
+      toast(`${error.code ?? "ERRO"}: ${error.message}`, true);
+    }
+  }
+
   async function openWorkItemEditor(item = null) {
     try {
-      if (model.parentFeatures.length === 0) model.parentFeatures = await loadParentFeatures(model.projectId);
+      if (model.parentWorkItems.length === 0) model.parentWorkItems = await loadParentItems(model.projectId);
       model.editingItem = item;
       elements.workItemForm.reset();
       elements.workItemFormTitle.textContent = item ? `Editar ${item.key}` : "Novo PBI";
       elements.submitWorkItem.textContent = item ? "Propor revisão" : "Criar PBI";
       elements.workItemType.value = item?.type ?? "story";
       elements.workItemType.disabled = Boolean(item);
-      elements.workItemParent.innerHTML = `<option value="">Selecione a feature</option>${model.parentFeatures.map((feature) => `<option value="${escapeHtml(feature.id)}">${escapeHtml(feature.key)} · ${escapeHtml(feature.title)}</option>`).join("")}`;
-      elements.workItemParent.disabled = Boolean(item);
-      elements.workItemParent.required = !item;
       elements.workItemTitle.value = item?.title ?? "";
       elements.workItemDescription.value = item?.description ?? "";
       elements.workItemPriority.value = String(item?.priority ?? 3);
+      elements.workItemBusinessValue.value = item?.businessValueScore === null || item === null ? "" : String(item.businessValueScore);
+      elements.workItemBusinessRationale.value = item?.businessValueRationale ?? "";
       elements.workItemCriteria.value = item?.criteria.map((criterion) => `${criterion.key}: ${criterion.description}`).join("\n") ?? "";
+      updateWorkItemParentOptions(item?.parentId ?? "");
+      updateWorkItemValueFields();
       if (elements.itemDialog.open) elements.itemDialog.close();
       elements.workItemDialog.showModal();
       elements.workItemTitle.focus();
     } catch (error) {
       toast(`${error.code ?? "ERRO"}: ${error.message}`, true);
     }
+  }
+
+  function updateWorkItemParentOptions(selectedParentId = elements.workItemParent.value) {
+    const type = elements.workItemType.value;
+    const parentTypes = { epic: [], feature: ["epic"], story: ["feature"], bug: ["feature"], task: ["story", "bug"] };
+    const labels = { epic: "Nenhum", feature: "Épico pai", story: "Feature pai", bug: "Feature pai", task: "História ou bug pai" };
+    const allowed = parentTypes[type] ?? [];
+    const options = model.parentWorkItems.filter((candidate) => allowed.includes(candidate.type));
+    elements.workItemParentField.hidden = allowed.length === 0;
+    elements.workItemParentLabel.textContent = labels[type] ?? "Item pai";
+    elements.workItemParent.innerHTML = `<option value="">Selecione ${labels[type]?.toLocaleLowerCase("pt-BR") ?? "o item pai"}</option>${options.map((parent) => `<option value="${escapeHtml(parent.id)}">${escapeHtml(parent.key)} · ${escapeHtml(parent.title)}</option>`).join("")}`;
+    elements.workItemParent.value = selectedParentId;
+    elements.workItemParent.required = allowed.length > 0 && !model.editingItem;
+    elements.workItemParent.disabled = Boolean(model.editingItem);
+  }
+
+  function updateWorkItemValueFields() {
+    const type = elements.workItemType.value;
+    const supportsBusinessValue = ["epic", "feature", "task"].includes(type);
+    const supportsCriteria = ["story", "bug"].includes(type);
+    elements.workItemValueField.hidden = !supportsBusinessValue;
+    elements.workItemRationaleField.hidden = !supportsBusinessValue;
+    elements.workItemCriteriaField.hidden = !supportsCriteria;
   }
 
   function parseWorkItemCriteria(value, existing = []) {
@@ -1183,7 +2033,9 @@
         title: elements.workItemTitle.value.trim(),
         description: elements.workItemDescription.value,
         priority: Number(elements.workItemPriority.value),
-        criteria,
+        businessValueScore: elements.workItemBusinessValue.value === "" ? null : Number(elements.workItemBusinessValue.value),
+        businessValueRationale: elements.workItemBusinessRationale.value.trim() || null,
+        criteria: ["story", "bug"].includes(elements.workItemType.value) ? criteria : [],
       };
       if (item) {
         const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(item.key)}/revisions`, {
@@ -1197,10 +2049,12 @@
         await loadProjectData();
         await openItem(item.id);
       } else {
+        const type = elements.workItemType.value;
+        const parentId = elements.workItemParent.value;
         const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
-          body: JSON.stringify({ ...shared, type: elements.workItemType.value, parentId: elements.workItemParent.value }),
+          body: JSON.stringify({ ...shared, type, ...(parentId ? { parentId } : {}) }),
         });
         elements.workItemDialog.close();
         toast(`${result.workItem.key} criado como rascunho.`);
@@ -1386,6 +2240,32 @@
     if (elements.itemDialog.open) elements.itemDialog.close();
     elements.transitionDialog.showModal();
     elements.targetState.focus();
+    void updateTransitionStartHint();
+  }
+
+  async function updateTransitionStartHint() {
+    const item = model.pendingMove;
+    const isTaskStart = item?.type === "task" && item.state === "ready" && elements.targetState.value === "in_progress";
+    elements.submitTransition.textContent = isTaskStart ? "Iniciar e abrir sessão" : "Confirmar mudança";
+    elements.transitionStartHint.hidden = !isTaskStart;
+    elements.transitionStartHint.classList.remove("is-blocked");
+    if (!isTaskStart) return;
+    elements.transitionStartHint.textContent = "Conferindo responsável, PBI pai, baseline, dependências, ADRs e sessões abertas…";
+    try {
+      const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(item.key)}/start-readiness`);
+      if (model.pendingMove?.id !== item.id || elements.targetState.value !== "in_progress") return;
+      const readiness = result.readiness;
+      const messages = readiness.blockers.map((blocker) => `• ${blocker.message}`);
+      const warnings = readiness.warnings.map((warning) => `• Aviso: ${warning.message}`);
+      elements.transitionStartHint.classList.toggle("is-blocked", !readiness.canStart);
+      elements.transitionStartHint.textContent = readiness.canStart
+        ? `Pronta para iniciar. A confirmação muda o estado e abre a sessão juntos.${warnings.length ? `\n${warnings.join("\n")}` : ""}`
+        : `A tarefa ainda não pode iniciar:\n${messages.join("\n")}`;
+    } catch (error) {
+      if (model.pendingMove?.id !== item.id) return;
+      elements.transitionStartHint.classList.add("is-blocked");
+      elements.transitionStartHint.textContent = `Não foi possível validar os gates. ${error.message}`;
+    }
   }
 
   function updateBuildField() {
@@ -1399,26 +2279,42 @@
     if (!model.pendingMove) return;
     const item = model.pendingMove;
     const targetState = elements.targetState.value;
+    const startsTask = item.type === "task" && item.state === "ready" && targetState === "in_progress";
     elements.submitTransition.disabled = true;
     elements.submitTransition.textContent = "Validando gates…";
     try {
-      await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(item.key)}/transition`, {
+      const body = {
+        requestId: crypto.randomUUID(),
+        expectedVersion: item.version,
+        reason: elements.reason.value.trim(),
+        ...(elements.buildId.value.trim() ? { buildId: elements.buildId.value.trim() } : {}),
+      };
+      if (startsTask) {
+        const check = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(item.key)}/start-readiness`);
+        if (!check.readiness.canStart) {
+          elements.transitionStartHint.classList.add("is-blocked");
+          elements.transitionStartHint.hidden = false;
+          elements.transitionStartHint.textContent = `A tarefa ainda não pode iniciar:\n${check.readiness.blockers.map((blocker) => `• ${blocker.message}`).join("\n")}`;
+          return;
+        }
+        await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(item.key)}/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
+          body: JSON.stringify(body),
+        });
+      } else {
+        await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(item.key)}/transition`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-SSDD-CSRF": model.session.csrfToken,
         },
-        body: JSON.stringify({
-          requestId: crypto.randomUUID(),
-          targetState,
-          expectedVersion: item.version,
-          reason: elements.reason.value.trim(),
-          ...(elements.buildId.value.trim() ? { buildId: elements.buildId.value.trim() } : {}),
-        }),
-      });
+          body: JSON.stringify({ ...body, targetState }),
+        });
+      }
       elements.transitionDialog.close();
       model.pendingMove = null;
-      toast(`${item.key} atualizado para ${stateLabel(targetState)}.`);
+      toast(startsTask ? `${item.key} iniciada e sessão de desenvolvimento aberta.` : `${item.key} atualizado para ${stateLabel(targetState)}.`);
       await loadProjectData();
     } catch (error) {
       const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
@@ -1433,6 +2329,8 @@
   function setView(view) {
     const views = {
       metrics: [elements.metricsTab, elements.metricsView],
+      roadmap: [elements.roadmapTab, elements.roadmapView],
+      history: [elements.historyTab, elements.historyView],
       backlog: [elements.backlogTab, elements.backlogView],
       board: [elements.boardTab, elements.boardView],
       quality: [elements.qualityTab, elements.qualityView],
@@ -1445,10 +2343,14 @@
       tab.setAttribute("aria-selected", String(selected));
       panel.hidden = !selected;
     }
-    elements.filters.hidden = view === "metrics";
+    elements.filters.hidden = view === "metrics" || view === "history" || view === "roadmap";
     if (view === "metrics") void loadDashboardMetrics();
+    if (view === "roadmap") void loadProjectRoadmap();
+    if (view === "history") void loadProjectHistory();
   }
 
+  elements.loginForm.addEventListener("submit", (event) => { void submitLogin(event); });
+  elements.logout.addEventListener("click", () => { void logout(); });
   elements.projectSelect.addEventListener("change", () => {
     model.projectId = elements.projectSelect.value;
     model.teams = [];
@@ -1456,10 +2358,18 @@
     model.items = [];
     model.sprint = null;
     model.dashboardMetrics = null;
+    model.projectRoadmap = null;
+    model.historySnapshot = null;
+    model.historyDate = null;
+    model.historyCursor = null;
     model.selectedMetricsMilestoneId = null;
     model.selectedMetricsSprintId = null;
     model.selectedMetricsDate = null;
     model.metricsFiltersInitialized = false;
+    model.developerMetricsFrom = null;
+    model.developerMetricsTo = null;
+    model.developerMetricsRangeCustomized = false;
+    model.selectedMetricsDeveloperId = null;
     elements.loading.hidden = false;
     void loadProjectData();
   });
@@ -1470,6 +2380,7 @@
     model.selectedRetrospectiveSprintId = null;
     model.retrospective = null;
     model.dashboardMetrics = null;
+    model.projectRoadmap = null;
     model.selectedMetricsSprintId = null;
     model.metricsFiltersInitialized = false;
     void loadProjectData();
@@ -1482,12 +2393,16 @@
   elements.search.addEventListener("input", render);
   elements.typeFilter.addEventListener("change", render);
   elements.metricsTab.addEventListener("click", () => setView("metrics"));
+  elements.roadmapTab.addEventListener("click", () => setView("roadmap"));
+  elements.roadmapDate.addEventListener("change", () => { void loadProjectRoadmap(); });
+  elements.historyTab.addEventListener("click", () => setView("history"));
   elements.backlogTab.addEventListener("click", () => setView("backlog"));
   elements.boardTab.addEventListener("click", () => setView("board"));
   elements.qualityTab.addEventListener("click", () => setView("quality"));
   elements.activityTab.addEventListener("click", () => setView("activity"));
   elements.retrospectiveTab.addEventListener("click", () => setView("retrospective"));
-  const tabs = [elements.metricsTab, elements.backlogTab, elements.boardTab, elements.qualityTab, elements.activityTab, elements.retrospectiveTab];
+  const tabs = [elements.metricsTab, elements.roadmapTab, elements.historyTab, elements.backlogTab, elements.boardTab, elements.qualityTab, elements.activityTab, elements.retrospectiveTab];
+  const tabViews = ["metrics", "roadmap", "history", "backlog", "board", "quality", "activity", "retrospective"];
   for (const [index, tab] of tabs.entries()) {
     tab.addEventListener("keydown", (event) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -1495,7 +2410,7 @@
       const offset = event.key === "ArrowRight" ? 1 : -1;
       const next = tabs[(index + offset + tabs.length) % tabs.length];
       next.focus();
-      setView(["metrics", "backlog", "board", "quality", "activity", "retrospective"][(index + offset + tabs.length) % tabs.length]);
+      setView(tabViews[(index + offset + tabs.length) % tabs.length]);
     });
   }
   elements.metricsMilestone.addEventListener("change", () => {
@@ -1515,12 +2430,62 @@
     elements.metricsDate.value = "";
     void loadDashboardMetrics();
   });
+  elements.metricsEffortApply.addEventListener("click", applyDeveloperMetricFilters);
+  elements.metricsEffortReset.addEventListener("click", () => {
+    model.developerMetricsRangeCustomized = false;
+    model.selectedMetricsDeveloperId = null;
+    void loadDashboardMetrics();
+  });
+  elements.metricsDeveloper.addEventListener("change", () => {
+    model.selectedMetricsDeveloperId = elements.metricsDeveloper.value || null;
+    renderMetrics();
+  });
+  elements.historyApply.addEventListener("click", () => {
+    if (!isHistoryDateSelectable()) {
+      void loadProjectHistory();
+      return;
+    }
+    model.historyCursor = null;
+    void loadProjectHistory();
+  });
+  elements.historyDate.addEventListener("change", () => {
+    model.historyDate = elements.historyDate.value || null;
+    model.historyCursor = null;
+    model.historySnapshot = null;
+    elements.historyContent.innerHTML = '<div class="history-empty">Escolha “Ver retrato” para carregar a data selecionada.</div>';
+    elements.historyApply.disabled = !isHistoryDateSelectable();
+    if (isHistoryDateSelectable()) {
+      elements.historyError.hidden = true;
+      elements.historyMeta.textContent = "Aguardando a consulta da data selecionada.";
+    } else {
+      elements.historyError.textContent = historyDateBoundsMessage();
+      elements.historyError.hidden = false;
+      elements.historyMeta.textContent = "A data escolhida está fora do período disponível.";
+    }
+  });
+  elements.historyToday.addEventListener("click", () => {
+    if (!model.project) return;
+    elements.historyDate.value = projectLocalDate(new Date(), model.project.timezone);
+    model.historyDate = elements.historyDate.value;
+    model.historyCursor = null;
+    void loadProjectHistory();
+  });
+  elements.historyContent.addEventListener("click", (event) => {
+    if (event.target.closest("#history-load-more") && model.historyCursor) {
+      void loadProjectHistory(model.historyCursor);
+    }
+  });
   elements.metricsContent.addEventListener("click", (event) => {
     const point = event.target.closest("[data-metric-date]");
     if (!point) return;
     model.selectedMetricsDate = point.getAttribute("data-metric-date");
     elements.metricsDate.value = model.selectedMetricsDate;
     void loadDashboardMetrics();
+  });
+  elements.metricsContent.addEventListener("change", (event) => {
+    if (!event.target.matches("#metrics-velocity-window")) return;
+    model.metricsVelocityWindow = Number(event.target.value);
+    renderMetrics();
   });
   elements.metricsContent.addEventListener("keydown", (event) => {
     if ((event.key !== "Enter" && event.key !== " ") || !event.target.matches("[data-metric-date]")) return;
@@ -1531,6 +2496,7 @@
   });
   elements.loadMoreActivity.addEventListener("click", () => { void loadMoreActivity(); });
   elements.targetState.addEventListener("change", updateBuildField);
+  elements.targetState.addEventListener("change", () => { void updateTransitionStartHint(); });
   elements.transitionForm.addEventListener("submit", (event) => { void submitTransition(event); });
   elements.applyActivityFilter.addEventListener("click", () => { void applyActivityFilters(); });
   elements.retrospectiveSprint.addEventListener("change", () => {
@@ -1549,11 +2515,55 @@
   elements.detailMove.addEventListener("click", () => {
     if (model.currentItem) openTransition(model.currentItem);
   });
+  elements.itemDetails.addEventListener("change", (event) => {
+    if (event.target.id === "task-workflow-history") void loadTaskWorkflowRevision(Number(event.target.value));
+  });
+  elements.taskWorkflowForm.addEventListener("submit", (event) => { void submitTaskWorkflowForm(event); });
+  elements.publishTaskWorkflow.addEventListener("click", () => { void publishTaskWorkflowDraft(); });
+  elements.addTaskWorkflowStep.addEventListener("click", () => {
+    const rows = elements.taskWorkflowStepList.querySelectorAll(".workflow-step-editor");
+    if (rows.length >= 50) {
+      toast("O workflow pode ter no máximo 50 etapas.", true);
+      return;
+    }
+    elements.taskWorkflowStepList.insertAdjacentHTML("beforeend", workflowEditorRow({}, rows.length + 1));
+    model.workflowEditorDirty = true;
+    updateWorkflowEditorOrder();
+    updateWorkflowEditorState();
+    elements.taskWorkflowStepList.querySelector(".workflow-step-editor:last-child [data-workflow-title]").focus();
+  });
+  elements.taskWorkflowStepList.addEventListener("input", () => {
+    model.workflowEditorDirty = true;
+    updateWorkflowEditorState();
+  });
+  elements.taskWorkflowReason.addEventListener("input", () => { updateWorkflowEditorState(); });
+  elements.taskWorkflowStepList.addEventListener("click", (event) => {
+    const row = event.target.closest(".workflow-step-editor");
+    if (!row) return;
+    if (event.target.closest("[data-workflow-remove]")) {
+      if (elements.taskWorkflowStepList.querySelectorAll(".workflow-step-editor").length <= 1) {
+        toast("Um workflow deve conter pelo menos uma etapa.", true);
+        return;
+      }
+      row.remove();
+    } else if (event.target.closest("[data-workflow-up]") && row.previousElementSibling) {
+      row.parentElement.insertBefore(row, row.previousElementSibling);
+    } else if (event.target.closest("[data-workflow-down]") && row.nextElementSibling) {
+      row.parentElement.insertBefore(row.nextElementSibling, row);
+    } else return;
+    model.workflowEditorDirty = true;
+    updateWorkflowEditorOrder();
+    updateWorkflowEditorState();
+  });
   elements.detailEdit.addEventListener("click", () => {
     if (model.currentItem) void openWorkItemEditor(model.currentItem);
   });
   elements.createWorkItem.addEventListener("click", () => { void openWorkItemEditor(); });
   elements.workItemForm.addEventListener("submit", (event) => { void submitWorkItemForm(event); });
+  elements.workItemType.addEventListener("change", () => {
+    updateWorkItemParentOptions("");
+    updateWorkItemValueFields();
+  });
   elements.createScenario.addEventListener("click", () => { void openScenarioEditor(); });
   elements.scenarioForm.addEventListener("submit", (event) => { void submitScenarioForm(event); });
   elements.testRunForm.addEventListener("submit", (event) => { void submitTestRun(event); });
@@ -1572,6 +2582,15 @@
     const scenarioPublish = event.target.closest("[data-publish-scenario]");
     if (scenarioPublish) {
       void publishScenario(scenarioPublish.getAttribute("data-publish-scenario"), Number(scenarioPublish.getAttribute("data-revision")));
+      return;
+    }
+    if (event.target.closest("[data-edit-task-workflow]")) {
+      openTaskWorkflowEditor();
+      return;
+    }
+    const workflowStatus = event.target.closest("[data-workflow-status]");
+    if (workflowStatus) {
+      void changeTaskWorkflowStep(workflowStatus);
       return;
     }
     const scenarioRevise = event.target.closest("[data-revise-scenario]");
@@ -1600,7 +2619,7 @@
   document.querySelectorAll(".close-dialog").forEach((button) => {
     button.addEventListener("click", () => button.closest("dialog").close());
   });
-  for (const dialog of [elements.itemDialog, elements.transitionDialog, elements.workItemDialog, elements.scenarioDialog]) {
+  for (const dialog of [elements.itemDialog, elements.transitionDialog, elements.workItemDialog, elements.scenarioDialog, elements.taskWorkflowDialog]) {
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) dialog.close();
     });

@@ -6,6 +6,17 @@ import process from "node:process";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
+const usage = "Uso: node scripts/sync-roadmap-to-mcp.mjs --apply\n       node scripts/sync-roadmap-to-mcp.mjs --help\n";
+const arguments_ = process.argv.slice(2);
+if (arguments_.length === 1 && ["--help", "-h"].includes(arguments_[0])) {
+  process.stdout.write(`${usage}\n--apply  Sincroniza o roadmap com o workspace MCP configurado.\n`);
+  process.exit(0);
+}
+if (arguments_.length !== 1 || arguments_[0] !== "--apply") {
+  process.stderr.write(`${usage}\nA sincronização altera o workspace MCP; informe --apply explicitamente.\n`);
+  process.exit(2);
+}
+
 const workspace = resolve(process.env.SSDD_WORKSPACE ?? process.cwd());
 const projectKey = process.env.SSDD_PROJECT_KEY ?? "SSDD";
 const roadmap = readFileSync(resolve(workspace, "ROADMAP.md"), "utf8");
@@ -151,7 +162,7 @@ function parseRoadmap(markdown) {
   assert.equal(installerFeatures.reduce((count, feature) => count + feature.stories.length, 0), 4, "Expected four local agent installer stories");
   assert.equal(installerFeatures.reduce((count, feature) => count + feature.stories.reduce((storyCount, story) => storyCount + story.tasks.length, 0), 0), 11,
     "Expected eleven local agent installer tasks");
-  assert.equal(improvementTasks.length, 14, "Expected fourteen technical and enterprise improvement tasks (SSDD-902 through SSDD-915)");
+  assert.equal(improvementTasks.length, 35, "Expected thirty-five technical and enterprise improvement tasks (SSDD-902 through SSDD-936)");
   for (const entry of sprints) {
     if (!entry.goal) {
       entry.goal = `Executar as tarefas refinadas para ${entry.name}: ${entry.tasks.map((task) => task.title).join("; ")}.`;
@@ -194,11 +205,13 @@ function managedItemKey(item, titleKeys) {
     const sprintNumber = item.title.match(/^Sprint (\d+) · /)?.[1];
     if (sprintNumber) return `S${sprintNumber.padStart(2, "0")}`;
     if (item.title === "Habilitação de agentes") return "agent-enablement";
+    if (item.title === "Melhorias do MCP e governança enterprise") return "improvement-backlog";
   }
   if (item.type === "story") {
     const sprintNumber = item.title.match(/^Meta da Sprint (\d+)$/)?.[1];
     if (sprintNumber) return `S${sprintNumber.padStart(2, "0")}-GOAL`;
     if (item.title === "Fluxos guiados por papel de agente") return "agent-enablement-goal";
+    if (item.title === "Executar melhorias de engenharia e governança") return "improvement-goal";
   }
   if (item.type === "task") return item.title.match(/^(SSDD-\d{3}) · /)?.[1] ?? titleKeys.get(`task:${item.title}`);
   return titleKeys.get(`${item.type}:${item.title}`);
@@ -370,7 +383,9 @@ try {
 
   const managedItems = new Map();
   const mappedRoadmapItemIds = new Set([...roadmapMappings.values()].map((entry) => entry.itemId));
-  for (const item of await listAllWorkItems(client, projectId)) {
+  const initialItems = await listAllWorkItems(client, projectId);
+  const itemsById = new Map(initialItems.map((item) => [item.id, item]));
+  for (const item of initialItems) {
     // Preserve cancelled tasks with an explicit stable roadmap identity; ignore unrelated cancelled duplicates.
     if (item.state === "cancelled" && !mappedRoadmapItemIds.has(item.id)) continue;
     const key = managedItemKey(item, installerTitleKeys);
@@ -378,6 +393,15 @@ try {
       assert.ok(!managedItems.has(key), `Multiple roadmap items map to ${key}`);
       managedItems.set(key, item);
     }
+  }
+  for (const [roadmapId, mapping] of roadmapMappings) {
+    const mappedItem = itemsById.get(mapping.itemId);
+    assert.ok(mappedItem, `${roadmapId} points at a work item that is missing from the project`);
+    assert.equal(mappedItem.key, mapping.itemKey, `${roadmapId} mapping has a stale work item key`);
+    assert.equal(mappedItem.title, mapping.title, `${roadmapId} mapping has a stale work item title`);
+    const existing = managedItems.get(roadmapId);
+    assert.ok(!existing || existing.id === mappedItem.id, `${roadmapId} maps to multiple work items`);
+    managedItems.set(roadmapId, mappedItem);
   }
 
   const epicIds = new Map();
@@ -511,6 +535,7 @@ try {
     }, "create improvement backlog story", "improvement-goal", managedItems);
     itemIds.set("improvement-goal", story.workItem.id);
     for (const task of improvementTasks) {
+      const mappedTask = roadmapMappings.has(task.id) ? managedItems.get(task.id) : undefined;
       const dependencyText = task.dependencies.length ? task.dependencies.join(", ") : "Nenhuma";
       const statusText = statuses.get(task.id) ?? task.status ?? "Sem registro individual em docs/status.md";
       const description = [
@@ -519,14 +544,15 @@ try {
         `Pontos relativos: ${task.points}.`,
         `Critério de aceite planejado: ${task.acceptance}`,
         `Dependências no roadmap: ${dependencyText}.`,
-        `Registro factual em docs/status.md (2026-11-11): ${statusText}`,
+        `Registro factual em docs/status.md (${statusDate}): ${statusText}`,
         "Estado de workflow SSDD: Draft na importação. Esta descrição não substitui gates, revisão de negócio/técnica ou evidência de aceite.",
       ].join("\n");
       const result = await createOrReuseWorkItem(client, {
         projectId,
         requestId: `roadmap-import-${task.id}`,
         type: "task",
-        parentId: story.workItem.id,
+        // A stable mapping preserves an explicitly curated hierarchy across imports.
+        parentId: mappedTask?.parentId ?? story.workItem.id,
         title: `${task.id} · ${task.title}`,
         description,
       }, `create ${task.id}`, task.id, managedItems);
@@ -635,7 +661,7 @@ try {
     type,
     type === "task" ? importedTaskItems.length : activeItems.filter((item) => item.type === type).length,
   ]));
-  assert.ok(counts.epic >= 4 && counts.feature >= 13 && counts.story >= 14 && counts.task >= 66,
+  assert.ok(counts.epic >= 4 && counts.feature >= 13 && counts.story >= 14 && counts.task >= 70,
     `Imported counts are incomplete: ${JSON.stringify(counts)}`);
   assert.equal(importedTaskItems.length, importedTasks.length,
     "Imported SSDD task IDs do not reconcile with the roadmap, including cancelled historical tasks");
@@ -674,7 +700,7 @@ try {
     assert.ok(mapping, `Stable ID ${task.id} has no persisted MCP mapping`);
     assert.equal(mapping.itemId, itemIds.get(task.id), `${task.id} resolves to a different task`);
   }
-  assert.equal(stableRoadmapTasks.length, 55, "Expected mappings for all 55 stable roadmap tasks");
+  assert.equal(stableRoadmapTasks.length, 76, "Expected mappings for all 76 stable roadmap tasks, including SSDD-934 through SSDD-936");
   assert.equal(finalMappings.size, stableRoadmapTasks.length, "MCP project contains unexpected roadmap ID mappings");
   let stableIdCollisionsVerified = 0;
   for (const [roadmapId, stableMapping] of finalMappings) {

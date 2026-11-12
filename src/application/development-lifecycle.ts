@@ -3,7 +3,11 @@ import type { SqliteDatabase } from "../storage-sqlite/database.js";
 import { ApplicationError } from "./errors.js";
 import { executeIdempotentCommand, type CommandReceipt } from "./idempotent-command.js";
 import { assertProjectAuthorization, type ProjectRole } from "./local-identity.js";
+import { localDayStart, nextLocalDayStart } from "./forecast-queries.js";
+import { getProject } from "./project-queries.js";
 import { getWorkItem } from "./work-item-queries.js";
+import { getTaskStartReadiness } from "./work-item-workflow.js";
+import { getCurrentTaskWorkflowProgress } from "./task-workflow-queries.js";
 
 export type DevelopmentSessionStatus = "active" | "paused" | "completed" | "cancelled";
 export type DevelopmentSessionAction = "pause" | "resume" | "complete" | "cancel";
@@ -24,6 +28,7 @@ export interface DevelopmentSession {
   readonly endedAt: string | null;
   readonly activeSeconds: number;
   readonly version: number;
+  readonly taskWorkflowRevisionNumber: number | null;
   readonly technicalSpecifications: readonly { readonly id: string; readonly key: string; readonly revisionNumber: number }[];
   readonly scenarios: readonly { readonly id: string; readonly key: string; readonly revisionNumber: number }[];
 }
@@ -125,9 +130,15 @@ export function startDevelopmentSession(
       assertVersion(current.version, input.expectedVersion);
       if (current.state !== "in_progress") throw new ApplicationError("INVALID_TRANSITION", "The task must be in_progress before a development session starts.");
       if (current.assigneeId !== input.principalId) throw new ApplicationError("FORBIDDEN", "Only the task's assigned developer can start its execution session.");
-      if (database.prepare("SELECT 1 FROM development_sessions WHERE project_id = ? AND item_id = ? AND status = 'active'").get(input.projectId, current.id)) {
-        throw new ApplicationError("CONFLICT", "The task already has an active development session.");
+      const readiness = getTaskStartReadiness(database, {
+        projectId: input.projectId,
+        principalId: input.principalId,
+        itemIdOrKey: current.id,
+      });
+      if (!readiness.canStart) {
+        throw new ApplicationError("START_BLOCKED", "The task no longer meets the development start gates.", { details: readiness });
       }
+      const workflowProgress = getCurrentTaskWorkflowProgress(database, input.projectId, current.id);
       const id = randomUUID();
       const now = new Date().toISOString();
       database.prepare(
@@ -139,6 +150,12 @@ export function startDevelopmentSession(
         `INSERT INTO development_session_events (event_id, project_id, session_id, event_type, principal_id, occurred_at)
          VALUES (?, ?, ?, 'started', ?, ?)`,
       ).run(randomUUID(), input.projectId, id, input.principalId, now);
+      if (workflowProgress !== null) {
+        database.prepare(
+          `INSERT INTO development_session_workflow_refs (project_id, session_id, item_id, revision_number, pinned_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        ).run(input.projectId, id, current.id, workflowProgress.revisionNumber, now);
+      }
       const specs = database.prepare(
         `SELECT s.spec_id, s.spec_key, r.revision_number
          FROM trace_links l
@@ -177,6 +194,7 @@ export function startDevelopmentSession(
         developerName: readPrincipalName(database, input.principalId),
         sessionReference, status: "active", startedAt: now, endedAt: null, activeSeconds: 0,
         version: 1,
+        taskWorkflowRevisionNumber: workflowProgress?.revisionNumber ?? null,
         technicalSpecifications: specs.map((spec) => ({ id: spec.spec_id, key: spec.spec_key, revisionNumber: spec.revision_number })),
         scenarios: scenarios.filter((scenario, index) => scenarios.findIndex((other) => other.scenario_id === scenario.scenario_id) === index)
           .map((scenario) => ({ id: scenario.scenario_id, key: scenario.scenario_key, revisionNumber: scenario.revision_number })),
@@ -210,6 +228,23 @@ export function transitionDevelopmentSession(
       const row = findSession(database, input.projectId, input.sessionId);
       if (row.developer_principal_id !== input.principalId) throw new ApplicationError("FORBIDDEN", "Only the developer who owns this session can change it.");
       assertVersion(row.version, input.expectedVersion);
+      if (input.action === "resume" && row.status === "paused") {
+        const assignedTask = getWorkItem(database, input.projectId, input.principalId, row.item_id);
+        if (assignedTask.assigneeId !== input.principalId) {
+          throw new ApplicationError("FORBIDDEN", "Only the currently assigned Developer can resume work on this task.", {
+            details: { itemKey: assignedTask.key, assigneeId: assignedTask.assigneeId },
+          });
+        }
+        const activeSession = database.prepare(
+          `SELECT session_id FROM development_sessions
+           WHERE project_id = ? AND item_id = ? AND status = 'active' AND session_id <> ? LIMIT 1`,
+        ).get(input.projectId, row.item_id, row.session_id) as { session_id: string } | undefined;
+        if (activeSession !== undefined) {
+          throw new ApplicationError("SESSION_CONFLICT", "Another Developer has an active session for this task.", {
+            details: { activeSessionId: activeSession.session_id },
+          });
+        }
+      }
       const now = new Date();
       const nowIso = now.toISOString();
       const activeSeconds = row.active_seconds + (row.status === "active" && row.last_resumed_at !== null
@@ -279,8 +314,10 @@ export interface DeveloperExecutionMetrics {
     readonly name: string;
     readonly completedSessions: number;
     readonly completedTasks: number;
+    readonly estimatedCompletedTasks: number;
     readonly activeHours: number;
     readonly activeHoursOnCompletedTasks: number;
+    readonly activeHoursOnEstimatedCompletedTasks: number;
     readonly estimatedHoursOnCompletedTasks: number;
     readonly estimateVariancePercent: number | null;
     readonly effortCalibrationFactor: number | null;
@@ -300,42 +337,50 @@ export function getDeveloperExecutionMetrics(database: SqliteDatabase, input: {
   const from = input.from ?? `${to.slice(0, 7)}-01`;
   validateDate(from); validateDate(to);
   if (from > to) throw new ApplicationError("VALIDATION_FAILED", "Metric period start must not be after its end.");
+  const timezone = getProject(database, input.principalId, input.projectId).timezone;
+  const startsAt = localDayStart(from, timezone);
+  const endsBefore = nextLocalDayStart(to, timezone);
   const rows = database.prepare(
     `SELECT ds.developer_principal_id, p.display_name, COUNT(*) AS completed_sessions,
             SUM(ds.active_seconds) AS active_seconds
      FROM development_sessions ds INNER JOIN principals p ON p.principal_id = ds.developer_principal_id
-     WHERE ds.project_id = ? AND ds.status = 'completed' AND date(ds.ended_at) BETWEEN ? AND ?
+     WHERE ds.project_id = ? AND ds.status = 'completed' AND ds.ended_at >= ? AND ds.ended_at < ?
        AND (? IS NULL OR ds.developer_principal_id = ?)
      GROUP BY ds.developer_principal_id, p.display_name ORDER BY p.display_name COLLATE NOCASE`,
-  ).all(input.projectId, from, to, input.developerPrincipalId ?? null, input.developerPrincipalId ?? null) as Array<{
+  ).all(input.projectId, startsAt, endsBefore, input.developerPrincipalId ?? null, input.developerPrincipalId ?? null) as Array<{
     developer_principal_id: string; display_name: string; completed_sessions: number; active_seconds: number;
   }>;
   const doneRows = database.prepare(
     `WITH latest_done AS (
        SELECT t.item_id, t.transitioned_at,
          ROW_NUMBER() OVER (PARTITION BY t.item_id ORDER BY t.item_version DESC) AS done_rank
-       FROM work_item_state_transitions t INNER JOIN work_items wi ON wi.project_id = t.project_id AND wi.item_id = t.item_id
-       WHERE t.project_id = ? AND t.to_state = 'done' AND wi.state = 'done' AND date(t.transitioned_at) BETWEEN ? AND ?
+       FROM work_item_state_transitions t
+       WHERE t.project_id = ? AND t.to_state = 'done' AND t.transitioned_at >= ? AND t.transitioned_at < ?
      ), session_effort AS (
        SELECT ds.item_id, ds.developer_principal_id, SUM(ds.active_seconds) AS seconds
-       FROM development_sessions ds WHERE ds.project_id = ? AND ds.status = 'completed'
-       GROUP BY ds.item_id, ds.developer_principal_id
+       FROM development_sessions ds INNER JOIN latest_done d ON d.item_id = ds.item_id AND d.done_rank = 1
+         AND ds.ended_at <= d.transitioned_at
+       WHERE ds.project_id = ? AND ds.status = 'completed'
+       GROUP BY ds.item_id, ds.developer_principal_id, d.transitioned_at
      ), attributed AS (
        SELECT e.item_id, e.developer_principal_id, e.seconds,
          e.seconds * 1.0 / NULLIF(SUM(e.seconds) OVER (PARTITION BY e.item_id), 0) AS effort_share
        FROM session_effort e
      )
      SELECT a.developer_principal_id, p.display_name, COUNT(*) AS completed_tasks,
+            COUNT(DISTINCT CASE WHEN est.value > 0 THEN a.item_id END) AS estimated_completed_tasks,
             SUM(a.effort_share * COALESCE(est.value, 0)) AS estimated_hours,
-            SUM(a.seconds) AS active_seconds_on_completed_tasks
+            SUM(a.seconds) AS active_seconds_on_completed_tasks,
+            SUM(CASE WHEN est.value > 0 THEN a.seconds ELSE 0 END) AS active_seconds_on_estimated_completed_tasks
      FROM latest_done d INNER JOIN attributed a ON a.item_id = d.item_id AND d.done_rank = 1
      INNER JOIN principals p ON p.principal_id = a.developer_principal_id
      LEFT JOIN work_item_estimates est ON est.project_id = ? AND est.item_id = a.item_id AND est.unit = 'hours'
-     WHERE date(d.transitioned_at) BETWEEN ? AND ? AND (? IS NULL OR a.developer_principal_id = ?)
+     WHERE (? IS NULL OR a.developer_principal_id = ?)
      GROUP BY a.developer_principal_id, p.display_name`,
-  ).all(input.projectId, from, to, input.projectId, input.projectId, from, to,
+  ).all(input.projectId, startsAt, endsBefore, input.projectId, input.projectId,
     input.developerPrincipalId ?? null, input.developerPrincipalId ?? null) as Array<{
-    developer_principal_id: string; display_name: string; completed_tasks: number; estimated_hours: number; active_seconds_on_completed_tasks: number;
+    developer_principal_id: string; display_name: string; completed_tasks: number; estimated_completed_tasks: number;
+    estimated_hours: number; active_seconds_on_completed_tasks: number; active_seconds_on_estimated_completed_tasks: number;
   }>;
   const doneByDeveloper = new Map(doneRows.map((row) => [row.developer_principal_id, row]));
   const sessionByDeveloper = new Map(rows.map((row) => [row.developer_principal_id, row]));
@@ -346,18 +391,22 @@ export function getDeveloperExecutionMetrics(database: SqliteDatabase, input: {
     const estimatedHours = completed?.estimated_hours ?? 0;
     const actualHours = (row?.active_seconds ?? 0) / 3_600;
     const actualCompletedHours = (completed?.active_seconds_on_completed_tasks ?? 0) / 3_600;
+    const actualEstimatedCompletedHours = (completed?.active_seconds_on_estimated_completed_tasks ?? 0) / 3_600;
     const completedTasks = completed?.completed_tasks ?? 0;
+    const estimatedCompletedTasks = completed?.estimated_completed_tasks ?? 0;
     return {
       principalId,
       name: row?.display_name ?? completed?.display_name ?? principalId,
       completedSessions: row?.completed_sessions ?? 0,
       completedTasks,
+      estimatedCompletedTasks,
       activeHours: round2(actualHours),
       activeHoursOnCompletedTasks: round2(actualCompletedHours),
+      activeHoursOnEstimatedCompletedTasks: round2(actualEstimatedCompletedHours),
       estimatedHoursOnCompletedTasks: round2(estimatedHours),
-      estimateVariancePercent: estimatedHours > 0 ? round2(((actualCompletedHours - estimatedHours) / estimatedHours) * 100) : null,
-      effortCalibrationFactor: completedTasks >= 5 && estimatedHours > 0 ? round2(actualCompletedHours / estimatedHours) : null,
-      sampleSufficient: completedTasks >= 5,
+      estimateVariancePercent: estimatedHours > 0 ? round2(((actualEstimatedCompletedHours - estimatedHours) / estimatedHours) * 100) : null,
+      effortCalibrationFactor: estimatedCompletedTasks >= 5 && estimatedHours > 0 ? round2(actualEstimatedCompletedHours / estimatedHours) : null,
+      sampleSufficient: estimatedCompletedTasks >= 5,
     };
   });
   return { projectId: input.projectId, period: { from, to }, minimumSampleTasks: 5, developers };
@@ -513,11 +562,17 @@ function sessionFromRow(database: SqliteDatabase, row: SessionRow, nowMs: number
     const scenario = value as { scenario_id: string; scenario_key: string; revision_number: number };
     return { id: scenario.scenario_id, key: scenario.scenario_key, revisionNumber: scenario.revision_number };
   });
+  const workflowReference = database.prepare(
+    `SELECT revision_number FROM development_session_workflow_refs
+     WHERE project_id = ? AND session_id = ?`,
+  ).get(row.project_id, row.session_id) as { revision_number: number } | undefined;
   return {
     id: row.session_id, projectId: row.project_id, itemId: row.item_id, itemKey: row.item_key, itemTitle: row.item_title,
     developerPrincipalId: row.developer_principal_id, developerName: row.developer_name,
     sessionReference: row.session_reference, status: row.status, startedAt: row.started_at, endedAt: row.ended_at,
-    activeSeconds: row.active_seconds + activeNow, version: row.version, technicalSpecifications, scenarios,
+    activeSeconds: row.active_seconds + activeNow, version: row.version,
+    taskWorkflowRevisionNumber: workflowReference?.revision_number ?? null,
+    technicalSpecifications, scenarios,
   };
 }
 

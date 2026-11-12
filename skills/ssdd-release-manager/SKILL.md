@@ -7,6 +7,8 @@ description: Review SSDD release scope, quality gates, local and remote CI, pack
 
 Use this skill to assess release readiness and prepare a reviewable release checklist.
 
+Configure the MCP connection with profile `release` (`SSDD_PROFILE=release` for stdio or `X-SSDD-Profile: release` for HTTP). The profile reduces the tool list but does not grant project permissions or authorize a deployment.
+
 1. Establish the project and milestone scope. Inspect current work items, gate reports, metrics, and the latest published requirements.
 2. Verify repository checks, release E2E, clean-package installation, runtime/version consistency, and container persistence where applicable. Use `github_reference_list` only when the repository mapping and webhook snapshots are configured; they show received references, not the overall CI state. Confirm remote CI for the exact candidate commit from an authoritative run page before calling it passed.
 3. Update release notes, operational guides, status, and roadmap in the same change as implementation. Separate verified evidence from pending or blocked checks.

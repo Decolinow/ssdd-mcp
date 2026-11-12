@@ -28,9 +28,29 @@ it("reuses imported roadmap items, preserves cancelled mapped tasks, and ignores
   const syncScriptPath = join(repositoryRoot, "scripts", "sync-roadmap-to-mcp.mjs");
 
   try {
+    const help = spawnSync(process.execPath, [syncScriptPath, "--help"], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    assert.equal(help.status, 0, `${help.stdout}\n${help.stderr}`);
+    assert.match(help.stdout, /--apply/);
+    const implicitApply = spawnSync(process.execPath, [syncScriptPath], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    assert.equal(implicitApply.status, 2);
+    assert.match(implicitApply.stderr, /informe --apply explicitamente/);
+
     mkdirSync(join(workspace, "docs"), { recursive: true });
     copyFileSync(join(repositoryRoot, "ROADMAP.md"), join(workspace, "ROADMAP.md"));
-    copyFileSync(join(repositoryRoot, "docs", "status.md"), join(workspace, "docs", "status.md"));
+    const statusPath = join(workspace, "docs", "status.md");
+    copyFileSync(join(repositoryRoot, "docs", "status.md"), statusPath);
+    const fixtureStatus = readFileSync(statusPath, "utf8");
+    const datedFixtureStatus = fixtureStatus.replace(/^\*\*Atualizado em:\*\*\s*\d{4}-\d{2}-\d{2}$/m, "**Atualizado em:** 2099-06-15");
+    assert.notEqual(datedFixtureStatus, fixtureStatus, "The status document must declare its update date");
+    writeFileSync(statusPath, datedFixtureStatus, "utf8");
 
     const initialized = spawnSync(process.execPath, [
       cliPath,
@@ -47,27 +67,47 @@ it("reuses imported roadmap items, preserves cancelled mapped tasks, and ignores
       "America/Sao_Paulo",
     ], { cwd: repositoryRoot, encoding: "utf8", timeout: 30_000 });
     assert.equal(initialized.status, 0, `${initialized.stdout}\n${initialized.stderr}`);
+    const mappedTask = await seedMappedTaskUnderExistingParent(workspace, cliPath);
 
     const firstRun = runSync(syncScriptPath, cliPath, workspace, repositoryRoot);
     const initialSummary = readSummary(firstRun.stdout);
-    assert.equal(initialSummary.roadmapTasks, 66);
-    assert.equal(initialSummary.stableRoadmapIdsMapped, 55);
+    assert.equal(initialSummary.roadmapTasks, 87);
+    assert.equal(initialSummary.stableRoadmapIdsMapped, 76);
     assert.equal(initialSummary.installerTasks, 11);
     assert.equal(initialSummary.installerStoryPoints, 26);
     assert.equal(initialSummary.installerTaskHours, 49);
-    assert.equal(initialSummary.dependencyLinksReconciled, 127);
-    assert.deepEqual(initialSummary.counts, { epic: 4, feature: 13, story: 14, task: 66 });
+    assert.equal(initialSummary.dependencyLinksReconciled, 172);
+    assert.deepEqual(initialSummary.counts, { epic: 4, feature: 13, story: 15, task: 87 });
     const mappingDocument = JSON.parse(readFileSync(join(workspace, ".ssdd", "roadmap-id-map.json"), "utf8")) as {
       projectId: string;
       items: Record<string, { itemId: string; itemKey: string; title: string }>;
     };
     assert.equal(mappingDocument.projectId, initialSummary.projectId);
-    assert.equal(Object.keys(mappingDocument.items).length, 55);
+    assert.equal(Object.keys(mappingDocument.items).length, 76);
     assert.ok(mappingDocument.items["SSDD-902"]);
+    assert.equal(mappingDocument.items["SSDD-924"]?.itemId, mappedTask.itemId);
+    assert.ok(mappingDocument.items["SSDD-925"]);
+    assert.ok(mappingDocument.items["SSDD-926"]);
+    assert.ok(mappingDocument.items["SSDD-927"]);
+    assert.ok(mappingDocument.items["SSDD-928"]);
+    assert.ok(mappingDocument.items["SSDD-929"]);
+    assert.ok(mappingDocument.items["SSDD-930"]);
+    assert.ok(mappingDocument.items["SSDD-931"]);
+    assert.ok(mappingDocument.items["SSDD-932"]);
+    assert.ok(mappingDocument.items["SSDD-933"]);
+    assert.ok(mappingDocument.items["SSDD-934"]);
+    assert.ok(mappingDocument.items["SSDD-935"]);
+    assert.ok(mappingDocument.items["SSDD-936"]);
+    const importedImprovement = await readRoadmapTask(workspace, cliPath, mappingDocument.projectId, mappingDocument.items["SSDD-904"]!.itemId);
+    assert.match(importedImprovement.description, /docs\/status\.md \(2099-06-15\)/);
+    const activityImprovement = await readRoadmapTask(workspace, cliPath, mappingDocument.projectId, mappingDocument.items["SSDD-924"]!.itemId);
+    assert.equal(activityImprovement.parentId, mappedTask.parentId, "Sync must preserve an explicitly mapped parent");
+    assert.equal(activityImprovement.description, "Original manually curated task; preserve its content on roadmap sync.");
+    const traceabilityImprovement = await readRoadmapTask(workspace, cliPath, mappingDocument.projectId, mappingDocument.items["SSDD-925"]!.itemId);
+    assert.match(traceabilityImprovement.description, /cada tarefa não cancelada/i);
 
     await cancelMappedTask(workspace, cliPath, mappingDocument.projectId, mappingDocument.items["SSDD-914"]!.itemId);
 
-    const statusPath = join(workspace, "docs", "status.md");
     const originalStatus = readFileSync(statusPath, "utf8");
     const revisedStatus = originalStatus.replace(
       /^\| SSDD-901 \|[^\r\n]*/m,
@@ -91,8 +131,69 @@ it("reuses imported roadmap items, preserves cancelled mapped tasks, and ignores
   }
 });
 
+async function readRoadmapTask(workspace: string, cliPath: string, projectId: string, itemId: string): Promise<{ description: string; parentId: string | null }> {
+  const client = new Client({ name: "ssdd-roadmap-task-read", version: "1.0.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [cliPath, "stdio", "--workspace", workspace],
+    stderr: "ignore",
+  });
+  await client.connect(transport);
+  try {
+    const response = await client.callTool({ name: "work_item_get", arguments: { projectId, itemIdOrKey: itemId } });
+    assert.notEqual(response.isError, true);
+    const workItem = (response.structuredContent as { workItem?: { description: string; parentId: string | null } } | undefined)?.workItem;
+    assert.ok(workItem);
+    return { description: workItem.description, parentId: workItem.parentId };
+  } finally {
+    await client.close();
+  }
+}
+
+async function seedMappedTaskUnderExistingParent(workspace: string, cliPath: string): Promise<{ itemId: string; parentId: string }> {
+  const client = new Client({ name: "ssdd-roadmap-mapped-task-seed", version: "1.0.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [cliPath, "stdio", "--workspace", workspace],
+    stderr: "ignore",
+  });
+  await client.connect(transport);
+  try {
+    const projectResult = await client.callTool({ name: "project_list", arguments: {} });
+    assert.notEqual(projectResult.isError, true);
+    const projectId = (projectResult.structuredContent as { projects: Array<{ id: string }> }).projects[0]?.id;
+    assert.ok(projectId);
+    const create = async (requestId: string, type: "epic" | "feature" | "story" | "task", title: string, parentId?: string, description?: string) => {
+      const result = await client.callTool({
+        name: "work_item_create",
+        arguments: { projectId, requestId, type, title, ...(parentId ? { parentId } : {}), ...(description ? { description } : {}) },
+      });
+      assert.notEqual(result.isError, true);
+      return (result.structuredContent as { workItem: { id: string } }).workItem;
+    };
+    const epic = await create("seed-roadmap-epic-e4", "epic", "E4 · Compartilhamento e distribuição");
+    const feature = await create("seed-roadmap-improvement-feature", "feature", "Melhorias do MCP e governança enterprise", epic.id);
+    const story = await create("seed-roadmap-dashboard-story", "story", "Dashboard pré-existente", feature.id);
+    const task = await create(
+      "seed-roadmap-dashboard-task-924",
+      "task",
+      "Exibir chaves e títulos legíveis na atividade auditada",
+      story.id,
+      "Original manually curated task; preserve its content on roadmap sync.",
+    );
+    const bind = await client.callTool({
+      name: "roadmap_id_bind",
+      arguments: { projectId, requestId: "seed-roadmap-bind-924", roadmapId: "SSDD-924", itemIdOrKey: task.id },
+    });
+    assert.notEqual(bind.isError, true);
+    return { itemId: task.id, parentId: story.id };
+  } finally {
+    await client.close();
+  }
+}
+
 function runSync(syncScriptPath: string, cliPath: string, workspace: string, cwd: string) {
-  const result = spawnSync(process.execPath, [syncScriptPath], {
+  const result = spawnSync(process.execPath, [syncScriptPath, "--apply"], {
     cwd,
     encoding: "utf8",
     timeout: 60_000,
@@ -113,6 +214,7 @@ function createCancelledDuplicate(workspace: string, cliPath: string, projectId:
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [cliPath, "stdio", "--workspace", workspace],
+    stderr: "ignore",
   });
   return client.connect(transport).then(async () => {
     const read = async <T>(name: string, arguments_: Record<string, unknown>): Promise<T> => {
@@ -153,7 +255,11 @@ function createCancelledDuplicate(workspace: string, cliPath: string, projectId:
 
 async function cancelMappedTask(workspace: string, cliPath: string, projectId: string, itemId: string): Promise<void> {
   const client = new Client({ name: "ssdd-roadmap-cancel-mapped-task", version: "1.0.0" });
-  const transport = new StdioClientTransport({ command: process.execPath, args: [cliPath, "stdio", "--workspace", workspace] });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [cliPath, "stdio", "--workspace", workspace],
+    stderr: "ignore",
+  });
   await client.connect(transport);
   try {
     const current = await client.callTool({ name: "work_item_get", arguments: { projectId, itemIdOrKey: itemId } });

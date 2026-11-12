@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,6 +32,15 @@ test("stdio exposes development and deployment lifecycle through MCP", async (co
     projectId: initialized.project.id, principalId, requestId: "mcp-life-task", type: "task", parentId: story.id,
     title: "Registrar sessão", description: "Desenvolver e validar a integração.",
   }).value;
+  const parentBaselineId = randomUUID();
+  const baselineCreatedAt = new Date().toISOString();
+  database.prepare("UPDATE work_items SET state = 'ready', version = version + 1 WHERE project_id = ? AND item_id = ?")
+    .run(initialized.project.id, story.id);
+  database.prepare(
+    `INSERT INTO work_baselines
+      (baseline_id, project_id, item_id, sequence, kind, reason, created_by_principal_id, created_at)
+     VALUES (?, ?, ?, 1, 'ready', 'Lifecycle stdio test baseline', ?, ?)`,
+  ).run(parentBaselineId, initialized.project.id, story.id, principalId, baselineCreatedAt);
   database.prepare("UPDATE work_items SET state = 'in_progress', assignee_principal_id = ? WHERE item_id = ?")
     .run(principalId, task.id);
   database.close();
@@ -39,6 +49,7 @@ test("stdio exposes development and deployment lifecycle through MCP", async (co
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [fileURLToPath(new URL("../../src/cli.js", import.meta.url)), "stdio", "--workspace", workspace],
+    stderr: "ignore",
   });
   context.after(async () => {
     await client.close();
@@ -76,10 +87,16 @@ test("stdio exposes development and deployment lifecycle through MCP", async (co
   assert.notEqual(sessionList.isError, true);
   assert.equal((sessionList.structuredContent as { sessions: Array<{ id: string; status: string }> }).sessions[0]?.status, "completed");
   const developerMetrics = await client.callTool({
-    name: "developer_execution_metrics_get", arguments: { projectId, from: new Date().toISOString().slice(0, 10), to: new Date().toISOString().slice(0, 10) },
+    name: "developer_execution_metrics_get", arguments: { projectId, from: projectToday(), to: projectToday() },
   });
   assert.notEqual(developerMetrics.isError, true);
-  assert.ok((developerMetrics.structuredContent as { developers: unknown[] }).developers.length > 0);
+  const developerMetricResult = developerMetrics.structuredContent as { developers: Array<{
+    activeHoursOnCompletedTasks: number; activeHoursOnEstimatedCompletedTasks: number; estimatedCompletedTasks: number;
+  }> };
+  assert.ok(developerMetricResult.developers.length > 0);
+  assert.equal(typeof developerMetricResult.developers[0]?.estimatedCompletedTasks, "number");
+  assert.equal(typeof developerMetricResult.developers[0]?.activeHoursOnCompletedTasks, "number");
+  assert.equal(typeof developerMetricResult.developers[0]?.activeHoursOnEstimatedCompletedTasks, "number");
 
   const failedProductionGate = await client.callTool({
     name: "deployment_event_record",
@@ -97,3 +114,11 @@ test("stdio exposes development and deployment lifecycle through MCP", async (co
   assert.notEqual(releaseHistory.isError, true);
   assert.equal((releaseHistory.structuredContent as { events: Array<{ outcome: string; itemIds: string[] }> }).events[0]?.outcome, "failed");
 });
+
+function projectToday(): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}

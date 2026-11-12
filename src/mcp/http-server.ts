@@ -19,8 +19,10 @@ import { join, resolve } from "node:path";
 import { applyMigrations } from "../storage-sqlite/migrations.js";
 import { findExternalPrincipalId } from "../application/external-identities.js";
 import { getOrCreateLocalPrincipal } from "../application/local-identity.js";
+import { ensureBootstrapAdministrator, resolvePrincipalFromAuthKey } from "../application/user-management.js";
 import { openSqliteDatabase, type SqliteDatabase } from "../storage-sqlite/database.js";
 import { createMcpServer } from "./server.js";
+import { parseMcpProfile, type McpProfile } from "./profiles.js";
 import { createOidcHttpAuth, validateOidcHttpAuthOptions, type OidcHttpAuth, type OidcHttpAuthOptions } from "./oidc-auth.js";
 import { receiveWebhookRequest, validateWebhookSecrets, type WebhookSecrets } from "./webhook-receiver.js";
 import { readGithubRepositoriesFromEnvironment, validateGithubRepositoryMappings, type GithubRepositoryMappings } from "../application/github-webhooks.js";
@@ -30,6 +32,7 @@ import {
   validateAzureDevOpsConnections,
   type AzureDevOpsConnections,
 } from "../integrations/azure-devops-work-items.js";
+import { readTextEmbeddingProviderFromEnvironment, type TextEmbeddingProvider } from "../integrations/embeddings.js";
 
 export const maximumMcpHttpRequestBytes = 1_048_576;
 
@@ -52,6 +55,7 @@ interface McpSession {
   readonly server: ReturnType<typeof createMcpServer>;
   readonly transport: WebStandardStreamableHTTPServerTransport;
   readonly principalId: string;
+  readonly profile: McpProfile;
   sessionId: string | undefined;
   disposed: boolean;
 }
@@ -59,6 +63,7 @@ interface McpSession {
 export interface McpHttpServer {
   readonly server: Server;
   readonly ready: Promise<void>;
+  readonly bootstrapAuthKey: string | undefined;
   readonly close: () => Promise<void>;
 }
 
@@ -74,6 +79,7 @@ export interface McpHttpServerOptions extends Partial<Pick<OidcHttpAuthOptions, 
   readonly githubRepositories?: GithubRepositoryMappings;
   readonly githubIssueTokens?: GithubIssueTokens;
   readonly azureDevOpsConnections?: AzureDevOpsConnections;
+  readonly embeddingProvider?: TextEmbeddingProvider;
 }
 
 export function createMcpHttpServer(workspace: string, options: McpHttpServerOptions = {}): McpHttpServer {
@@ -95,10 +101,12 @@ export function createMcpHttpServer(workspace: string, options: McpHttpServerOpt
   validateGithubIssueTokens(githubIssueTokens);
   const azureDevOpsConnections = options.azureDevOpsConnections ?? readAzureDevOpsConnectionsFromEnvironment();
   validateAzureDevOpsConnections(azureDevOpsConnections);
+  const embeddingProvider = options.embeddingProvider ?? readTextEmbeddingProviderFromEnvironment();
   const integrations = {
     githubRepositories,
     githubIssueTokens,
     azureDevOpsConnections,
+    ...(embeddingProvider === undefined ? {} : { embeddingProvider }),
   };
   const allowedOrigins = normalizeAllowedOrigins(options.allowedOrigins ?? []);
   const databasePath = join(resolve(workspace), ".ssdd", "ssdd.sqlite");
@@ -110,13 +118,19 @@ export function createMcpHttpServer(workspace: string, options: McpHttpServerOpt
   try {
     applyMigrations(database);
     const principal = getOrCreateLocalPrincipal(database);
+    const bootstrapAdministrator = ensureBootstrapAdministrator(database, principal.id);
     const sessions = new Map<string, McpSession>();
     const oidcAuthPromise: Promise<OidcHttpAuth | undefined> = hasIssuer
       ? createOidcHttpAuth({ issuer: options.issuer!, resourceUrl: options.resourceUrl! })
       : Promise.resolve(undefined);
     const ready = oidcAuthPromise.then(() => undefined);
     const modernHandler = createMcpHandler(
-      (context) => createMcpServer(database, principalIdFromAuthInfo(context.authInfo, principal.id), integrations),
+      (context) => createMcpServer(
+        database,
+        principalIdFromAuthInfo(context.authInfo, principal.id),
+        integrations,
+        profileFromAuthInfo(context.authInfo),
+      ),
       {
         legacy: "reject",
         maxRequestBodySize: maximumMcpHttpRequestBytes,
@@ -146,6 +160,7 @@ export function createMcpHttpServer(workspace: string, options: McpHttpServerOpt
     return {
       server,
       ready,
+      bootstrapAuthKey: bootstrapAdministrator.authKey ?? undefined,
       close: async () => {
         const stopped = stopHttpServer(server);
         await modernHandler.close();
@@ -187,11 +202,14 @@ export function startMcpHttpServer(
   options: McpHttpServerOptions = {},
 ): McpHttpServer {
   const handle = createMcpHttpServer(workspace, options);
+  if (handle.bootstrapAuthKey !== undefined) {
+    writeLine(`Administrador inicial SSDD. Guarde esta authKey; ela será exibida uma única vez: ${handle.bootstrapAuthKey}`);
+  }
   void listenMcpHttpServer(handle, port).then(({ origin }) => {
     writeLine(`MCP Streamable HTTP: ${options.resourceUrl ?? `${origin}${mcpPath}`}`);
     writeLine(options.issuer === undefined
-      ? "Acesso restrito a loopback com identidade local do sistema operacional."
-      : `OAuth/OIDC ativo com emissor ${options.issuer} e escopo ssdd:mcp.`);
+      ? "Acesso por authKey SSDD ou identidade local de loopback."
+      : `OAuth/OIDC ativo com emissor ${options.issuer}, escopo ssdd:mcp e suporte a authKey SSDD.`);
     if (Object.keys(options.webhookSecrets ?? {}).length > 0) {
       writeLine("Recepção de webhooks autenticada por assinatura está ativa.");
     }
@@ -229,6 +247,7 @@ async function handleRequest(
     readonly githubRepositories: GithubRepositoryMappings;
     readonly githubIssueTokens: GithubIssueTokens;
     readonly azureDevOpsConnections: AzureDevOpsConnections;
+    readonly embeddingProvider?: TextEmbeddingProvider;
   },
 ): Promise<void> {
   const oidcAuth = await oidcAuthPromise;
@@ -361,16 +380,45 @@ async function handleRequest(
     return;
   }
 
-  const authResult = oidcAuth === undefined ? undefined : await oidcAuth.authenticate(headerRequest);
-  if (authResult instanceof Response) {
+  let profile: McpProfile;
+  try {
+    profile = readProfileHeader(incoming);
+  } catch (error) {
     await closeConnectionForUnreadBody(incoming, outgoing);
-    await writeWebResponse(authResult, outgoing);
+    sendJson(outgoing, 400, {
+      code: "PROFILE_INVALID",
+      message: error instanceof Error ? error.message : "The MCP profile is invalid.",
+    });
     return;
   }
-  const authInfo = authResult;
-  const principalId = authInfo === undefined
-    ? localPrincipalId
-    : resolveExternalPrincipal(database, authInfo);
+
+  const authorization = readAuthorizationHeader(incoming);
+  let authInfo: AuthInfo | undefined;
+  let principalId: string | undefined;
+  if (authorization?.startsWith("ssdd_")) {
+    principalId = resolvePrincipalFromAuthKey(database, authorization);
+    if (principalId === undefined) {
+      await closeConnectionForUnreadBody(incoming, outgoing);
+      sendAuthKeyUnauthorized(outgoing);
+      return;
+    }
+    authInfo = syntheticAuthInfo(principalId, profile);
+  } else if (oidcAuth !== undefined) {
+    const authResult = await oidcAuth.authenticate(headerRequest);
+    if (authResult instanceof Response) {
+      await closeConnectionForUnreadBody(incoming, outgoing);
+      await writeWebResponse(authResult, outgoing);
+      return;
+    }
+    authInfo = authResult;
+    principalId = resolveExternalPrincipal(database, authInfo);
+  } else if (authorization !== undefined) {
+    await closeConnectionForUnreadBody(incoming, outgoing);
+    sendAuthKeyUnauthorized(outgoing);
+    return;
+  } else {
+    principalId = localPrincipalId;
+  }
   if (principalId === undefined) {
     await closeConnectionForUnreadBody(incoming, outgoing);
     sendJson(outgoing, 403, {
@@ -381,7 +429,9 @@ async function handleRequest(
   }
   if (authInfo !== undefined) {
     const extra = authInfo.extra ?? {};
-    authInfo.extra = { ...extra, principalId };
+    authInfo.extra = { ...extra, principalId, ssddProfile: profile };
+  } else if (profile !== "full") {
+    authInfo = syntheticAuthInfo(principalId, profile);
   }
 
   const webRequest = toWebRequest(incoming, requestUrl);
@@ -408,7 +458,7 @@ async function handleRequest(
       sendJson(outgoing, 400, { code: "SESSION_REQUIRED", message: "Initialize an MCP session before using this method." });
       return;
     }
-    session = await createSession(database, principalId, sessions, integrations);
+    session = await createSession(database, principalId, profile, sessions, integrations);
   } else {
     session = sessions.get(sessionId);
     if (session === undefined) {
@@ -419,6 +469,11 @@ async function handleRequest(
     if (session.principalId !== principalId) {
       await closeConnectionForUnreadBody(incoming, outgoing);
       sendJson(outgoing, 403, { code: "SESSION_PRINCIPAL_MISMATCH", message: "This MCP session belongs to another principal." });
+      return;
+    }
+    if (session.profile !== profile) {
+      await closeConnectionForUnreadBody(incoming, outgoing);
+      sendJson(outgoing, 403, { code: "SESSION_PROFILE_MISMATCH", message: "This MCP session is bound to a different profile." });
       return;
     }
   }
@@ -444,17 +499,20 @@ async function handleRequest(
 async function createSession(
   database: SqliteDatabase,
   principalId: string,
+  profile: McpProfile,
   sessions: Map<string, McpSession>,
   integrations: {
     readonly githubRepositories: GithubRepositoryMappings;
     readonly githubIssueTokens: GithubIssueTokens;
     readonly azureDevOpsConnections: AzureDevOpsConnections;
+    readonly embeddingProvider?: TextEmbeddingProvider;
   },
 ): Promise<McpSession> {
-  const mcpServer = createMcpServer(database, principalId, integrations);
+  const mcpServer = createMcpServer(database, principalId, integrations, profile);
   const session: McpSession = {
     server: mcpServer,
     principalId,
+    profile,
     get transport() {
       return transport;
     },
@@ -595,6 +653,42 @@ function principalIdFromAuthInfo(authInfo: AuthInfo | undefined, localPrincipalI
   const principalId = authInfo.extra?.principalId;
   if (typeof principalId !== "string") throw new Error("Authenticated MCP request has no provisioned principal.");
   return principalId;
+}
+
+function profileFromAuthInfo(authInfo: AuthInfo | undefined): McpProfile {
+  const profile = authInfo?.extra?.ssddProfile;
+  return parseMcpProfile(typeof profile === "string" ? profile : undefined);
+}
+
+function readProfileHeader(request: IncomingMessage): McpProfile {
+  const value = request.headers["x-ssdd-profile"];
+  if (Array.isArray(value)) throw new Error("Send only one X-SSDD-Profile header.");
+  return parseMcpProfile(value);
+}
+
+function readAuthorizationHeader(request: IncomingMessage): string | undefined {
+  const header = request.headers.authorization;
+  if (header === undefined) return undefined;
+  if (Array.isArray(header)) return "invalid-authorization-header";
+  const match = /^Bearer\s+([^\s]+)$/iu.exec(header.trim());
+  return match?.[1] ?? "invalid-authorization-header";
+}
+
+function syntheticAuthInfo(principalId: string, profile: McpProfile): AuthInfo {
+  return {
+    token: "ssdd-authenticated-context",
+    clientId: "ssdd-auth-key",
+    scopes: ["ssdd:mcp"],
+    extra: { principalId, ssddProfile: profile },
+  };
+}
+
+function sendAuthKeyUnauthorized(response: ServerResponse): void {
+  response.setHeader("WWW-Authenticate", 'Bearer realm="ssdd-mcp"');
+  sendJson(response, 401, {
+    error: "invalid_auth_key",
+    error_description: "A valid SSDD authKey is required for this request.",
+  });
 }
 
 function normalizeAllowedOrigins(values: readonly string[]): string[] {

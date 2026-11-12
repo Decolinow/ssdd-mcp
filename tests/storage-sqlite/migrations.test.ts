@@ -68,7 +68,7 @@ describe("schema migrations", () => {
       "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'team_config_versions'",
     ).get() as { name: string } | undefined;
 
-    assert.equal(version.version, 26);
+    assert.equal(version.version, 32);
     assert.deepEqual(preserved, { project_key: "MIG12", name: "Migration owner" });
     assert.ok(sequenceColumn.some((column) => column.name === "sequence" && column.pk === 1));
     assert.match(evidenceSql.sql, /AUTOINCREMENT/);
@@ -89,6 +89,12 @@ describe("schema migrations", () => {
       .get() as { name: string } | undefined)?.name, "webhook_receipts");
     assert.equal((database.prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger' AND name = 'webhook_receipts_immutable_delete'")
       .get() as { name: string } | undefined)?.name, "webhook_receipts_immutable_delete");
+    assert.equal((database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'principal_api_keys'")
+      .get() as { name: string } | undefined)?.name, "principal_api_keys");
+    assert.equal((database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'work_item_embeddings'")
+      .get() as { name: string } | undefined)?.name, "work_item_embeddings");
+    assert.equal((database.prepare("SELECT name FROM sqlite_schema WHERE type = 'index' AND name = 'work_items_by_assignee'")
+      .get() as { name: string } | undefined)?.name, "work_items_by_assignee");
     assert.equal((database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'github_pull_request_events'")
       .get() as { name: string } | undefined)?.name, "github_pull_request_events");
     assert.equal((database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'github_workflow_run_events'")
@@ -114,6 +120,17 @@ describe("schema migrations", () => {
       "test_runs_by_project_sequence",
       "test_runs_by_scenario_sequence",
     ]);
+    const projectHistoryIndexes = database.prepare(
+      `SELECT name FROM sqlite_schema WHERE type = 'index' AND name IN (
+         'work_item_transitions_by_project_time', 'work_item_transitions_by_item_time', 'work_item_revisions_by_item_publication',
+         'specification_revisions_by_item_publication', 'scenario_revisions_by_item_publication',
+         'audit_events_by_project_occurred', 'test_runs_by_project_executed',
+         'development_sessions_by_project_start', 'development_session_events_by_project_time',
+         'deployment_events_by_project_date', 'sprint_state_transitions_by_project_time',
+         'sprint_scope_events_by_project_time', 'milestone_scope_events_by_project_time'
+       ) ORDER BY name`,
+    ).all() as Array<{ name: string }>;
+    assert.equal(projectHistoryIndexes.length, 13);
     assert.equal((database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'development_sessions'")
       .get() as { name: string } | undefined)?.name, "development_sessions");
     assert.equal((database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'deployment_events'")

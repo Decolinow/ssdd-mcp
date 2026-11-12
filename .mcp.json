@@ -1,0 +1,1 @@
+{"mcpServers": {"ssdd_mcp": {"type":"stdio","command":"node","args":["${CLAUDE_PROJECT_DIR:-.}/.ssdd/agent-runtime/node_modules/ssdd-mcp/dist/src/cli.js","stdio","--workspace","${CLAUDE_PROJECT_DIR:-.}"]}}}

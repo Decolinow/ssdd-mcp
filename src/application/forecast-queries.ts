@@ -1109,9 +1109,12 @@ function addDays(date: string, amount: number): string {
   return result.toISOString().slice(0, 10);
 }
 
-function nextLocalDayStart(date: string, timezone: string): string {
-  const nextDate = addDays(date, 1);
-  const targetLocalTimestamp = Date.parse(`${nextDate}T00:00:00.000Z`);
+export function nextLocalDayStart(date: string, timezone: string): string {
+  return localDayStart(addDays(date, 1), timezone);
+}
+
+export function localDayStart(date: string, timezone: string): string {
+  const targetLocalTimestamp = Date.parse(`${date}T00:00:00.000Z`);
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     year: "numeric",

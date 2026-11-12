@@ -14,8 +14,30 @@ import type { SqliteDatabase } from "../storage-sqlite/database.js";
 import { createBaselineForReadyTransition } from "./baseline-commands.js";
 import { ApplicationError } from "./errors.js";
 import { executeIdempotentCommand, type CommandReceipt } from "./idempotent-command.js";
-import { assertProjectAuthorization, type ProjectRole } from "./local-identity.js";
+import { assertProjectAuthorization, getProjectRoles, type ProjectRole } from "./local-identity.js";
+import { getCurrentTaskWorkflowProgress, hasUnpublishedTaskWorkflow } from "./task-workflow-queries.js";
 import { getWorkItem } from "./work-item-queries.js";
+
+export interface TaskStartBlocker {
+  readonly code: string;
+  readonly message: string;
+  readonly details?: unknown;
+}
+
+export interface TaskStartReadinessReport {
+  readonly itemId: string;
+  readonly itemKey: string;
+  readonly title: string;
+  readonly state: string;
+  readonly version: number;
+  readonly assigneeId: string | null;
+  readonly parent: { readonly id: string; readonly key: string; readonly state: string; readonly baselineId: string | null } | null;
+  readonly dependencies: readonly { readonly id: string; readonly key: string; readonly title: string; readonly state: string; readonly complete: boolean }[];
+  readonly openSession: { readonly id: string; readonly status: "active" | "paused"; readonly developerPrincipalId: string } | null;
+  readonly blockers: readonly TaskStartBlocker[];
+  readonly warnings: readonly { readonly code: string; readonly message: string; readonly keys: readonly string[] }[];
+  readonly canStart: boolean;
+}
 
 export interface TransitionWorkItemInput {
   readonly projectId: string;
@@ -26,6 +48,8 @@ export interface TransitionWorkItemInput {
   readonly expectedVersion: number;
   readonly reason: string;
   readonly buildId?: string;
+  /** Internal escape hatch used only by the atomic task-start command. */
+  readonly taskStartCommand?: boolean;
 }
 
 export interface AddWorkItemEvidenceInput {
@@ -114,6 +138,158 @@ export function getWorkItemGateReport(
   return evaluateGates(database, item, input.principalId, input.targetState, input.buildId?.trim() || null);
 }
 
+/** Reports whether this principal may start a task now, including its current dependency and session locks. */
+export function getTaskStartReadiness(
+  database: SqliteDatabase,
+  input: { readonly projectId: string; readonly principalId: string; readonly itemIdOrKey: string },
+): TaskStartReadinessReport {
+  const item = getWorkItem(database, input.projectId, input.principalId, input.itemIdOrKey.trim());
+  if (item.type !== "task") {
+    throw new ApplicationError("VALIDATION_FAILED", "Only task work items can be checked for development start.");
+  }
+
+  const blockers: TaskStartBlocker[] = [];
+  if (item.state !== "ready" && item.state !== "in_progress") {
+    blockers.push({
+      code: "task_not_ready_for_development",
+      message: item.state === "draft"
+        ? "Prepare and approve the task into Ready before starting development."
+        : `A task in '${item.state}' cannot start a new development session.`,
+      details: { state: item.state, allowedStates: ["ready", "in_progress"] },
+    });
+  }
+
+  if (!getProjectRoles(database, input.projectId, input.principalId).includes("developer")) {
+    blockers.push({ code: "developer_role_required", message: "The authenticated principal must have the Developer role in this project." });
+  }
+  if (item.assigneeId === null) {
+    blockers.push({ code: "task_unassigned", message: "Assign the task to an eligible Developer before starting." });
+  } else if (item.assigneeId !== input.principalId) {
+    blockers.push({ code: "task_assigned_to_another_user", message: "Only the task's assigned Developer can start it.", details: { assigneeId: item.assigneeId } });
+  }
+  if (item.description === null || item.description.trim().length === 0) {
+    blockers.push({ code: "task_output_missing", message: "Describe the expected task output before starting development." });
+  }
+
+  let parent: TaskStartReadinessReport["parent"] = null;
+  if (item.parentId === null) {
+    blockers.push({ code: "parent_pbi_missing", message: "A task must belong to a parent story or bug before development." });
+  } else {
+    const parentItem = getWorkItem(database, input.projectId, input.principalId, item.parentId);
+    const baseline = database.prepare(
+      "SELECT baseline_id FROM work_baselines WHERE project_id = ? AND item_id = ? ORDER BY sequence DESC LIMIT 1",
+    ).get(input.projectId, parentItem.id) as { baseline_id: string } | undefined;
+    parent = { id: parentItem.id, key: parentItem.key, state: parentItem.state, baselineId: baseline?.baseline_id ?? null };
+    if (parentItem.state !== "ready" && parentItem.state !== "in_progress") {
+      blockers.push({
+        code: "parent_pbi_not_active",
+        message: "The parent story or bug must remain Ready or in progress while its task is developed.",
+        details: { parentKey: parentItem.key, state: parentItem.state },
+      });
+    }
+    if (baseline === undefined) {
+      blockers.push({ code: "parent_baseline_missing", message: "The parent story or bug must have a fixed baseline before development." });
+    }
+  }
+
+  const dependencyRows = database.prepare(
+    `SELECT target.item_id, target.item_key, target.title, target.state
+     FROM trace_links l
+     INNER JOIN work_items target ON target.project_id = l.project_id AND target.item_id = l.target_id
+     WHERE l.project_id = ? AND l.source_id = ? AND l.link_type = 'depends_on' AND l.removed_at IS NULL
+     ORDER BY target.item_key COLLATE NOCASE`,
+  ).all(input.projectId, item.id) as Array<{ item_id: string; item_key: string; title: string; state: string }>;
+  const dependencies = dependencyRows.map((dependency) => ({
+    id: dependency.item_id,
+    key: dependency.item_key,
+    title: dependency.title,
+    state: dependency.state,
+    complete: dependency.state === "done",
+  }));
+  const incompleteDependencies = dependencies.filter((dependency) => !dependency.complete);
+  if (incompleteDependencies.length > 0) {
+    blockers.push({
+      code: "dependencies_incomplete",
+      message: "Complete or explicitly remove every prerequisite before starting development.",
+      details: { dependencies: incompleteDependencies.map(({ key, state }) => ({ key, state })) },
+    });
+  }
+
+  const openSessionRow = database.prepare(
+    `SELECT session_id, status, developer_principal_id FROM development_sessions
+     WHERE project_id = ? AND item_id = ? AND status IN ('active', 'paused')
+     ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, started_at DESC, session_id DESC LIMIT 1`,
+  ).get(input.projectId, item.id) as { session_id: string; status: "active" | "paused"; developer_principal_id: string } | undefined;
+  const openSession = openSessionRow === undefined ? null : {
+    id: openSessionRow.session_id,
+    status: openSessionRow.status,
+    developerPrincipalId: openSessionRow.developer_principal_id,
+  };
+  if (openSession?.status === "active") {
+    blockers.push({
+      code: "task_session_already_active",
+      message: "The task already has an active development session.",
+      details: { sessionId: openSession.id, status: openSession.status, developerPrincipalId: openSession.developerPrincipalId },
+    });
+  } else if (openSession?.status === "paused") {
+    const sameDeveloper = openSession.developerPrincipalId === input.principalId;
+    blockers.push({
+      code: sameDeveloper ? "task_session_paused" : "task_session_handoff_required",
+      message: sameDeveloper
+        ? "Resume or close the existing paused session before starting another one."
+        : "The previous Developer must complete or cancel the paused session before another Developer can take over.",
+      details: { sessionId: openSession.id, status: openSession.status, developerPrincipalId: openSession.developerPrincipalId },
+    });
+  }
+
+  const unpublishedAdrs = database.prepare(
+    `SELECT s.spec_key FROM trace_links l
+     INNER JOIN specifications s ON s.project_id = l.project_id AND s.spec_id = l.target_id AND s.kind = 'adr'
+     WHERE l.project_id = ? AND l.source_id = ? AND l.link_type = 'implements' AND l.removed_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM specification_revisions r
+         WHERE r.project_id = s.project_id AND r.spec_id = s.spec_id AND r.status = 'published'
+       ) ORDER BY s.spec_key COLLATE NOCASE`,
+  ).all(input.projectId, item.id) as Array<{ spec_key: string }>;
+  if (unpublishedAdrs.length > 0) {
+    blockers.push({
+      code: "implementing_adr_unpublished",
+      message: "Publish each ADR linked as implements, or change the relationship to relates_to before development starts.",
+      details: { adrKeys: unpublishedAdrs.map((row) => row.spec_key) },
+    });
+  }
+
+  const warnings: Array<TaskStartReadinessReport["warnings"][number]> = [];
+  const workflowProgress = getCurrentTaskWorkflowProgress(database, input.projectId, item.id);
+  if (hasUnpublishedTaskWorkflow(database, input.projectId, item.id)) {
+    blockers.push({
+      code: "task_workflow_unpublished",
+      message: "Publish the task workflow before starting development, or withdraw the Draft if no workflow is intended.",
+    });
+  } else if (workflowProgress === null) {
+    warnings.push({
+      code: "task_workflow_not_defined",
+      message: "No workflow is configured; progress will be reported as unavailable rather than 0%.",
+      keys: [],
+    });
+  }
+
+  return {
+    itemId: item.id,
+    itemKey: item.key,
+    title: item.title,
+    state: item.state,
+    version: item.version,
+    assigneeId: item.assigneeId,
+    parent,
+    dependencies,
+    openSession,
+    blockers,
+    warnings,
+    canStart: blockers.length === 0,
+  };
+}
+
 export function transitionWorkItem(
   database: SqliteDatabase,
   input: TransitionWorkItemInput,
@@ -176,6 +352,9 @@ export function transitionWorkItem(
       }
       if (input.targetState === "in_progress" && fromState === "done") {
         assertProjectAuthorization(database, input.projectId, input.principalId, ["po", "qa"]);
+      }
+      if (input.targetState === "in_progress" && fromState === "ready" && item.type === "task" && input.taskStartCommand !== true) {
+        throw new ApplicationError("USE_TASK_START", "Use task_start to validate the task gates and open its development session atomically.");
       }
       if (["ready", "done", "cancelled"].includes(input.targetState) || fromState === "done") {
         assertHumanPrincipal(database, input.principalId, "Only a human principal may approve this workflow transition.");
@@ -560,6 +739,12 @@ function evaluateReadyGates(
     addGate(gates, "task-output", hasDescription, hasDescription
       ? "The task describes its expected output."
       : "Describe the task's expected output before Ready.");
+    const unpublishedWorkflow = hasUnpublishedTaskWorkflow(database, item.projectId, item.id);
+    addGate(gates, "task-workflow-publication", !unpublishedWorkflow,
+      unpublishedWorkflow
+        ? "Publish or withdraw the task workflow Draft before Ready."
+        : "No unapproved task workflow Draft blocks Ready.",
+      { hasUnpublishedDraft: unpublishedWorkflow });
     return;
   }
   addGate(gates, "aggregate-item", true, "Aggregate work items do not require PBI or task preparation gates.");
@@ -662,6 +847,21 @@ function evaluateDoneGates(
     addGate(gates, "task-evidence", evidence !== undefined,
       evidence === undefined ? "Attach evidence to the task under its current PBI baseline." : "The task has evidence under its current PBI baseline.",
       { baselineId, evidenceId: evidence?.evidence_id ?? null, buildId });
+    const workflow = getCurrentTaskWorkflowProgress(database, item.projectId, item.id);
+    const hasDraftWithoutPublished = hasUnpublishedTaskWorkflow(database, item.projectId, item.id);
+    addGate(gates, "task-workflow-complete", hasDraftWithoutPublished ? false : workflow === null || workflow.allStepsDone,
+      hasDraftWithoutPublished
+        ? "Publish or withdraw the Draft task workflow before completing the task."
+        : workflow === null
+          ? "No workflow is configured; the legacy task completion gates apply."
+          : workflow.allStepsDone
+            ? "All steps in the published task workflow are complete."
+            : "Complete every step in the published task workflow before Done.",
+      workflow === null ? { hasUnpublishedDraft: hasDraftWithoutPublished } : {
+        revisionNumber: workflow.revisionNumber,
+        progressPercent: workflow.progressPercent,
+        incompleteSteps: workflow.totalSteps - workflow.completedSteps,
+      });
     return;
   }
 

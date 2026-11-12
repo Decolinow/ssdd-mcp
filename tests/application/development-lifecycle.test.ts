@@ -41,6 +41,12 @@ describe("development sessions, task QA links, release events and developer metr
     const epic = createWorkItem(database, itemInput("epic", "Payments")).value;
     featureId = createWorkItem(database, itemInput("feature", "Checkout", epic.id)).value.id;
     storyId = createWorkItem(database, itemInput("story", "Confirmar pedido", featureId)).value.id;
+    const fixtureTime = new Date().toISOString();
+    database.prepare("UPDATE work_items SET state = 'ready' WHERE project_id = ? AND item_id = ?").run(projectId, storyId);
+    database.prepare(
+      `INSERT INTO work_baselines (baseline_id, project_id, item_id, sequence, kind, reason, created_by_principal_id, created_at)
+       VALUES (?, ?, ?, 1, 'ready', 'Baseline de fixture', ?, ?)`,
+    ).run(randomUUID(), projectId, storyId, principalId, fixtureTime);
   });
 
   afterEach(() => {
@@ -119,15 +125,23 @@ describe("development sessions, task QA links, release events and developer metr
       projectId, principalId, requestId: "reassign-task", itemIdOrKey: task.id, assigneeId: secondDeveloperId, expectedVersion: task.version,
     });
     const reassigned = getItemVersion(task.id);
-    const second = startDevelopmentSession(database, {
-      projectId, principalId: secondDeveloperId, requestId: "session-second-start", itemIdOrKey: task.id, expectedVersion: reassigned.version,
-    }).value;
-    assert.equal(second.developerPrincipalId, secondDeveloperId);
+    assert.throws(() => startDevelopmentSession(database, {
+      projectId, principalId: secondDeveloperId, requestId: "session-second-start-blocked", itemIdOrKey: task.id, expectedVersion: reassigned.version,
+    }), (error: unknown) => error instanceof ApplicationError && error.code === "START_BLOCKED");
+    assert.throws(() => transitionDevelopmentSession(database, {
+      projectId, principalId, requestId: "session-original-resume-after-reassign", sessionId: original.id,
+      action: "resume", expectedVersion: paused.version, reason: "Não retomar após transferência.",
+    }), (error: unknown) => error instanceof ApplicationError && error.code === "FORBIDDEN");
     const originalCompleted = transitionDevelopmentSession(database, {
       projectId, principalId, requestId: "session-original-complete", sessionId: original.id, action: "complete", expectedVersion: paused.version, reason: "Entrega transferida.",
     }).value;
     assert.equal(originalCompleted.status, "completed");
     assert.equal(originalCompleted.developerPrincipalId, principalId);
+
+    const second = startDevelopmentSession(database, {
+      projectId, principalId: secondDeveloperId, requestId: "session-second-start", itemIdOrKey: task.id, expectedVersion: reassigned.version,
+    }).value;
+    assert.equal(second.developerPrincipalId, secondDeveloperId);
     assert.throws(() => transitionDevelopmentSession(database, {
       projectId, principalId, requestId: "session-second-owned-by-other", sessionId: second.id, action: "complete", expectedVersion: second.version, reason: "Não sou responsável por esta sessão.",
     }), (error: unknown) => error instanceof ApplicationError && error.code === "FORBIDDEN");
@@ -135,6 +149,30 @@ describe("development sessions, task QA links, release events and developer metr
       projectId, principalId: secondDeveloperId, requestId: "session-second-complete", sessionId: second.id, action: "complete", expectedVersion: second.version, reason: "Implementação concluída.",
     }).value;
     assert.equal(secondCompleted.status, "completed");
+  });
+
+  it("returns a domain conflict instead of a SQLite constraint error when a legacy paused session resumes into active work", () => {
+    const task = createTask("Evitar sessão ativa duplicada");
+    const pausedSession = startDevelopmentSession(database, {
+      projectId, principalId, requestId: "legacy-session-paused-start", itemIdOrKey: task.id, expectedVersion: task.version,
+    }).value;
+    const paused = transitionDevelopmentSession(database, {
+      projectId, principalId, requestId: "legacy-session-paused-pause", sessionId: pausedSession.id,
+      action: "pause", expectedVersion: pausedSession.version, reason: "Preparar uma retomada concorrente.",
+    }).value;
+    const otherDeveloperId = createDeveloper("legacy-active", "Other Developer");
+    const activeSessionId = randomUUID();
+    const now = new Date().toISOString();
+    database.prepare(
+      `INSERT INTO development_sessions
+        (session_id, project_id, item_id, developer_principal_id, status, started_at, last_resumed_at)
+       VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+    ).run(activeSessionId, projectId, task.id, otherDeveloperId, now, now);
+
+    assert.throws(() => transitionDevelopmentSession(database, {
+      projectId, principalId, requestId: "legacy-session-paused-resume", sessionId: pausedSession.id,
+      action: "resume", expectedVersion: paused.version, reason: "Retomada enquanto outra sessão está ativa.",
+    }), (error: unknown) => error instanceof ApplicationError && error.code === "SESSION_CONFLICT");
   });
 
   it("requires homologation of the same successful build before production and preserves rollback history", () => {
@@ -197,17 +235,29 @@ describe("development sessions, task QA links, release events and developer metr
          VALUES (?, ?, ?, 'in_progress', 'done', ?, 'QA concluída', ?, ?)`,
       ).run(randomUUID(), projectId, task.id, task.version + 1, principalId, completedAt);
     }
-    const date = new Date().toISOString().slice(0, 10);
+    const date = projectToday();
     const metrics = getDeveloperExecutionMetrics(database, { projectId, principalId, from: date, to: date });
     assert.equal(metrics.minimumSampleTasks, 5);
     assert.equal(metrics.developers[0]?.completedTasks, 5);
+    assert.equal(metrics.developers[0]?.estimatedCompletedTasks, 5);
     assert.equal(metrics.developers[0]?.sampleSufficient, true);
     assert.equal(metrics.developers[0]?.activeHours, 5);
     assert.equal(metrics.developers[0]?.estimateVariancePercent, 0);
     assert.equal(metrics.developers[0]?.effortCalibrationFactor, 1);
 
+    database.prepare("DELETE FROM work_item_estimates WHERE project_id = ? AND item_id IN (?, ?, ?, ?)")
+      .run(projectId, ...completedTasks.slice(1).map((task) => task.id));
+    const partialEstimateSample = getDeveloperExecutionMetrics(database, { projectId, principalId, from: date, to: date }).developers[0];
+    assert.equal(partialEstimateSample?.completedTasks, 5);
+    assert.equal(partialEstimateSample?.estimatedCompletedTasks, 1);
+    assert.equal(partialEstimateSample?.activeHoursOnEstimatedCompletedTasks, 1);
+    assert.equal(partialEstimateSample?.estimatedHoursOnCompletedTasks, 1);
+    assert.equal(partialEstimateSample?.sampleSufficient, false);
+    assert.equal(partialEstimateSample?.effortCalibrationFactor, null);
+
     const lowSample = getDeveloperExecutionMetrics(database, { projectId, principalId, from: date, to: date, developerPrincipalId: principalId });
-    assert.equal(lowSample.developers[0]?.sampleSufficient, true);
+    assert.equal(lowSample.developers.length, 1);
+    assert.equal(lowSample.developers[0]?.sampleSufficient, false);
 
     const newDeveloperId = createDeveloper("dev-low-sample", "Developer Low Sample");
     const oneTask = createTask("Uma tarefa isolada");
@@ -234,9 +284,38 @@ describe("development sessions, task QA links, release events and developer metr
       projectId, principalId, from: date, to: date, developerPrincipalId: newDeveloperId,
     }).developers[0];
     assert.equal(oneTaskSample?.completedTasks, 1);
+    assert.equal(oneTaskSample?.estimatedCompletedTasks, 0);
     assert.equal(oneTaskSample?.sampleSufficient, false);
     assert.equal(oneTaskSample?.estimateVariancePercent, null);
     assert.equal(oneTaskSample?.effortCalibrationFactor, null);
+  });
+
+  it("interprets effort metric dates in the project timezone", () => {
+    const task = createTask("Concluída antes da meia-noite local");
+    const session = startDevelopmentSession(database, {
+      projectId, principalId, requestId: "local-date-session-start", itemIdOrKey: task.id, expectedVersion: task.version,
+    }).value;
+    transitionDevelopmentSession(database, {
+      projectId, principalId, requestId: "local-date-session-complete", sessionId: session.id,
+      action: "complete", expectedVersion: 1, reason: "Finalizada antes do corte local.",
+    });
+    const transitionedAt = "2026-11-11T02:59:59.000Z";
+    database.prepare("UPDATE development_sessions SET ended_at = ?, active_seconds = 3600 WHERE session_id = ?")
+      .run("2026-11-11T02:59:00.000Z", session.id);
+    database.prepare("UPDATE work_items SET state = 'done', version = version + 1 WHERE project_id = ? AND item_id = ?")
+      .run(projectId, task.id);
+    database.prepare(
+      `INSERT INTO work_item_state_transitions
+        (transition_id, project_id, item_id, from_state, to_state, item_version, reason, transitioned_by_principal_id, transitioned_at)
+       VALUES (?, ?, ?, 'in_progress', 'done', ?, 'Corte local', ?, ?)`,
+    ).run(randomUUID(), projectId, task.id, task.version + 1, principalId, transitionedAt);
+
+    const metrics = getDeveloperExecutionMetrics(database, {
+      projectId, principalId, from: "2026-11-10", to: "2026-11-10", developerPrincipalId: principalId,
+    });
+    assert.equal(metrics.period.from, "2026-11-10");
+    assert.equal(metrics.developers[0]?.completedTasks, 1);
+    assert.equal(metrics.developers[0]?.activeHours, 1);
   });
 
   function createTask(title: string) {
@@ -264,4 +343,12 @@ describe("development sessions, task QA links, release events and developer metr
   function itemInput(type: "epic" | "feature" | "story", title: string, parentId?: string) {
     return { projectId, principalId, requestId: `${type}-${randomUUID()}`, type, title, ...(parentId === undefined ? {} : { parentId }) } as const;
   }
+
+function projectToday(): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
 });

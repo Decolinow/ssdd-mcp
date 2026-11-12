@@ -37,6 +37,16 @@ Cada `init` com uma chave nova registra outro projeto no mesmo `.ssdd/ssdd.sqlit
 
 ## Configurar identidade e autorização
 
+### Bootstrap admin e authKey
+
+No primeiro startup do host MCP, o principal local do usuário de sistema operacional que inicia o servidor vira o administrador singleton da instância. O processo gera uma chave `ssdd_...` e a imprime uma vez em `stderr`. Capture-a no console/secret manager durante a configuração inicial; ela não pode ser recuperada do banco. Se o serviço já estiver ativo, faça esse bootstrap antes de ativá-lo como serviço, em uma sessão controlada com o mesmo workspace. A chave do admin pode ser rotacionada por `user_auth_key_rotate` enquanto houver outro acesso administrativo confiável.
+
+Conecte uma vez com `Authorization: Bearer <authKey-do-admin>` e perfil `admin` ou `full`. Use `user_create` para informar nome, tipo (`human`, `agent`, `service`), projetos e papéis mínimos por projeto. O retorno traz a authKey do novo usuário apenas naquela resposta; entregue-a por canal seguro. O admin pode consultar prefixo/uso por `user_list`, trocar a chave por `user_auth_key_rotate` ou bloquear conexões com `user_auth_key_revoke`. Um replay idempotente não revela novamente a chave.
+
+AuthKey é um método de autenticação do SSDD, independente do issuer OIDC. HTTP recebe `Authorization: Bearer <authKey>` em `/mcp`; quando OIDC está configurado, o handler aceita uma chave SSDD válida ou um JWT OIDC válido. A chave deve trafegar somente por HTTPS no proxy. Para stdio, o operador passa `SSDD_AUTH_KEY` no ambiente do processo do cliente. Sem authKey em loopback e sem OIDC, a compatibilidade local continua usando a conta do sistema operacional que roda o servidor.
+
+O cliente também pode escolher um perfil para reduzir tools, prompts e skills listados. HTTP envia `X-SSDD-Profile` com um destes valores: `refinement`, `specification`, `dev`, `test_design`, `qa`, `tech_lead`, `security_review`, `po`, `facilitator`, `release`, `devops`, `admin` ou `full`. No stdio use `SSDD_PROFILE`; `full` é padrão. O perfil deve corresponder à etapa esperada, mas não substitui papéis de projeto nem gates humanos. Em sessões legacy HTTP, o perfil é fixo no handshake; na modalidade sem sessão, é aplicado por requisição. A matriz por perfil e os limites estão em [docs/mcp.md](mcp.md#identidade-perfis-e-busca-sem%C3%A2ntica).
+
 Crie um resource no provedor OIDC com issuer público estável e tokens de acesso JWT assinados por algoritmo assimétrico. O access token deve conter `iss`, `sub`, `exp`, `aud` compatível com a URL do MCP e o scope `ssdd:mcp`. O servidor valida descoberta/JWKS e não emite tokens nem aceita token opaco.
 
 Depois de iniciar o modo OIDC, provisiona-se cada identidade `iss+sub` no banco e concede-se o menor conjunto de papéis necessário por projeto. Rode o comando administrativo localmente como principal com papel `admin`:
@@ -139,7 +149,7 @@ Configure o cliente MCP como servidor remoto Streamable HTTP usando `https://mcp
 
 O projeto é escolhido no cliente/agente e enviado **em cada chamada**:
 
-1. Ao conectar, chame `project_list`; a resposta já contém somente projetos autorizados para a identidade autenticada e lista os papéis concedidos.
+1. Ao conectar, chame `project_list`; a resposta já contém somente projetos autorizados para a identidade autenticada (authKey ou OIDC) e lista os papéis concedidos.
 2. Se houver mais de um, peça à pessoa para escolher por chave/nome. Guarde o UUID retornado como contexto do cliente.
 3. Use esse UUID no argumento `projectId` de cada ferramenta; valide o projeto com `project_get` antes de iniciar uma operação mutável.
 4. Para trocar de projeto, escolha outro UUID de `project_list`. Cada chamada ainda passa autorização no servidor, inclusive para um UUID que o cliente tente enviar diretamente.
@@ -156,8 +166,12 @@ node dist/src/cli.js backup --workspace /srv/ssdd --output /srv/backup/ssdd.sqli
 ```
 
 - `/healthz` confirma que o processo HTTP responde; `/readyz` confirma uma leitura SQL mínima. Ambos retornam apenas um estado fixo e `GET` é o único método aceito.
-- Faça backup e valide restore antes de atualizar o schema. As migrations v25/v26 acrescentam sessões/deployments e o mapeamento estável de IDs do roadmap; o arquivo SQLite continua sendo o registro operacional único.
-- Para registrar execução, atribua a tarefa ao Developer, passe-a para `in_progress` e chame `development_session_start`; o mesmo Developer pausa/retoma/conclui a sessão. Horários são UTC do servidor. Sessões ativas não são fechadas automaticamente por encerramento abrupto: revise-as após recuperação e peça ao Developer que pause ou conclua a sessão.
+- Faça backup e valide restore antes de atualizar o schema. As migrations v25/v26/v27 acrescentam sessões/deployments, o mapeamento estável de IDs do roadmap e índices temporais para o retrato histórico; o arquivo SQLite continua sendo o registro operacional único.
+- A migration v28 adiciona principals autenticados por authKey, auditoria administrativa global, filtro de atribuição e cache local de embeddings. O doctor deve reportar o schema aplicado; a chave em texto claro nunca deve aparecer em arquivos do workspace nem em logs persistidos.
+- A migration v29 adiciona um índice composto para localizar eventos de estimativa por projeto, tipo e item; o backup/restore mantém o índice ao recriar o banco com as migrações da versão instalada.
+- A migration v30 adiciona workflows versionados por tarefa, passos e eventos de progresso append-only e revisão pinada às sessões. Faça o backup normal antes do upgrade; tarefas existentes não recebem workflow automaticamente. Sem workflow publicado, a UI e a API retornam progresso desconhecido e os gates legados continuam valendo.
+- Para filtrar o trabalho pessoal, `work_item_list` aceita `assignedToMe: true`; atribuição e autoria usam o principal autenticado. Busca semântica é opcional: configure `SSDD_EMBEDDING_ENDPOINT` e `SSDD_EMBEDDING_MODEL`, e opcionalmente `SSDD_EMBEDDING_API_KEY`, em um secret manager. O conteúdo dos itens e consultas é enviado ao endpoint configurado; sem as variáveis, o servidor não faz chamada de embeddings.
+- Para registrar execução, consulte `task_start_check`, atribua a tarefa ao Developer e use `task_start` para mover Ready a `in_progress` e abrir a sessão atomicamente; para retomar trabalho já em andamento, use `development_session_start`. `task_workflow_get` mostra o plano publicado; `task_workflow_propose` cria Draft e só Tech Lead humano publica após fechar sessões abertas. Etapas avançam em ordem e o progresso soma apenas etapas Concluídas; isso não substitui execução/certificação QA ou gates de Done. O mesmo Developer pausa/retoma/conclui sua sessão. Horários são UTC do servidor. Sessões ativas não são fechadas automaticamente por encerramento abrupto: revise-as após recuperação e peça ao Developer que pause ou conclua a sessão.
 - Homologação e produção são eventos de deployment separados de `Done`. Registre pelo MCP apenas o resultado realmente observado; produção aprovada exige build com homologação aprovada. A UI mostra as datas no detalhe da tarefa e métricas individuais agregam horas/sessões concluídas.
 - O MCP ainda não oferece endpoint de métricas de Prometheus, logs estruturados completos ou tracing distribuído. Use o supervisor e os logs do serviço para estado do processo e monitore `/readyz` pela rede interna; essas lacunas estão no roadmap.
 - Faça backups regulares para destino protegido, aplique retenção e criptografia definidas pela organização e teste `restore` em workspace separado. Pare o serviço antes de restaurar ou atualizar o banco.

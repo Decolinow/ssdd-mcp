@@ -16,6 +16,8 @@ export const approvableMcpToolNames = [
   "work_item_estimate",
   "work_item_estimate_confirm",
   "spec_create",
+  "adr_create",
+  "adr_link_task",
   "spec_revision_propose",
   "spec_revision_publish",
   "scenario_create",
@@ -40,6 +42,10 @@ export const approvableMcpToolNames = [
   "trace_link_remove",
   "development_session_start",
   "development_session_transition",
+  "task_start",
+  "task_workflow_propose",
+  "task_workflow_publish",
+  "task_workflow_step_transition",
   "deployment_event_record",
   "roadmap_id_bind",
 ] as const;
@@ -311,7 +317,7 @@ export function expectedVersionFromArguments(argumentsValue: JsonValue): number 
   if (argumentsValue === null || Array.isArray(argumentsValue) || typeof argumentsValue !== "object") {
     throw new ApplicationError("VALIDATION_FAILED", "Approved tool arguments must be an object.");
   }
-  const version = argumentsValue.expectedVersion;
+  const version = argumentsValue.expectedVersion ?? argumentsValue.expectedTaskVersion;
   if (version === undefined) return null;
   if (typeof version !== "number" || !Number.isSafeInteger(version) || version < 0) {
     throw new ApplicationError("VALIDATION_FAILED", "expectedVersion must be a non-negative integer.");

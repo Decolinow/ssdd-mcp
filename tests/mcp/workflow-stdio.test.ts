@@ -23,6 +23,7 @@ test("stdio completes a baseline-to-QA workflow through MCP tools", async (conte
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [cliPath, "stdio", "--workspace", workspace],
+    stderr: "ignore",
   });
   context.after(async () => {
     await client.close();

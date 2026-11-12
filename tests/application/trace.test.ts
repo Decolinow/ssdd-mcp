@@ -6,6 +6,7 @@ import { once } from "node:events";
 import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { createWorkItem } from "../../src/application/create-work-item.js";
+import { listAuditEvents } from "../../src/application/audit-queries.js";
 import { ApplicationError } from "../../src/application/errors.js";
 import { initializeProject } from "../../src/application/initialize-project.js";
 import { createSpecification } from "../../src/application/specification-commands.js";
@@ -64,6 +65,28 @@ describe("typed traceability graph", () => {
     });
     assert.equal(implementsLink.value.source.id, hierarchy.story.id);
     assert.equal(implementsLink.value.target.id, specification.specId);
+    const auditLink = listAuditEvents(database, {
+      projectId,
+      principalId,
+      entityType: "trace_link",
+      entityId: implementsLink.value.id,
+    }).events[0]!;
+    assert.equal(auditLink.entityReference.label, "Vínculo de implementação");
+    assert.deepEqual(auditLink.relatedEntities.map(({ key, title, label }) => ({ key, title, label })), [
+      { key: hierarchy.story.key, title: "Log in", label: hierarchy.story.key + " · Log in" },
+      { key: specification.key, title: "Payment cut-off", label: specification.key + " · Payment cut-off" },
+    ]);
+    const missingEntityId = "external-record-removed";
+    database.prepare(
+      `INSERT INTO audit_events
+        (event_id, project_id, principal_id, event_type, entity_type, entity_id, correlation_id, occurred_at, payload_json)
+       VALUES (?, ?, ?, 'external.changed', 'external_entity', ?, ?, ?, '{}')`,
+    ).run("external-audit-event", projectId, principalId, missingEntityId, "external-correlation", new Date().toISOString());
+    const fallbackEvent = listAuditEvents(database, {
+      projectId, principalId, entityType: "external_entity", entityId: missingEntityId,
+    }).events[0]!;
+    assert.equal(fallbackEvent.entityReference.label, "external_entity");
+    assert.equal(fallbackEvent.entityReference.id, missingEntityId);
 
     const inbound = queryTraceGraph(database, {
       projectId,
@@ -106,6 +129,15 @@ describe("typed traceability graph", () => {
       .get(related.value.id) as { removed_at: string | null; removed_by_principal_id: string | null };
     assert.ok(removedLink.removed_at);
     assert.equal(removedLink.removed_by_principal_id, principalId);
+    const removedAudit = listAuditEvents(database, {
+      projectId, principalId, entityType: "trace_link", entityId: related.value.id,
+    }).events[0]!;
+    assert.equal(removedAudit.eventType, "trace_link.removed");
+    assert.equal(removedAudit.entityReference.label, "Vínculo de contexto");
+    assert.deepEqual(removedAudit.relatedEntities.map(({ key, title }) => ({ key: key ?? "", title })).sort((left, right) => left.key.localeCompare(right.key)), [
+      { key: hierarchy.story.key, title: "Log in" },
+      { key: hierarchy.epic.key, title: "Payments" },
+    ].sort((left, right) => left.key.localeCompare(right.key)));
     assert.equal(
       queryTraceGraph(database, {
         projectId,

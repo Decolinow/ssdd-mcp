@@ -11,7 +11,9 @@ import { ApplicationError } from "../../src/application/errors.js";
 import { initializeProject } from "../../src/application/initialize-project.js";
 import { getWorkItemQualityReport, listProjectQualitySummaries } from "../../src/application/quality-queries.js";
 import { assignWorkItem, confirmWorkItemEstimate, proposeWorkItemEstimate } from "../../src/application/work-item-commands.js";
+import { transitionDevelopmentSession } from "../../src/application/development-lifecycle.js";
 import { getWorkItem } from "../../src/application/work-item-queries.js";
+import { startTaskDevelopment } from "../../src/application/task-development-start.js";
 import { createScenario, publishScenarioRevision, recordTestRun } from "../../src/application/scenario-commands.js";
 import { applyMigrations } from "../../src/storage-sqlite/migrations.js";
 import { openSqliteDatabase, type SqliteDatabase } from "../../src/storage-sqlite/database.js";
@@ -76,6 +78,10 @@ describe("work item workflow, evidence and QA gates", () => {
     ]);
 
     const scenario = createPublishedScenario();
+    const scenarioAudit = listAuditEvents(database, {
+      projectId, principalId, entityType: "scenario", entityId: scenario.scenarioId,
+    }).events[0]!;
+    assert.equal(scenarioAudit.entityReference.label, "PAY-TC-01 · Pedido confirmado");
     confirmStoryPoints();
     const readyReport = getWorkItemGateReport(database, {
       projectId, principalId, itemIdOrKey: storyId, targetState: "ready",
@@ -95,7 +101,11 @@ describe("work item workflow, evidence and QA gates", () => {
     transition("in_validation");
     addEvidence(storyId, "build", "https://ci.example/builds/candidate-42", "candidate-42", "Candidato de release");
 
-    recordRun(scenario.scenarioId, "build-41", "passed", "old-build-pass");
+    const historicalRun = recordRun(scenario.scenarioId, "build-41", "passed", "old-build-pass");
+    const runAudit = listAuditEvents(database, {
+      projectId, principalId, entityType: "test_run", entityId: historicalRun.id,
+    }).events[0]!;
+    assert.equal(runAudit.entityReference.label, "build-41 · PAY-TC-01 · Pedido confirmado · r1 · passed");
     const mismatch = getWorkItemGateReport(database, {
       projectId, principalId, itemIdOrKey: storyId, targetState: "done", buildId: "candidate-42",
     });
@@ -145,7 +155,7 @@ describe("work item workflow, evidence and QA gates", () => {
 
     const summaries = listProjectQualitySummaries(database, { projectId, principalId });
     assert.deepEqual(
-      summaries.find(({ itemId }) => itemId === storyId),
+      summaries.items.find(({ itemId }) => itemId === storyId),
       {
         itemId: storyId,
         itemKey: storyKey,
@@ -188,6 +198,47 @@ describe("work item workflow, evidence and QA gates", () => {
     );
   });
 
+  it("paginates quality summaries and invalidates a cursor after a project change", () => {
+    const parentId = getWorkItem(database, projectId, principalId, storyId).parentId!;
+    for (let index = 1; index <= 100; index += 1) {
+      const title = `PBI ${String(index).padStart(3, "0")}`;
+      createWorkItem(database, {
+        projectId, principalId, requestId: requestId(title), type: "story", parentId, title,
+      });
+    }
+
+    const otherProject = initializeProject({
+      workspace, key: "OPS", name: "Operations", productGoal: "Operations quality", timezone: "America/Sao_Paulo",
+    }).project;
+    const emptyPrincipal = database.prepare("SELECT created_by_principal_id FROM projects WHERE project_id = ?")
+      .get(otherProject.id) as { created_by_principal_id: string };
+    const empty = listProjectQualitySummaries(database, { projectId: otherProject.id, principalId: emptyPrincipal.created_by_principal_id });
+    assert.deepEqual(empty.items, []);
+    assert.equal(empty.nextCursor, null);
+    const one = listProjectQualitySummaries(database, { projectId, principalId, limit: 1 });
+    assert.equal(one.items.length, 1);
+    assert.ok(one.nextCursor);
+
+    const first = listProjectQualitySummaries(database, { projectId, principalId, limit: 100 });
+    assert.equal(first.items.length, 100);
+    assert.ok(first.watermark > 0);
+    assert.ok(first.nextCursor);
+    const second = listProjectQualitySummaries(database, {
+      projectId, principalId, limit: 100, cursor: first.nextCursor!,
+    });
+    assert.equal(second.items.length, 1);
+    assert.ok(second.items[0]!.itemKey > first.items[0]!.itemKey);
+    assert.equal(second.nextCursor, null);
+
+    createWorkItem(database, {
+      projectId, principalId, requestId: requestId("Novo PBI"), type: "story", parentId, title: "Novo PBI",
+    });
+    assert.throws(
+      () => listProjectQualitySummaries(database, { projectId, principalId, limit: 100, cursor: first.nextCursor! }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "STALE_CURSOR",
+    );
+  });
+
   it("requires task preparation and task-owned evidence before Done", () => {
     createPublishedScenario();
     confirmStoryPoints();
@@ -217,9 +268,19 @@ describe("work item workflow, evidence and QA gates", () => {
       projectId, principalId: developerId, itemIdOrKey: task.id, targetState: "ready",
     }).canProceed, true);
     transitionItem(task.id, "ready", undefined, developerId);
-    transitionItem(task.id, "in_progress", undefined, developerId);
+    const started = startTaskDevelopment(database, {
+      projectId, principalId: developerId, requestId: requestId("task-start"), itemIdOrKey: task.id,
+      expectedVersion: getWorkItem(database, projectId, developerId, task.id).version,
+      reason: "Iniciar a tarefa pelo fluxo atômico.",
+    }).value;
+    assert.equal(started.session.status, "active");
     const evidence = addEvidence(task.id, "artifact", "https://artifacts.example/tasks/1", "candidate-42", "Implementação da tarefa");
     assert.equal(evidence.baselineId, baselineId);
+    transitionDevelopmentSession(database, {
+      projectId, principalId: developerId, requestId: requestId("task-session-complete"),
+      sessionId: started.session.id, action: "complete", expectedVersion: started.session.version,
+      reason: "Implementação pronta para revisão.",
+    });
     transitionItem(task.id, "in_review", undefined, developerId);
     transitionItem(task.id, "in_validation", undefined, developerId);
     const taskDone = getWorkItemGateReport(database, {

@@ -14,6 +14,13 @@ import type {
 import type { SqliteDatabase } from "../storage-sqlite/database.js";
 import { ApplicationError } from "./errors.js";
 import { assertProjectAuthorization } from "./local-identity.js";
+import { decodeStableListCursor, encodeStableListCursor, hashListFilters } from "./stable-list-cursor.js";
+
+export interface ScenarioPage {
+  readonly scenarios: readonly ScenarioSummary[];
+  readonly nextCursor: string | null;
+  readonly watermark: number;
+}
 
 interface ScenarioRow {
   readonly scenario_id: string;
@@ -109,9 +116,27 @@ export function listScenarios(
   database: SqliteDatabase,
   projectId: string,
   principalId: string,
-  kind?: ScenarioKind,
-): readonly ScenarioSummary[] {
+  input: { readonly kind?: ScenarioKind; readonly limit?: number; readonly cursor?: string } = {},
+): ScenarioPage {
   assertProjectAuthorization(database, projectId, principalId);
+  const limit = input.limit ?? 25;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new ApplicationError("VALIDATION_FAILED", "Scenario page size must be an integer between 1 and 100.");
+  }
+  const kind = input.kind ?? null;
+  const filterHash = hashListFilters({ kind, limit });
+  const watermarkRow = database.prepare(
+    "SELECT COALESCE(MAX(sequence), 0) AS watermark FROM audit_events WHERE project_id = ?",
+  ).get(projectId) as { watermark: number };
+  const watermark = watermarkRow.watermark;
+  const cursor = input.cursor === undefined ? undefined : decodeStableListCursor(input.cursor, {
+    projectId, principalId, filterHash, watermark,
+  });
+  const afterClause = cursor === undefined ? "" : `
+       AND (s.scenario_key COLLATE NOCASE > ? OR (s.scenario_key COLLATE NOCASE = ? AND s.scenario_id > ?))`;
+  const parameters: Array<string | number | null> = [projectId, kind, kind];
+  if (cursor !== undefined) parameters.push(cursor.afterKey, cursor.afterKey, cursor.afterId);
+  parameters.push(limit + 1);
   const rows = database
     .prepare(
       `SELECT s.scenario_id, s.scenario_key, s.kind, s.title, s.version,
@@ -120,9 +145,10 @@ export function listScenarios(
        FROM scenarios s LEFT JOIN scenario_revisions r
          ON r.project_id = s.project_id AND r.scenario_id = s.scenario_id
        WHERE s.project_id = ? AND (? IS NULL OR s.kind = ?)
-       GROUP BY s.scenario_id ORDER BY s.scenario_key COLLATE NOCASE LIMIT 100`,
+       ${afterClause}
+       GROUP BY s.scenario_id ORDER BY s.scenario_key COLLATE NOCASE, s.scenario_id LIMIT ?`,
     )
-    .all(projectId, kind ?? null, kind ?? null) as Array<{
+    .all(...parameters) as Array<{
     scenario_id: string;
     scenario_key: string;
     kind: ScenarioKind;
@@ -131,15 +157,24 @@ export function listScenarios(
     latest_revision: number;
     published_revision: number | null;
   }>;
-  return rows.map((row) => ({
-    id: row.scenario_id,
-    key: row.scenario_key,
-    kind: row.kind,
-    title: row.title,
-    version: row.version,
-    latestRevision: row.latest_revision,
-    publishedRevision: row.published_revision,
-  }));
+  const hasMore = rows.length > limit;
+  const pageRows = rows.slice(0, limit);
+  const last = pageRows.at(-1);
+  return {
+    scenarios: pageRows.map((row) => ({
+      id: row.scenario_id,
+      key: row.scenario_key,
+      kind: row.kind,
+      title: row.title,
+      version: row.version,
+      latestRevision: row.latest_revision,
+      publishedRevision: row.published_revision,
+    })),
+    nextCursor: hasMore && last !== undefined ? encodeStableListCursor({
+      version: 1, projectId, principalId, filterHash, watermark, afterKey: last.scenario_key, afterId: last.scenario_id,
+    }) : null,
+    watermark,
+  };
 }
 
 export function listTestRuns(

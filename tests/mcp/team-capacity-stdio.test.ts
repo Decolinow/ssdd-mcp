@@ -38,6 +38,7 @@ test("stdio configures a team and returns its calculated capacity", async (conte
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [cliPath, "stdio", "--workspace", workspace],
+    stderr: "ignore",
   });
   context.after(async () => {
     await client.close();

@@ -9,7 +9,26 @@
     <script src="/dashboard.js" defer></script>
   </head>
   <body>
-    <div class="app-shell">
+    <main id="login-screen" class="login-screen" aria-labelledby="login-title" hidden>
+      <section class="login-card">
+        <a class="brand login-brand" href="/" aria-label="SSDD início">
+          <span class="brand-mark" aria-hidden="true">S</span>
+          <span><strong>SSDD</strong><small>Spec driven development</small></span>
+        </a>
+        <p class="eyebrow">ACESSO AO PROJETO</p>
+        <h1 id="login-title">Entrar no dashboard</h1>
+        <p class="login-description">Use a mesma authKey vinculada ao seu usuário no host MCP. Seu acesso respeita os projetos e permissões dessa identidade.</p>
+        <form id="login-form" class="login-form" method="post" action="/api/v1/session/login" autocomplete="off">
+          <label for="auth-key">AuthKey do MCP</label>
+          <input id="auth-key" name="authKey" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required maxlength="64" aria-describedby="auth-key-help login-error">
+          <small id="auth-key-help">A chave é validada pelo host e não é salva pela aplicação.</small>
+          <p id="login-error" class="login-error" role="alert" hidden></p>
+          <button id="login-submit" class="button button-primary login-submit" type="submit">Entrar</button>
+        </form>
+      </section>
+    </main>
+
+    <div id="app-shell" class="app-shell" hidden>
       <header class="topbar">
         <a class="brand" href="/" aria-label="SSDD início">
           <span class="brand-mark" aria-hidden="true">S</span>
@@ -22,6 +41,7 @@
           <select id="team-select" aria-label="Selecionar time"></select>
           <button id="refresh-button" class="icon-button" type="button" title="Atualizar" aria-label="Atualizar dados">↻</button>
           <span id="principal-name" class="principal-chip"></span>
+          <button id="logout-button" class="button button-secondary logout-button" type="button">Sair</button>
         </div>
       </header>
 
@@ -41,6 +61,8 @@
           <div class="list-toolbar">
             <div class="tabs" role="tablist" aria-label="Visão de trabalho">
               <button id="metrics-tab" class="tab is-active" role="tab" aria-selected="true" aria-controls="metrics-view" type="button">Métricas</button>
+              <button id="roadmap-tab" class="tab" role="tab" aria-selected="false" aria-controls="roadmap-view" type="button">Roadmap</button>
+              <button id="history-tab" class="tab" role="tab" aria-selected="false" aria-controls="history-view" type="button">Histórico</button>
               <button id="backlog-tab" class="tab" role="tab" aria-selected="false" aria-controls="backlog-view" type="button">Product Backlog</button>
               <button id="board-tab" class="tab" role="tab" aria-selected="false" aria-controls="board-view" type="button">Board <span id="board-tab-count" class="tab-count">0</span></button>
               <button id="quality-tab" class="tab" role="tab" aria-selected="false" aria-controls="quality-view" type="button">Qualidade</button>
@@ -87,9 +109,57 @@
               </label>
               <button id="metrics-today" class="button button-secondary" type="button">Corte atual</button>
             </div>
+            <details id="metrics-effort-filters" class="metrics-advanced-filters">
+              <summary>Filtros de esforço por período e desenvolvedor</summary>
+              <div class="metrics-effort-grid">
+                <label for="metrics-effort-from">Conclusões e sessões desde
+                  <input id="metrics-effort-from" type="date">
+                </label>
+                <label for="metrics-effort-to">Até o dia
+                  <input id="metrics-effort-to" type="date">
+                </label>
+                <label for="metrics-developer">Desenvolvedor
+                  <select id="metrics-developer"><option value="">Todos os desenvolvedores</option></select>
+                </label>
+                <div class="metrics-effort-actions">
+                  <button id="metrics-effort-apply" class="button button-primary" type="button">Aplicar período</button>
+                  <button id="metrics-effort-reset" class="button button-secondary" type="button">Usar mês do corte</button>
+                </div>
+              </div>
+              <p class="table-note">O fim do período não pode ultrapassar a data de corte do projeto. A calibração usa somente tarefas concluídas com estimativa de horas confirmada.</p>
+            </details>
             <p id="metrics-meta" class="metrics-meta" aria-live="polite">Carregando métricas…</p>
             <div id="metrics-error" class="metrics-error" role="alert" hidden></div>
             <div id="metrics-content" class="metrics-content"></div>
+          </section>
+
+          <section id="roadmap-view" class="view roadmap-view" role="tabpanel" aria-labelledby="roadmap-tab" hidden>
+            <div class="view-heading">
+              <div><h2>Roadmap por valor e prioridade</h2><p>Features em ordem de execução, progresso por pontos confirmados e previsão por sprints comparáveis.</p></div>
+              <label for="roadmap-date">Corte
+                <input id="roadmap-date" type="date">
+              </label>
+            </div>
+            <p id="roadmap-meta" class="metrics-meta" aria-live="polite">Carregando roadmap…</p>
+            <div id="roadmap-error" class="metrics-error" role="alert" hidden></div>
+            <div id="roadmap-content" class="roadmap-content"></div>
+          </section>
+
+          <section id="history-view" class="view history-view" role="tabpanel" aria-labelledby="history-tab" hidden>
+            <div class="view-heading">
+              <div><h2>Retrato do projeto em uma data</h2><p>Reconstrução por revisões publicadas, transições, execuções e eventos preservados.</p></div>
+            </div>
+            <div class="history-controls">
+              <label for="history-date">Data do projeto
+                <input id="history-date" type="date">
+                <small id="history-date-help" class="history-date-help"></small>
+              </label>
+              <button id="history-apply" class="button button-primary" type="button">Ver retrato</button>
+              <button id="history-today" class="button button-secondary" type="button">Hoje</button>
+            </div>
+            <p id="history-meta" class="history-meta" aria-live="polite">Selecione uma data para consultar o histórico.</p>
+            <div id="history-error" class="metrics-error" role="alert" hidden></div>
+            <div id="history-content" class="history-content"></div>
           </section>
 
           <section id="backlog-view" class="view" role="tabpanel" aria-labelledby="backlog-tab">
@@ -173,15 +243,29 @@
       <div class="modal-actions"><button id="detail-edit-button" class="button button-secondary" type="button">Editar conteúdo</button><button id="detail-move-button" class="button button-primary" type="button">Mover item</button><button class="button button-secondary close-dialog" type="button">Fechar</button></div>
     </dialog>
 
+    <dialog id="task-workflow-dialog" class="modal editor-modal task-workflow-modal" aria-labelledby="task-workflow-form-title">
+      <form id="task-workflow-form">
+        <div class="modal-header"><div><p class="eyebrow">PLANO DE EXECUÇÃO</p><h2 id="task-workflow-form-title">Definir etapas</h2></div><button class="icon-button close-dialog" type="button" aria-label="Fechar">×</button></div>
+        <p id="task-workflow-form-help" class="workflow-form-help">Quebre a tarefa em etapas verificáveis. O esforço deve somar exatamente 100,00%.</p>
+        <div id="task-workflow-step-list" class="workflow-editor-list"></div>
+        <button id="add-task-workflow-step" class="button button-secondary workflow-add-step" type="button">Adicionar etapa</button>
+        <div class="workflow-total"><span>Esforço total</span><strong id="task-workflow-total">100,00%</strong><span id="task-workflow-validation" role="status" aria-live="polite"></span></div>
+        <label class="form-field" for="task-workflow-reason">Motivo da proposta ou publicação<textarea id="task-workflow-reason" rows="2" maxlength="1000" required placeholder="Explique o objetivo da decomposição ou da revisão"></textarea></label>
+        <div class="modal-actions workflow-actions"><button class="button button-secondary close-dialog" type="button">Cancelar</button><button id="publish-task-workflow" class="button button-secondary" type="button" hidden>Publicar revisão</button><button id="submit-task-workflow" class="button button-primary" type="submit">Salvar proposta</button></div>
+      </form>
+    </dialog>
+
     <dialog id="work-item-form-dialog" class="modal editor-modal" aria-labelledby="work-item-form-title">
       <form id="work-item-form">
         <div class="modal-header"><div><p class="eyebrow">PRODUCT BACKLOG</p><h2 id="work-item-form-title">Novo PBI</h2></div><button class="icon-button close-dialog" type="button" aria-label="Fechar">×</button></div>
-        <label class="form-field" for="work-item-type">Tipo<select id="work-item-type"><option value="story">História</option><option value="bug">Bug</option></select></label>
-        <label class="form-field" for="work-item-parent">Feature pai<select id="work-item-parent" required></select></label>
+        <label class="form-field" for="work-item-type">Tipo<select id="work-item-type"><option value="epic">Épico</option><option value="feature">Feature</option><option value="story">História</option><option value="bug">Bug</option><option value="task">Tarefa</option></select></label>
+        <label class="form-field" id="work-item-parent-field" for="work-item-parent"><span id="work-item-parent-label">Item pai</span><select id="work-item-parent"></select></label>
         <label class="form-field" for="work-item-title">Título<input id="work-item-title" maxlength="200" required></label>
         <label class="form-field" for="work-item-description">Descrição<textarea id="work-item-description" rows="3" maxlength="10000"></textarea></label>
-        <label class="form-field" for="work-item-priority">Prioridade<select id="work-item-priority"><option value="1">1 · Mais alta</option><option value="2">2</option><option value="3">3</option><option value="4">4 · Mais baixa</option></select></label>
-        <label class="form-field" for="work-item-criteria">Critérios de aceite<textarea id="work-item-criteria" rows="5" placeholder="Um critério por linha"></textarea><small>Na edição, use a chave existente no início, por exemplo AC-1: resultado visível, para preservar o vínculo.</small></label>
+        <label class="form-field" for="work-item-priority">Prioridade<select id="work-item-priority"><option value="1">P1 · Mais alta</option><option value="2">P2</option><option value="3">P3</option><option value="4">P4 · Mais baixa</option></select></label>
+        <label class="form-field" id="work-item-value-field" for="work-item-business-value">Valor de negócio (0–100)<input id="work-item-business-value" type="number" min="0" max="100" step="1"><small>Somente épicos, features e tarefas. Deixe vazio enquanto o PO não tiver avaliado.</small></label>
+        <label class="form-field" id="work-item-rationale-field" for="work-item-business-rationale">Justificativa do valor<textarea id="work-item-business-rationale" rows="2" maxlength="1000" placeholder="Benefício esperado e motivo da nota"></textarea></label>
+        <label class="form-field" id="work-item-criteria-field" for="work-item-criteria">Critérios de aceite<textarea id="work-item-criteria" rows="5" placeholder="Um critério por linha"></textarea><small>Na edição, use a chave existente no início, por exemplo AC-1: resultado visível, para preservar o vínculo.</small></label>
         <div class="modal-actions"><button class="button button-secondary close-dialog" type="button">Cancelar</button><button id="submit-work-item" class="button button-primary" type="submit">Criar PBI</button></div>
       </form>
     </dialog>
@@ -208,6 +292,7 @@
           <button class="icon-button close-dialog" type="button" aria-label="Fechar">×</button>
         </div>
         <p id="transition-item-label" class="transition-item-label"></p>
+        <p id="transition-start-hint" class="transition-start-hint" aria-live="polite" hidden></p>
         <label class="form-field" for="target-state">Novo estado
           <select id="target-state" required></select>
         </label>

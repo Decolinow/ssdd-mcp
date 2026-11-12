@@ -16,6 +16,8 @@ export interface CreateWorkItemInput {
   readonly title: string;
   readonly description?: string;
   readonly priority?: number;
+  readonly businessValueScore?: number | null;
+  readonly businessValueRationale?: string | null;
   readonly criteria?: readonly {
     readonly description: string;
     readonly required?: boolean | undefined;
@@ -47,6 +49,8 @@ export function createWorkItem(
     title: normalized.title,
     description: normalized.description,
     priority: normalized.priority,
+    businessValueScore: normalized.businessValueScore,
+    businessValueRationale: normalized.businessValueRationale,
     criteria: normalized.criteria.map((criterion) => ({
       description: criterion.description,
       required: criterion.required,
@@ -136,8 +140,9 @@ export function createWorkItem(
         .prepare(
           `INSERT INTO work_items
             (item_id, project_id, item_key, type, parent_id, related_story_id, title,
-             description, priority, rank, created_by_principal_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             description, priority, rank, created_by_principal_id, created_at, updated_at,
+             business_value_score, business_value_rationale)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           itemId,
@@ -153,6 +158,8 @@ export function createWorkItem(
           input.principalId,
           now,
           now,
+          normalized.businessValueScore,
+          normalized.businessValueRationale,
         );
 
       const revisionCriteria = normalized.criteria.map((criterion, index) => ({
@@ -198,6 +205,8 @@ export function createWorkItem(
             title: normalized.title,
             description: normalized.description,
             priority: normalized.priority,
+            businessValueScore: normalized.businessValueScore,
+            businessValueRationale: normalized.businessValueRationale,
             criteria: revisionCriteria,
           }),
           input.principalId,
@@ -223,6 +232,8 @@ interface NormalizedInput {
   readonly title: string;
   readonly description: string | null;
   readonly priority: number;
+  readonly businessValueScore: number | null;
+  readonly businessValueRationale: string | null;
   readonly criteria: readonly { description: string; required: boolean }[];
 }
 
@@ -230,6 +241,8 @@ function normalizeInput(input: CreateWorkItemInput): NormalizedInput {
   const title = input.title.trim();
   const description = input.description?.trim() || null;
   const priority = input.priority ?? 2;
+  const businessValueScore = input.businessValueScore ?? null;
+  const businessValueRationale = input.businessValueRationale?.trim() || null;
   const criteria = (input.criteria ?? []).map((criterion) => ({
     description: criterion.description.trim(),
     required: criterion.required ?? true,
@@ -244,6 +257,7 @@ function normalizeInput(input: CreateWorkItemInput): NormalizedInput {
   if (!Number.isSafeInteger(priority) || priority < 1 || priority > 4) {
     throw new ApplicationError("VALIDATION_FAILED", "Priority must be an integer between 1 and 4.");
   }
+  validateBusinessValue(input.type, businessValueScore, businessValueRationale);
   if (criteria.length > 50) {
     throw new ApplicationError("VALIDATION_FAILED", "At most 50 acceptance criteria can be created at once.");
   }
@@ -272,8 +286,22 @@ function normalizeInput(input: CreateWorkItemInput): NormalizedInput {
     title,
     description,
     priority,
+    businessValueScore,
+    businessValueRationale,
     criteria,
   };
+}
+
+function validateBusinessValue(type: WorkItemType, score: number | null, rationale: string | null): void {
+  if (score !== null && (!Number.isSafeInteger(score) || score < 0 || score > 100)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Business value score must be an integer between 0 and 100.");
+  }
+  if (type !== "epic" && type !== "feature" && type !== "task" && (score !== null || rationale !== null)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Business value may only be set on epics, features and tasks.");
+  }
+  if ((score === null) !== (rationale === null) || (rationale !== null && (rationale.length === 0 || rationale.length > 1000))) {
+    throw new ApplicationError("VALIDATION_FAILED", "A business value score requires a rationale of 1-1000 characters; clearing both fields is allowed.");
+  }
 }
 
 function getRelatedItem(

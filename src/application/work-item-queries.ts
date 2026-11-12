@@ -11,6 +11,7 @@ import type {
 } from "../domain/work-items.js";
 import { assertProjectAuthorization } from "./local-identity.js";
 import { ApplicationError } from "./errors.js";
+import { resolveWorkItemIdentifier } from "./work-item-reference.js";
 
 interface WorkItemRow {
   readonly item_id: string;
@@ -24,6 +25,8 @@ interface WorkItemRow {
   readonly description: string | null;
   readonly state: string;
   readonly priority: number;
+  readonly business_value_score: number | null;
+  readonly business_value_rationale: string | null;
   readonly rank: number;
   readonly version: number;
   readonly revision: number;
@@ -40,20 +43,13 @@ export function getWorkItem(
 ): WorkItem {
   assertProjectAuthorization(database, projectId, principalId);
 
-  // Stable roadmap IDs share the `SSDD-###` spelling with generated item keys.
-  // Once a mapping exists, the roadmap ID takes precedence; callers that need
-  // the generated key in that collision must use the item's UUID.
-  const normalizedReference = itemIdOrKey.trim().toUpperCase();
-  const roadmapMapping = /^SSDD-\d{3}$/u.test(normalizedReference)
-    ? database.prepare("SELECT item_id FROM roadmap_item_ids WHERE project_id = ? AND roadmap_id = ?")
-      .get(projectId, normalizedReference) as { item_id: string } | undefined
-    : undefined;
-  const lookupReference = roadmapMapping?.item_id ?? itemIdOrKey;
+  const lookupReference = resolveWorkItemIdentifier(database, projectId, itemIdOrKey);
 
   const row = database
     .prepare(
       `SELECT item_id, project_id, item_key, type, parent_id, related_story_id,
-              assignee_principal_id, title, description, state, priority, rank, version, created_by_principal_id,
+              assignee_principal_id, title, description, state, priority,
+              business_value_score, business_value_rationale, rank, version, created_by_principal_id,
               created_at, updated_at,
               (SELECT MAX(r.revision_number) FROM work_item_revisions r
                WHERE r.project_id = work_items.project_id AND r.item_id = work_items.item_id
@@ -125,6 +121,8 @@ export function getWorkItem(
     description: row.description,
     state: row.state,
     priority: row.priority,
+    businessValueScore: row.business_value_score,
+    businessValueRationale: row.business_value_rationale,
     rank: row.rank,
     version: row.version,
     revision: row.revision,
@@ -143,12 +141,13 @@ export function listWorkItemRevisions(
   itemIdOrKey: string,
 ): readonly WorkItemContentRevision[] {
   assertProjectAuthorization(database, projectId, principalId);
+  const lookupReference = resolveWorkItemIdentifier(database, projectId, itemIdOrKey);
   const item = database
     .prepare(
       `SELECT item_id FROM work_items
        WHERE project_id = ? AND (item_id = ? OR item_key = ? COLLATE NOCASE)`,
     )
-    .get(projectId, itemIdOrKey.trim(), itemIdOrKey.trim()) as { item_id: string } | undefined;
+    .get(projectId, lookupReference, lookupReference) as { item_id: string } | undefined;
   if (item === undefined) {
     throw new ApplicationError("NOT_FOUND", "Work item was not found.");
   }
@@ -176,7 +175,7 @@ export function listWorkItemRevisions(
     itemId: row.item_id,
     revisionNumber: row.revision_number,
     status: row.status,
-    snapshot: JSON.parse(row.snapshot_json) as WorkItemContentRevision["snapshot"],
+    snapshot: normalizeWorkItemSnapshot(JSON.parse(row.snapshot_json) as Record<string, unknown>),
     createdByPrincipalId: row.created_by_principal_id,
     createdAt: row.created_at,
     publishedByPrincipalId: row.published_by_principal_id,
@@ -191,6 +190,7 @@ export interface ListWorkItemsInput {
   readonly states?: readonly WorkItemState[];
   readonly parentId?: string;
   readonly search?: string;
+  readonly assignedToMe?: boolean;
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -209,6 +209,8 @@ interface WorkItemListRow {
   readonly title: string;
   readonly state: WorkItemState;
   readonly priority: number;
+  readonly business_value_score: number | null;
+  readonly business_value_rationale: string | null;
   readonly rank: number;
   readonly version: number;
   readonly revision: number;
@@ -248,6 +250,7 @@ export function listWorkItems(database: SqliteDatabase, input: ListWorkItemsInpu
       parentId: resolvedParentId,
       parentWasRequested: filters.parentWasRequested,
       searchExpression: filters.searchExpression,
+      assignedToMe: filters.assignedToMe,
       limit: filters.limit,
     }),
   );
@@ -292,6 +295,10 @@ export function listWorkItems(database: SqliteDatabase, input: ListWorkItemsInpu
   } else if (filters.parentWasRequested) {
     where.push("0 = 1");
   }
+  if (filters.assignedToMe) {
+    where.push("wi.assignee_principal_id = ?");
+    parameters.push(input.principalId);
+  }
   if (filters.searchExpression !== null) {
     where.push("work_items_fts MATCH ?");
     parameters.push(filters.searchExpression);
@@ -318,7 +325,8 @@ export function listWorkItems(database: SqliteDatabase, input: ListWorkItemsInpu
   const rows = database
     .prepare(
       `SELECT wi.item_id, wi.item_key, wi.type, wi.parent_id, wi.assignee_principal_id,
-              wi.title, wi.state, wi.priority, wi.rank, wi.version, wi.updated_at,
+              wi.title, wi.state, wi.priority, wi.business_value_score, wi.business_value_rationale,
+              wi.rank, wi.version, wi.updated_at,
               (SELECT MAX(r.revision_number) FROM work_item_revisions r
                WHERE r.project_id = wi.project_id AND r.item_id = wi.item_id
                  AND r.status = 'published') AS revision
@@ -332,7 +340,7 @@ export function listWorkItems(database: SqliteDatabase, input: ListWorkItemsInpu
 
   const hasMore = rows.length > filters.limit;
   const pageRows = rows.slice(0, filters.limit);
-  const items = pageRows.map((row): WorkItemListItem => ({
+  const baseItems = pageRows.map((row) => ({
     id: row.item_id,
     key: row.item_key,
     type: row.type,
@@ -341,11 +349,25 @@ export function listWorkItems(database: SqliteDatabase, input: ListWorkItemsInpu
     title: row.title,
     state: row.state,
     priority: row.priority,
+    businessValueScore: row.business_value_score,
+    businessValueRationale: row.business_value_rationale,
     rank: row.rank,
     version: row.version,
     revision: row.revision,
     updatedAt: row.updated_at,
   }));
+  const progressByTaskId = taskWorkflowProgressForItems(database, input.projectId,
+    baseItems.filter((item) => item.type === "task").map((item) => item.id));
+  const items: WorkItemListItem[] = baseItems.map((item) => {
+    const progress = progressByTaskId.get(item.id);
+    return {
+      ...item,
+      taskWorkflowRevisionNumber: progress?.revisionNumber ?? null,
+      taskWorkflowProgressPercent: progress?.progressPercent ?? null,
+      taskWorkflowCompletedSteps: progress?.completedSteps ?? null,
+      taskWorkflowTotalSteps: progress?.totalSteps ?? null,
+    };
+  });
   const last = pageRows.at(-1);
 
   return {
@@ -366,12 +388,61 @@ export function listWorkItems(database: SqliteDatabase, input: ListWorkItemsInpu
   };
 }
 
+function normalizeWorkItemSnapshot(value: Record<string, unknown>): WorkItemContentRevision["snapshot"] {
+  return {
+    type: value.type as WorkItemType,
+    parentId: value.parentId as string | null,
+    relatedStoryId: value.relatedStoryId as string | null,
+    title: value.title as string,
+    description: value.description as string | null,
+    priority: value.priority as number,
+    businessValueScore: typeof value.businessValueScore === "number" ? value.businessValueScore : null,
+    businessValueRationale: typeof value.businessValueRationale === "string" ? value.businessValueRationale : null,
+    criteria: value.criteria as readonly AcceptanceCriterion[],
+  };
+}
+
+function taskWorkflowProgressForItems(
+  database: SqliteDatabase,
+  projectId: string,
+  itemIds: readonly string[],
+): Map<string, { readonly revisionNumber: number; readonly progressPercent: number; readonly completedSteps: number; readonly totalSteps: number }> {
+  const result = new Map<string, { revisionNumber: number; progressPercent: number; completedSteps: number; totalSteps: number }>();
+  if (itemIds.length === 0) return result;
+  const rows = database.prepare(
+    `SELECT revision.item_id, revision.revision_number, COUNT(step.step_id) AS total_steps,
+            SUM(CASE WHEN event.to_status = 'done' THEN 1 ELSE 0 END) AS completed_steps,
+            SUM(CASE WHEN event.to_status = 'done' THEN step.effort_basis_points ELSE 0 END) AS completed_effort_basis_points
+     FROM task_workflow_revisions revision
+     INNER JOIN task_workflow_steps step ON step.project_id = revision.project_id AND step.item_id = revision.item_id
+       AND step.revision_number = revision.revision_number
+     LEFT JOIN task_workflow_step_events event ON event.sequence = (
+       SELECT MAX(latest.sequence) FROM task_workflow_step_events latest
+       WHERE latest.project_id = step.project_id AND latest.item_id = step.item_id
+         AND latest.revision_number = step.revision_number AND latest.step_id = step.step_id
+     )
+     WHERE revision.project_id = ? AND revision.status = 'published'
+       AND revision.item_id IN (${itemIds.map(() => "?").join(", ")})
+     GROUP BY revision.item_id, revision.revision_number`,
+  ).all(projectId, ...itemIds) as Array<{
+    item_id: string; revision_number: number; total_steps: number; completed_steps: number; completed_effort_basis_points: number;
+  }>;
+  for (const row of rows) result.set(row.item_id, {
+    revisionNumber: row.revision_number,
+    progressPercent: Math.round(row.completed_effort_basis_points) / 100,
+    completedSteps: row.completed_steps,
+    totalSteps: row.total_steps,
+  });
+  return result;
+}
+
 interface NormalizedListFilters {
   readonly types: WorkItemType[];
   readonly states: WorkItemState[];
   readonly parentId: string | null;
   readonly parentWasRequested: boolean;
   readonly searchExpression: string | null;
+  readonly assignedToMe: boolean;
   readonly limit: number;
 }
 
@@ -402,6 +473,7 @@ function normalizeListFilters(input: ListWorkItemsInput): NormalizedListFilters 
     parentId: parentReference,
     parentWasRequested: parentReference !== null,
     searchExpression: searchTokens.length === 0 ? null : searchTokens.map((token) => `"${token}"`).join(" AND "),
+    assignedToMe: input.assignedToMe ?? false,
     limit,
   };
 }

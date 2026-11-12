@@ -2215,6 +2215,374 @@ export const initialMigrations: readonly SqliteMigration[] = [
         BEGIN SELECT RAISE(ABORT, 'roadmap ID mappings are immutable'); END;
     `,
   },
+  {
+    version: 27,
+    name: "project-history-query-indexes",
+    sql: `
+      CREATE INDEX work_item_transitions_by_project_time
+        ON work_item_state_transitions (project_id, transitioned_at DESC, item_id, item_version DESC);
+      CREATE INDEX work_item_transitions_by_item_time
+        ON work_item_state_transitions (project_id, item_id, transitioned_at DESC, item_version DESC);
+      CREATE INDEX work_item_revisions_by_item_publication
+        ON work_item_revisions (project_id, item_id, published_at DESC, revision_number DESC)
+        WHERE published_at IS NOT NULL;
+      CREATE INDEX specification_revisions_by_item_publication
+        ON specification_revisions (project_id, spec_id, published_at DESC, revision_number DESC)
+        WHERE published_at IS NOT NULL;
+      CREATE INDEX scenario_revisions_by_item_publication
+        ON scenario_revisions (project_id, scenario_id, published_at DESC, revision_number DESC)
+        WHERE published_at IS NOT NULL;
+      CREATE INDEX audit_events_by_project_occurred
+        ON audit_events (project_id, occurred_at DESC, sequence DESC);
+      CREATE INDEX test_runs_by_project_executed
+        ON test_runs (project_id, executed_at DESC, sequence DESC);
+      CREATE INDEX development_sessions_by_project_start
+        ON development_sessions (project_id, started_at DESC, session_id);
+      CREATE INDEX development_session_events_by_project_time
+        ON development_session_events (project_id, occurred_at, session_id, sequence);
+      CREATE INDEX deployment_events_by_project_date
+        ON deployment_events (project_id, deployed_at DESC, event_id);
+      CREATE INDEX sprint_state_transitions_by_project_time
+        ON sprint_state_transitions (project_id, transitioned_at, sprint_id, sprint_version);
+      CREATE INDEX sprint_scope_events_by_project_time
+        ON sprint_scope_events (project_id, changed_at, sprint_id, sequence);
+      CREATE INDEX milestone_scope_events_by_project_time
+        ON milestone_scope_events (project_id, changed_at, milestone_id, sequence);
+    `,
+  },
+  {
+    version: 28,
+    name: "user-authentication-profiles-and-semantic-index",
+    sql: `
+      CREATE TABLE instance_administrators (
+        singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+        principal_id TEXT NOT NULL UNIQUE REFERENCES principals(principal_id) ON DELETE RESTRICT,
+        created_at TEXT NOT NULL
+      ) STRICT;
+
+      CREATE TABLE principal_api_keys (
+        key_id TEXT PRIMARY KEY,
+        principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE CASCADE,
+        key_hash TEXT NOT NULL UNIQUE CHECK (length(key_hash) = 64),
+        key_prefix TEXT NOT NULL CHECK (length(key_prefix) BETWEEN 8 AND 20),
+        created_at TEXT NOT NULL,
+        last_used_at TEXT,
+        revoked_at TEXT,
+        CHECK (revoked_at IS NULL OR revoked_at >= created_at)
+      ) STRICT;
+      CREATE UNIQUE INDEX principal_api_keys_one_active_per_principal
+        ON principal_api_keys (principal_id) WHERE revoked_at IS NULL;
+
+      CREATE TABLE principal_admin_events (
+        event_id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL UNIQUE,
+        actor_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        target_principal_id TEXT REFERENCES principals(principal_id),
+        action TEXT NOT NULL CHECK (action IN ('bootstrap', 'user.create', 'user.auth_key.rotate', 'user.auth_key.revoke')),
+        payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) BETWEEN 1 AND 500),
+        occurred_at TEXT NOT NULL,
+        response_json TEXT NOT NULL CHECK (json_valid(response_json))
+      ) STRICT;
+      CREATE INDEX principal_admin_events_by_target
+        ON principal_admin_events (target_principal_id, occurred_at DESC);
+      CREATE TRIGGER principal_admin_events_immutable_update
+        BEFORE UPDATE ON principal_admin_events
+        BEGIN SELECT RAISE(ABORT, 'principal admin events are immutable'); END;
+      CREATE TRIGGER principal_admin_events_immutable_delete
+        BEFORE DELETE ON principal_admin_events
+        BEGIN SELECT RAISE(ABORT, 'principal admin events are immutable'); END;
+
+      CREATE TABLE work_item_embeddings (
+        project_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        model_key TEXT NOT NULL,
+        model_name TEXT NOT NULL,
+        content_hash TEXT NOT NULL CHECK (length(content_hash) = 64),
+        vector_json TEXT NOT NULL CHECK (json_valid(vector_json)),
+        dimension INTEGER NOT NULL CHECK (dimension > 0),
+        indexed_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, item_id, model_key),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id) ON DELETE CASCADE
+      ) STRICT;
+      CREATE INDEX work_item_embeddings_by_model
+        ON work_item_embeddings (project_id, model_key, item_id);
+
+      CREATE INDEX work_items_by_assignee
+        ON work_items (project_id, assignee_principal_id, rank, item_key);
+    `,
+  },
+  {
+    version: 29,
+    name: "point-estimate-audit-query-index",
+    sql: `
+      CREATE INDEX audit_events_by_project_type_entity_time
+        ON audit_events (project_id, event_type, entity_id, occurred_at, sequence);
+    `,
+  },
+  {
+    version: 30,
+    name: "versioned-task-workflows-and-weighted-progress",
+    sql: `
+      CREATE TABLE task_workflow_revisions (
+        revision_id TEXT NOT NULL UNIQUE,
+        project_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        revision_number INTEGER NOT NULL CHECK (revision_number > 0),
+        status TEXT NOT NULL CHECK (status IN ('draft', 'published', 'superseded', 'withdrawn')),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) BETWEEN 1 AND 1000),
+        created_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        created_at TEXT NOT NULL,
+        published_by_principal_id TEXT REFERENCES principals(principal_id),
+        published_at TEXT,
+        PRIMARY KEY (project_id, item_id, revision_number),
+        UNIQUE (project_id, item_id, revision_id),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id),
+        CHECK ((status IN ('draft', 'withdrawn') AND published_by_principal_id IS NULL AND published_at IS NULL)
+          OR (status IN ('published', 'superseded') AND published_by_principal_id IS NOT NULL AND published_at IS NOT NULL))
+      ) STRICT;
+      CREATE UNIQUE INDEX task_workflow_one_draft
+        ON task_workflow_revisions (project_id, item_id) WHERE status = 'draft';
+      CREATE UNIQUE INDEX task_workflow_one_published
+        ON task_workflow_revisions (project_id, item_id) WHERE status = 'published';
+      CREATE INDEX task_workflow_revisions_by_item
+        ON task_workflow_revisions (project_id, item_id, revision_number DESC);
+
+      CREATE TABLE task_workflow_steps (
+        project_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        revision_number INTEGER NOT NULL,
+        step_id TEXT NOT NULL,
+        position INTEGER NOT NULL CHECK (position BETWEEN 1 AND 50),
+        title TEXT NOT NULL CHECK (length(trim(title)) BETWEEN 1 AND 160),
+        description TEXT NOT NULL CHECK (length(trim(description)) BETWEEN 1 AND 4000),
+        effort_basis_points INTEGER NOT NULL CHECK (effort_basis_points BETWEEN 1 AND 10000),
+        PRIMARY KEY (project_id, item_id, revision_number, step_id),
+        UNIQUE (project_id, item_id, revision_number, position),
+        FOREIGN KEY (project_id, item_id, revision_number)
+          REFERENCES task_workflow_revisions(project_id, item_id, revision_number)
+      ) STRICT;
+      CREATE INDEX task_workflow_steps_by_order
+        ON task_workflow_steps (project_id, item_id, revision_number, position);
+      CREATE TRIGGER task_workflow_steps_validate_insert
+        BEFORE INSERT ON task_workflow_steps
+        BEGIN
+          SELECT CASE WHEN (SELECT status FROM task_workflow_revisions
+            WHERE project_id = new.project_id AND item_id = new.item_id AND revision_number = new.revision_number) <> 'draft'
+            THEN RAISE(ABORT, 'task workflow steps may only be added to a draft revision') END;
+          SELECT CASE WHEN (SELECT type FROM work_items
+            WHERE project_id = new.project_id AND item_id = new.item_id) <> 'task'
+            THEN RAISE(ABORT, 'task workflows may only be attached to task work items') END;
+        END;
+      CREATE TRIGGER task_workflow_steps_immutable_update
+        BEFORE UPDATE ON task_workflow_steps
+        BEGIN SELECT RAISE(ABORT, 'task workflow revision steps are immutable'); END;
+      CREATE TRIGGER task_workflow_steps_immutable_delete
+        BEFORE DELETE ON task_workflow_steps
+        BEGIN SELECT RAISE(ABORT, 'task workflow revision steps are immutable'); END;
+
+      CREATE TABLE task_workflow_step_events (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL UNIQUE,
+        project_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        revision_number INTEGER NOT NULL,
+        step_id TEXT NOT NULL,
+        event_type TEXT NOT NULL CHECK (event_type IN ('status_changed', 'carried_forward', 'reset')),
+        from_status TEXT NOT NULL CHECK (from_status IN ('pending', 'in_progress', 'done')),
+        to_status TEXT NOT NULL CHECK (to_status IN ('pending', 'in_progress', 'done')),
+        principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) BETWEEN 1 AND 1000),
+        occurred_at TEXT NOT NULL,
+        FOREIGN KEY (project_id, item_id, revision_number, step_id)
+          REFERENCES task_workflow_steps(project_id, item_id, revision_number, step_id)
+      ) STRICT;
+      CREATE INDEX task_workflow_step_events_latest
+        ON task_workflow_step_events (project_id, item_id, revision_number, step_id, sequence DESC);
+      CREATE TRIGGER task_workflow_step_events_validate_insert
+        BEFORE INSERT ON task_workflow_step_events
+        BEGIN
+          SELECT CASE WHEN (SELECT status FROM task_workflow_revisions
+            WHERE project_id = new.project_id AND item_id = new.item_id AND revision_number = new.revision_number) <> 'published'
+            THEN RAISE(ABORT, 'task workflow progress requires a published revision') END;
+        END;
+      CREATE TRIGGER task_workflow_step_events_immutable_update
+        BEFORE UPDATE ON task_workflow_step_events
+        BEGIN SELECT RAISE(ABORT, 'task workflow progress history is immutable'); END;
+      CREATE TRIGGER task_workflow_step_events_immutable_delete
+        BEFORE DELETE ON task_workflow_step_events
+        BEGIN SELECT RAISE(ABORT, 'task workflow progress history is immutable'); END;
+
+      CREATE TABLE development_session_workflow_refs (
+        project_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        revision_number INTEGER NOT NULL,
+        pinned_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, session_id),
+        FOREIGN KEY (project_id, session_id) REFERENCES development_sessions(project_id, session_id),
+        FOREIGN KEY (project_id, item_id, revision_number)
+          REFERENCES task_workflow_revisions(project_id, item_id, revision_number)
+      ) STRICT;
+      CREATE INDEX development_session_workflow_refs_by_task
+        ON development_session_workflow_refs (project_id, item_id, revision_number);
+      CREATE TRIGGER development_session_workflow_refs_validate_insert
+        BEFORE INSERT ON development_session_workflow_refs
+        BEGIN
+          SELECT CASE WHEN NOT EXISTS (
+            SELECT 1 FROM development_sessions s
+            WHERE s.project_id = new.project_id AND s.session_id = new.session_id AND s.item_id = new.item_id
+          ) THEN RAISE(ABORT, 'session workflow reference must match the task') END;
+          SELECT CASE WHEN (SELECT status FROM task_workflow_revisions
+            WHERE project_id = new.project_id AND item_id = new.item_id AND revision_number = new.revision_number) <> 'published'
+            THEN RAISE(ABORT, 'development sessions can pin only a published task workflow') END;
+        END;
+      CREATE TRIGGER development_session_workflow_refs_immutable_update
+        BEFORE UPDATE ON development_session_workflow_refs
+        BEGIN SELECT RAISE(ABORT, 'session workflow references are immutable'); END;
+      CREATE TRIGGER development_session_workflow_refs_immutable_delete
+        BEFORE DELETE ON development_session_workflow_refs
+        BEGIN SELECT RAISE(ABORT, 'session workflow references are immutable'); END;
+
+      CREATE TRIGGER task_workflow_revisions_validate_publish
+        BEFORE UPDATE OF status ON task_workflow_revisions
+        WHEN old.status = 'draft' AND new.status = 'published'
+        BEGIN
+          SELECT CASE WHEN (SELECT COUNT(*) FROM task_workflow_steps
+            WHERE project_id = old.project_id AND item_id = old.item_id AND revision_number = old.revision_number) NOT BETWEEN 1 AND 50
+            THEN RAISE(ABORT, 'task workflow must contain 1-50 steps') END;
+          SELECT CASE WHEN (SELECT COALESCE(SUM(effort_basis_points), 0) FROM task_workflow_steps
+            WHERE project_id = old.project_id AND item_id = old.item_id AND revision_number = old.revision_number) <> 10000
+            THEN RAISE(ABORT, 'task workflow effort weights must total 100.00 percent') END;
+          SELECT CASE WHEN (SELECT type FROM work_items
+            WHERE project_id = old.project_id AND item_id = old.item_id) <> 'task'
+            THEN RAISE(ABORT, 'task workflows may only be attached to task work items') END;
+          SELECT CASE WHEN EXISTS (
+            SELECT 1 FROM development_sessions
+            WHERE project_id = old.project_id AND item_id = old.item_id AND status IN ('active', 'paused')
+          ) THEN RAISE(ABORT, 'close open development sessions before publishing a workflow') END;
+        END;
+      CREATE TRIGGER task_workflow_revisions_validate_update
+        BEFORE UPDATE ON task_workflow_revisions
+        WHEN old.revision_id IS NOT new.revision_id OR old.project_id IS NOT new.project_id OR old.item_id IS NOT new.item_id
+          OR old.revision_number IS NOT new.revision_number OR old.reason IS NOT new.reason
+          OR old.created_by_principal_id IS NOT new.created_by_principal_id OR old.created_at IS NOT new.created_at
+          OR NOT ((old.status = 'draft' AND new.status IN ('published', 'withdrawn')) OR (old.status = 'published' AND new.status = 'superseded'))
+          OR (old.status = 'draft' AND new.status = 'published' AND (new.published_by_principal_id IS NULL OR new.published_at IS NULL))
+          OR (old.status = 'published' AND new.status = 'superseded' AND
+            (old.published_by_principal_id IS NOT new.published_by_principal_id OR old.published_at IS NOT new.published_at))
+        BEGIN SELECT RAISE(ABORT, 'task workflow revision history is immutable'); END;
+    `,
+  },
+  {
+    version: 31,
+    name: "business-value-and-prioritized-roadmap",
+    sql: `
+      ALTER TABLE work_items ADD COLUMN business_value_score INTEGER
+        CHECK (business_value_score IS NULL OR business_value_score BETWEEN 0 AND 100);
+      ALTER TABLE work_items ADD COLUMN business_value_rationale TEXT
+        CHECK (business_value_rationale IS NULL OR length(business_value_rationale) <= 1000);
+      CREATE INDEX work_items_by_execution_queue
+        ON work_items (project_id, type, state, assignee_principal_id, priority, rank, item_key);
+    `,
+  },
+  {
+    version: 32,
+    name: "withdraw-obsolete-specification-drafts",
+    checksumKey: "withdraw-specification-draft-preserving-session-fks-v1",
+    disableForeignKeysForRebuild: true,
+    sql: `
+      CREATE TABLE specification_revisions_v32 (
+        revision_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        spec_id TEXT NOT NULL,
+        revision_number INTEGER NOT NULL CHECK (revision_number > 0),
+        status TEXT NOT NULL CHECK (status IN ('draft', 'in_review', 'published', 'superseded', 'withdrawn')),
+        content_json TEXT NOT NULL CHECK (json_valid(content_json)),
+        created_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        created_at TEXT NOT NULL,
+        published_by_principal_id TEXT REFERENCES principals(principal_id),
+        published_at TEXT,
+        UNIQUE (project_id, spec_id, revision_number),
+        UNIQUE (project_id, spec_id, revision_number, revision_id),
+        FOREIGN KEY (project_id, spec_id) REFERENCES specifications(project_id, spec_id),
+        CHECK (
+          (status IN ('draft', 'in_review', 'withdrawn') AND published_by_principal_id IS NULL AND published_at IS NULL)
+          OR
+          (status IN ('published', 'superseded') AND published_by_principal_id IS NOT NULL AND published_at IS NOT NULL)
+        )
+      ) STRICT;
+
+      INSERT INTO specification_revisions_v32
+        (revision_id, project_id, spec_id, revision_number, status, content_json,
+         created_by_principal_id, created_at, published_by_principal_id, published_at)
+      SELECT revision_id, project_id, spec_id, revision_number, status, content_json,
+             created_by_principal_id, created_at, published_by_principal_id, published_at
+      FROM specification_revisions;
+
+      DROP TRIGGER specification_revisions_immutable_content;
+      DROP TRIGGER specification_revisions_no_delete;
+      DROP TRIGGER baseline_refs_validate_revision;
+      DROP TABLE specification_revisions;
+      ALTER TABLE specification_revisions_v32 RENAME TO specification_revisions;
+
+      CREATE UNIQUE INDEX specification_one_published_revision
+        ON specification_revisions (project_id, spec_id) WHERE status = 'published';
+      CREATE UNIQUE INDEX specification_one_open_draft_revision
+        ON specification_revisions (project_id, spec_id) WHERE status IN ('draft', 'in_review');
+      CREATE INDEX specification_revisions_by_spec
+        ON specification_revisions (project_id, spec_id, revision_number);
+      CREATE INDEX specification_revisions_by_item_publication
+        ON specification_revisions (project_id, spec_id, published_at DESC, revision_number DESC)
+        WHERE published_at IS NOT NULL;
+
+      CREATE TRIGGER specification_revisions_validate_insert
+        BEFORE INSERT ON specification_revisions
+        WHEN new.status <> 'draft' OR new.published_by_principal_id IS NOT NULL OR new.published_at IS NOT NULL
+        BEGIN SELECT RAISE(ABORT, 'new specification revisions must start as drafts'); END;
+
+      CREATE TRIGGER specification_revisions_immutable_content
+        BEFORE UPDATE ON specification_revisions
+        WHEN
+          NEW.revision_id IS NOT OLD.revision_id OR NEW.project_id IS NOT OLD.project_id OR
+          NEW.spec_id IS NOT OLD.spec_id OR NEW.revision_number IS NOT OLD.revision_number OR
+          NEW.content_json IS NOT OLD.content_json OR NEW.created_by_principal_id IS NOT OLD.created_by_principal_id OR
+          NEW.created_at IS NOT OLD.created_at OR
+          NOT (
+            (OLD.status = 'draft' AND NEW.status IN ('in_review', 'published', 'withdrawn')) OR
+            (OLD.status = 'in_review' AND NEW.status IN ('draft', 'published', 'withdrawn')) OR
+            (OLD.status = 'published' AND NEW.status = 'superseded'
+              AND NEW.published_by_principal_id IS OLD.published_by_principal_id
+              AND NEW.published_at IS OLD.published_at)
+          )
+        BEGIN SELECT RAISE(ABORT, 'specification revision content and history are immutable'); END;
+
+      CREATE TRIGGER specification_revisions_no_delete
+        BEFORE DELETE ON specification_revisions
+        BEGIN SELECT RAISE(ABORT, 'specification revisions are immutable'); END;
+
+      CREATE TRIGGER baseline_refs_validate_revision
+        BEFORE INSERT ON baseline_refs
+        BEGIN
+          SELECT CASE WHEN new.entity_type = 'work_item_revision' AND NOT EXISTS (
+            SELECT 1 FROM work_item_revisions r
+            WHERE r.project_id = new.project_id AND r.item_id = new.entity_id
+              AND r.revision_number = new.revision_number AND r.status = 'published'
+          ) THEN RAISE(ABORT, 'baseline work item revision must be published') END;
+          SELECT CASE WHEN new.entity_type = 'specification_revision' AND NOT EXISTS (
+            SELECT 1 FROM specification_revisions r
+            WHERE r.project_id = new.project_id AND r.spec_id = new.entity_id
+              AND r.revision_number = new.revision_number AND r.status = 'published'
+          ) THEN RAISE(ABORT, 'baseline specification revision must be published') END;
+          SELECT CASE WHEN new.entity_type = 'scenario_revision' AND NOT EXISTS (
+            SELECT 1 FROM scenario_revisions r
+            WHERE r.project_id = new.project_id AND r.scenario_id = new.entity_id
+              AND r.revision_number = new.revision_number AND r.status = 'published'
+          ) THEN RAISE(ABORT, 'baseline scenario revision must be published') END;
+        END;
+    `,
+    afterApply: verifyMigrationForeignKeys,
+  },
 ];
 
 export function applyMigrations(
@@ -2407,6 +2775,13 @@ function seedDefaultTeamsAndVerifyForeignKeys(database: SqliteDatabase): void {
   const violations = database.pragma("foreign_key_check") as Array<Record<string, unknown>>;
   if (violations.length > 0) {
     throw new Error(`Migration 22 found ${violations.length} foreign key violation(s).`);
+  }
+}
+
+function verifyMigrationForeignKeys(database: SqliteDatabase): void {
+  const violations = database.pragma("foreign_key_check") as Array<Record<string, unknown>>;
+  if (violations.length > 0) {
+    throw new Error(`Schema migration found ${violations.length} foreign key violation(s).`);
   }
 }
 

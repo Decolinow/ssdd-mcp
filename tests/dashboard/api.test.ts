@@ -8,14 +8,17 @@ import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { createWorkItem } from "../../src/application/create-work-item.js";
+import { ensureBootstrapAdministrator, createManagedUser, revokeManagedUserAuthKeys } from "../../src/application/user-management.js";
 import { confirmWorkItemEstimate, proposeWorkItemEstimate } from "../../src/application/work-item-commands.js";
 import { getWorkItem } from "../../src/application/work-item-queries.js";
 import { setDefinitionOfDone } from "../../src/application/definition-of-done.js";
 import { initializeProject } from "../../src/application/initialize-project.js";
 import { createMilestone } from "../../src/application/milestones.js";
 import { createScenario, publishScenarioRevision } from "../../src/application/scenario-commands.js";
+import { createSpecification } from "../../src/application/specification-commands.js";
 import { setSprintRetrospective } from "../../src/application/sprint-retrospectives.js";
 import { setTeamCapacityConfiguration } from "../../src/application/team-capacity.js";
+import { addTraceLink } from "../../src/application/trace-commands.js";
 import { transitionWorkItem } from "../../src/application/work-item-workflow.js";
 import { createDashboardApiServer, listenDashboardApiServer } from "../../src/dashboard/api.js";
 import { openSqliteDatabase } from "../../src/storage-sqlite/database.js";
@@ -33,6 +36,25 @@ test("dashboard API sessions and project authorization match MCP access", async 
   const database = openSqliteDatabase(initialized.databasePath);
   const principalId = (database.prepare("SELECT created_by_principal_id FROM projects WHERE project_id = ?")
     .get(projectId) as { created_by_principal_id: string }).created_by_principal_id;
+  ensureBootstrapAdministrator(database, principalId);
+  const dashboardUser = createManagedUser(database, {
+    actorPrincipalId: principalId,
+    requestId: "dashboard-login-user",
+    displayName: "Dashboard Login Developer",
+    principalType: "human",
+    projects: [{ projectId, roles: ["developer"] }],
+    reason: "Validar login autenticado do dashboard.",
+  });
+  assert.ok(dashboardUser.authKey);
+  const taskDeveloper = createManagedUser(database, {
+    actorPrincipalId: principalId,
+    requestId: "dashboard-task-developer",
+    displayName: "Dashboard Task Developer",
+    principalType: "human",
+    projects: [{ projectId, roles: ["developer"] }],
+    reason: "Validar início de tarefa pelo responsável autenticado.",
+  });
+  assert.ok(taskDeveloper.authKey);
   const restrictedProjectId = randomUUID();
   database.prepare(
     `INSERT INTO projects
@@ -69,6 +91,24 @@ test("dashboard API sessions and project authorization match MCP access", async 
     type: "task",
     parentId: story.id,
     title: "Implement purchase confirmation",
+    description: "Persist the purchase confirmation result.",
+  }).value;
+  const draftSpecification = createSpecification(database, {
+    projectId,
+    principalId,
+    requestId: "dashboard-draft-specification",
+    key: "PAY-ADR-DRAFT",
+    kind: "adr",
+    title: "Unpublished payment decision",
+    content: { decision: "DRAFT_DECISION_MUST_NOT_BE_EXPOSED" },
+  }).value;
+  const draftSpecificationLink = addTraceLink(database, {
+    projectId,
+    principalId,
+    requestId: "dashboard-draft-specification-link",
+    sourceIdOrKey: task.id,
+    targetIdOrKey: draftSpecification.specId,
+    type: "relates_to",
   }).value;
   const capacity = setTeamCapacityConfiguration(database, {
     projectId,
@@ -185,6 +225,16 @@ test("dashboard API sessions and project authorization match MCP access", async 
     actions: [{ title: "Revisar dependências", ownerPrincipalId: principalId, linkedWorkItemIdOrKey: story.id }],
     reason: "Registrar acordo da equipe de teste.",
   });
+  const parentBaselineId = randomUUID();
+  const baselineCreatedAt = new Date().toISOString();
+  database.prepare("UPDATE work_items SET state = 'in_progress', version = version + 1 WHERE project_id = ? AND item_id = ?")
+    .run(projectId, story.id);
+  database.prepare(
+    `INSERT INTO work_baselines (baseline_id, project_id, item_id, sequence, kind, reason, created_by_principal_id, created_at)
+     VALUES (?, ?, ?, 1, 'ready', 'Dashboard task-start fixture baseline', ?, ?)`,
+  ).run(parentBaselineId, projectId, story.id, principalId, baselineCreatedAt);
+  database.prepare("UPDATE work_items SET state = 'ready', assignee_principal_id = ?, version = version + 1 WHERE project_id = ? AND item_id = ?")
+    .run(taskDeveloper.principalId, projectId, task.id);
   database.close();
 
   const dashboard = createDashboardApiServer(workspace);
@@ -194,6 +244,7 @@ test("dashboard API sessions and project authorization match MCP access", async 
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [cliPath, "stdio", "--workspace", workspace],
+    stderr: "ignore",
   });
 
   context.after(async () => {
@@ -211,21 +262,133 @@ test("dashboard API sessions and project authorization match MCP access", async 
   assert.match(landingPage.headers.get("content-type") ?? "", /text\/html/u);
   const dashboardHtml = await landingPage.text();
   assert.match(dashboardHtml, /Product Backlog/u);
+  assert.match(dashboardHtml, /Retrato do projeto em uma data/u);
   assert.match(dashboardHtml, /Criar rascunho/u);
   assert.match(dashboardHtml, /Registrar execução/u);
+  assert.match(dashboardHtml, /AuthKey do MCP/u);
+  assert.match(dashboardHtml, /login-form/u);
+  assert.match(dashboardHtml, /method="post" action="\/api\/v1\/session\/login"/u);
+  assert.match(dashboardHtml, /autocomplete="off"/u);
+  const dashboardIds = [...dashboardHtml.matchAll(/\bid="([^"]+)"/gu)].map((match) => match[1]!);
+  assert.equal(new Set(dashboardIds).size, dashboardIds.length, "dashboard element IDs must be unique");
+  const dashboardIdSet = new Set(dashboardIds);
+  for (const match of dashboardHtml.matchAll(/<label\b[^>]*\bfor="([^"]+)"/gu)) {
+    assert.ok(dashboardIdSet.has(match[1]!), `label target ${match[1]} must exist`);
+  }
+  assert.match(dashboardHtml, /metrics-effort-from/u);
+  assert.match(dashboardHtml, /metrics-effort-to/u);
+  assert.match(dashboardHtml, /metrics-developer/u);
   const dashboardScript = await fetch(`${address.origin}/dashboard.js`);
   assert.equal(dashboardScript.status, 200);
   assert.match(dashboardScript.headers.get("content-type") ?? "", /javascript/u);
   const dashboardJavascript = await dashboardScript.text();
   assert.match(dashboardJavascript, /X-SSDD-CSRF/u);
+  assert.match(dashboardJavascript, /loadProjectHistory/u);
   assert.match(dashboardJavascript, /submitTestRun/u);
   assert.match(dashboardJavascript, /publishWorkItemRevision/u);
   assert.match(dashboardJavascript, /loadChildTasks/u);
   assert.match(dashboardJavascript, /renderTaskContext/u);
+  assert.match(dashboardJavascript, /api\/v1\/session\/login/u);
+  assert.match(dashboardJavascript, /api\/v1\/session\/logout/u);
+  assert.match(dashboardJavascript, /event\.entityReference/u);
+  assert.match(dashboardJavascript, /event\.relatedEntities/u);
+  assert.match(dashboardJavascript, /renderSprintComparison/u);
+  assert.match(dashboardJavascript, /metrics-velocity-window/u);
+  assert.match(dashboardJavascript, /developerMetricsRangeCustomized/u);
+  assert.match(dashboardJavascript, /activeHoursOnEstimatedCompletedTasks/u);
+  assert.match(dashboardJavascript, /elements\.metricsDate\.value = model\.selectedMetricsDate \?\? data\.asOfDate/u);
+  assert.match(dashboardJavascript, /function scenarioKindLabel\(kind\)/u);
+  assert.match(dashboardJavascript, /scenarioKindLabel\(scenario\.kind\)/u);
+  assert.match(dashboardJavascript, /start-readiness/u);
+  assert.match(dashboardJavascript, /Iniciar e abrir sessão/u);
   assert.match(dashboardHtml, /Tarefas verificadas/u);
   const dashboardStyles = await fetch(`${address.origin}/dashboard.css`);
   assert.equal(dashboardStyles.status, 200);
   assert.match(dashboardStyles.headers.get("content-type") ?? "", /text\/css/u);
+
+  const invalidLogin = await fetch(`${address.origin}/api/v1/session/login`, {
+    method: "POST",
+    headers: { Origin: address.origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ authKey: "ssdd_invalid" }),
+  });
+  assert.equal(invalidLogin.status, 401);
+  assert.equal(invalidLogin.headers.get("set-cookie"), null);
+  const crossOriginLogin = await fetch(`${address.origin}/api/v1/session/login`, {
+    method: "POST",
+    headers: { Origin: "https://attacker.example", "Content-Type": "application/json" },
+    body: JSON.stringify({ authKey: dashboardUser.authKey }),
+  });
+  assert.equal(crossOriginLogin.status, 403);
+
+  const userLogin = await fetch(`${address.origin}/api/v1/session/login`, {
+    method: "POST",
+    headers: { Origin: address.origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ authKey: dashboardUser.authKey }),
+  });
+  assert.equal(userLogin.status, 200);
+  const userCookieHeader = userLogin.headers.get("set-cookie");
+  assert.ok(userCookieHeader);
+  assert.match(userCookieHeader, /HttpOnly/u);
+  assert.match(userCookieHeader, /SameSite=Strict/u);
+  const userCookie = userCookieHeader.split(";", 1)[0];
+  assert.ok(userCookie);
+  const userSession = await userLogin.json() as {
+    principal: { id: string; displayName: string };
+    projects: Array<{ id: string }>;
+    csrfToken: string;
+  };
+  assert.equal(userSession.principal.id, dashboardUser.principalId);
+  assert.equal(userSession.principal.displayName, "Dashboard Login Developer");
+  assert.deepEqual(userSession.projects.map((project) => project.id), [projectId]);
+  assert.equal(JSON.stringify(userSession).includes(dashboardUser.authKey!), false);
+  const userProject = await fetch(`${address.origin}/api/v1/projects/${projectId}`, {
+    headers: { Cookie: userCookie, Origin: address.origin },
+  });
+  assert.equal(userProject.status, 200);
+  const forbiddenUserProject = await fetch(`${address.origin}/api/v1/projects/${restrictedProjectId}`, {
+    headers: { Cookie: userCookie, Origin: address.origin },
+  });
+  assert.equal(forbiddenUserProject.status, 403);
+
+  const logout = await fetch(`${address.origin}/api/v1/session/logout`, {
+    method: "POST",
+    headers: {
+      Cookie: userCookie,
+      Origin: address.origin,
+      "X-SSDD-CSRF": userSession.csrfToken,
+    },
+  });
+  assert.equal(logout.status, 200);
+  assert.match(logout.headers.get("set-cookie") ?? "", /Max-Age=0/u);
+  const loggedOutSession = await fetch(`${address.origin}/api/v1/session`, {
+    headers: { Cookie: userCookie, Origin: address.origin },
+  });
+  assert.equal(loggedOutSession.status, 401);
+
+  const secondLogin = await fetch(`${address.origin}/api/v1/session/login`, {
+    method: "POST",
+    headers: { Origin: address.origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ authKey: dashboardUser.authKey }),
+  });
+  assert.equal(secondLogin.status, 200);
+  const secondLoginCookie = secondLogin.headers.get("set-cookie")?.split(";", 1)[0];
+  assert.ok(secondLoginCookie);
+  const revokeDatabase = openSqliteDatabase(initialized.databasePath);
+  try {
+    revokeManagedUserAuthKeys(revokeDatabase, {
+      actorPrincipalId: principalId,
+      targetPrincipalId: dashboardUser.principalId,
+      requestId: "dashboard-login-revoke-key",
+      reason: "Validar invalidação imediata de sessões.",
+    });
+  } finally {
+    revokeDatabase.close();
+  }
+  const revokedSession = await fetch(`${address.origin}/api/v1/session`, {
+    headers: { Cookie: secondLoginCookie, Origin: address.origin },
+  });
+  assert.equal(revokedSession.status, 401);
+  assert.equal(((await revokedSession.json()) as { code: string }).code, "SESSION_INVALID");
 
   const claim = await fetch(`${address.origin}/?token=${encodeURIComponent(dashboard.bootstrapToken)}`);
   assert.equal(claim.status, 200);
@@ -247,6 +410,22 @@ test("dashboard API sessions and project authorization match MCP access", async 
   assert.equal(sessionBody.principal.id, principalId);
   assert.deepEqual(sessionBody.projects.map((project) => project.id), [projectId]);
   assert.ok(sessionBody.csrfToken.length >= 32);
+  const activityResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/audit?entityType=trace_link&entityId=${draftSpecificationLink.id}`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(activityResponse.status, 200);
+  const activityBody = await activityResponse.json() as {
+    events: Array<{
+      entityReference: { label: string };
+      relatedEntities: Array<{ key: string; title: string; label: string }>;
+    }>;
+  };
+  assert.equal(activityBody.events[0]?.entityReference.label, "Vínculo de contexto");
+  assert.deepEqual(activityBody.events[0]?.relatedEntities.map(({ key, title }) => ({ key, title })).sort((left, right) => left.key.localeCompare(right.key)), [
+    { key: task.key, title: "Implement purchase confirmation" },
+    { key: draftSpecification.key, title: "Unpublished payment decision" },
+  ].sort((left, right) => left.key.localeCompare(right.key)));
   const postMutation = (path: string, body: unknown) => fetch(`${address.origin}${path}`, {
     method: "POST",
     headers: {
@@ -257,6 +436,51 @@ test("dashboard API sessions and project authorization match MCP access", async 
     },
     body: JSON.stringify(body),
   });
+
+  const taskDeveloperLogin = await fetch(`${address.origin}/api/v1/session/login`, {
+    method: "POST",
+    headers: { Origin: address.origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ authKey: taskDeveloper.authKey }),
+  });
+  assert.equal(taskDeveloperLogin.status, 200);
+  const taskDeveloperCookie = taskDeveloperLogin.headers.get("set-cookie")?.split(";", 1)[0];
+  assert.ok(taskDeveloperCookie);
+  const taskDeveloperSession = await taskDeveloperLogin.json() as { csrfToken: string };
+  const postAsTaskDeveloper = (path: string, body: unknown) => fetch(`${address.origin}${path}`, {
+    method: "POST",
+    headers: {
+      Cookie: taskDeveloperCookie,
+      Origin: address.origin,
+      "X-SSDD-CSRF": taskDeveloperSession.csrfToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const startReadiness = await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${task.key}/start-readiness`, {
+    headers: { Cookie: taskDeveloperCookie, Origin: address.origin },
+  });
+  assert.equal(startReadiness.status, 200);
+  const startReadinessBody = await startReadiness.json() as { readiness: { canStart: boolean; version: number } };
+  assert.equal(startReadinessBody.readiness.canStart, true);
+  const bypassStart = await postAsTaskDeveloper(`/api/v1/projects/${projectId}/work-items/${task.key}/transition`, {
+    requestId: "dashboard-direct-task-start", targetState: "in_progress",
+    expectedVersion: startReadinessBody.readiness.version, reason: "A transição direta deve ser recusada.",
+  });
+  assert.notEqual(bypassStart.status, 200);
+  assert.equal(((await bypassStart.json()) as { code: string }).code, "USE_TASK_START");
+  const taskStart = await postAsTaskDeveloper(`/api/v1/projects/${projectId}/work-items/${task.key}/start`, {
+    requestId: "dashboard-atomic-task-start", expectedVersion: startReadinessBody.readiness.version,
+    reason: "Início via fluxo atômico do dashboard.",
+  });
+  assert.equal(taskStart.status, 200);
+  const taskStartBody = await taskStart.json() as {
+    task: { state: string };
+    session: { status: string };
+    auditEventIds: string[];
+  };
+  assert.equal(taskStartBody.task.state, "in_progress");
+  assert.equal(taskStartBody.session.status, "active");
+  assert.ok(taskStartBody.auditEventIds.length >= 3);
 
   const scenarioCreate = await postMutation(`/api/v1/projects/${projectId}/scenarios`, {
     requestId: "dashboard-task-linked-scenario",
@@ -310,18 +534,89 @@ test("dashboard API sessions and project authorization match MCP access", async 
     workItemIdOrKeys: [task.key],
   });
   assert.equal(testRunResponse.status, 201);
+  const projectHistoryResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/history?asOfDate=${projectToday()}`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(projectHistoryResponse.status, 200);
+  const projectHistory = await projectHistoryResponse.json() as {
+    asOfDate: string;
+    timezone: string;
+    cutoffAt: string;
+    summary: {
+      workItemsTotal: number;
+      workItemsByState: { ready: number };
+      testRunsTotal: number;
+      testRunsByResult: { passed: number };
+      sprintsTotal: number;
+      sprintsByStatus: { closed: number };
+      milestonesTotal: number;
+    };
+    workItems: { items: Array<{ key: string; state: string; revisionNumber: number }>; nextCursor: string | null };
+    testRuns: Array<{ workItemKeys: string[] }>;
+    activity: Array<{ sequence: number }>;
+  };
+  assert.equal(projectHistory.asOfDate, projectToday());
+  assert.equal(projectHistory.timezone, "America/Sao_Paulo");
+  assert.equal(projectHistory.summary.workItemsTotal, 5);
+  assert.equal(projectHistory.summary.workItemsByState.ready, 1);
+  assert.equal(projectHistory.summary.testRunsTotal, 1);
+  assert.equal(projectHistory.summary.testRunsByResult.passed, 1);
+  assert.equal(projectHistory.summary.sprintsTotal, 1);
+  assert.equal(projectHistory.summary.sprintsByStatus.closed, 1);
+  assert.equal(projectHistory.summary.milestonesTotal, 1);
+  assert.equal(projectHistory.workItems.nextCursor, null);
+  const historicalMetricStory = projectHistory.workItems.items.find((item) => item.key === metricStory.key);
+  assert.deepEqual(historicalMetricStory && {
+    key: historicalMetricStory.key,
+    state: historicalMetricStory.state,
+    revisionNumber: historicalMetricStory.revisionNumber,
+  }, { key: metricStory.key, state: "ready", revisionNumber: 1 });
+  assert.deepEqual(projectHistory.testRuns[0]?.workItemKeys, [task.key]);
+  assert.ok(projectHistory.activity.length > 0);
+  assert.equal(projectHistory.cutoffAt, `${addDays(projectToday(), 1)}T02:59:59.999Z`);
+  const beforeProjectHistory = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/history?asOfDate=2018-11-04`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(beforeProjectHistory.status, 200);
+  const beforeProjectSnapshot = await beforeProjectHistory.json() as {
+    cutoffAt: string;
+    summary: { workItemsTotal: number; testRunsTotal: number };
+  };
+  assert.equal(beforeProjectSnapshot.cutoffAt, "2018-11-05T01:59:59.999Z");
+  assert.equal(beforeProjectSnapshot.summary.workItemsTotal, 0);
+  assert.equal(beforeProjectSnapshot.summary.testRunsTotal, 0);
+  const futureHistory = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/history?asOfDate=${addDays(projectToday(), 1)}`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.notEqual(futureHistory.status, 200);
+  assert.equal(((await futureHistory.json()) as { code: string }).code, "VALIDATION_FAILED");
+  const invalidHistoryDate = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/history?asOfDate=2026-02-30`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.notEqual(invalidHistoryDate.status, 200);
+  assert.equal(((await invalidHistoryDate.json()) as { code: string }).code, "VALIDATION_FAILED");
   const taskContextResponse = await fetch(
     `${address.origin}/api/v1/projects/${projectId}/work-items/${task.key}/context?profile=dev&include=hierarchy&include=acceptanceCriteria&include=businessRules&include=technicalDecisions&include=scenarios&include=testRuns&include=baseline&maxChars=30000`,
     { headers: { Cookie: cookie, Origin: address.origin } },
   );
   assert.equal(taskContextResponse.status, 200);
   const taskContext = await taskContextResponse.json() as {
-    sections: { hierarchy: Array<{ key: string }>; scenarios: Array<{ key: string; source: { relationship?: string } }>;
+    sections: {
+      hierarchy: Array<{ key: string }>;
+      technicalDecisions: Array<{ key: string; content: unknown }>;
+      scenarios: Array<{ key: string; source: { relationship?: string } }>;
       testRuns: Array<{ content: { buildId: string }; source: { relationship?: string } }> };
+    warnings: Array<{ code: string; key?: string }>;
   };
   assert.ok(taskContext.sections.hierarchy.some((entry) => entry.key === story.key));
   assert.ok(taskContext.sections.scenarios.some((entry) => entry.key === scenarioRevision.revision.key && entry.source.relationship === "task_direct_link"));
   assert.ok(taskContext.sections.testRuns.some((entry) => entry.content.buildId === "dashboard-task-build-1" && entry.source.relationship === "task_run_link"));
+  assert.equal(JSON.stringify(taskContext.sections.technicalDecisions).includes("DRAFT_DECISION_MUST_NOT_BE_EXPOSED"), false);
+  assert.ok(taskContext.warnings.some((warning) => warning.code === "SPEC_LINK_AFTER_BASELINE" && warning.key === "PAY-ADR-DRAFT"));
 
   const ownProject = await fetch(`${address.origin}/api/v1/projects/${projectId}`, {
     headers: { Cookie: cookie, Origin: address.origin },
@@ -346,6 +641,7 @@ test("dashboard API sessions and project authorization match MCP access", async 
   const dashboardMetricsBody = await dashboardMetrics.json() as {
     projectId: string;
     selectedTeamId: string | null;
+    selectedTeamGenerationNumber: number | null;
     asOfDate: string;
     watermarkSequence: number;
     selectedMilestoneId: string | null;
@@ -366,6 +662,7 @@ test("dashboard API sessions and project authorization match MCP access", async 
   };
   assert.equal(dashboardMetricsBody.projectId, projectId);
   assert.equal(dashboardMetricsBody.selectedTeamId, capacity.teamId);
+  assert.equal(dashboardMetricsBody.selectedTeamGenerationNumber, 1);
   assert.equal(dashboardMetricsBody.asOfDate, projectToday());
   assert.equal(dashboardMetricsBody.selectedMilestoneId, metricMilestone.id);
   assert.equal(dashboardMetricsBody.selectedSprintId, sprintId);
@@ -472,6 +769,30 @@ test("dashboard API sessions and project authorization match MCP access", async 
   });
   assert.equal(qualitySummary.status, 200);
   assert.equal(((await qualitySummary.json()) as { items: Array<{ itemId: string }> }).items.length, 2);
+  const qualityFirstPageResponse = await fetch(`${address.origin}/api/v1/projects/${projectId}/quality?limit=1`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  const qualityFirstPage = await qualityFirstPageResponse.json() as {
+    items: Array<{ itemKey: string }>;
+    nextCursor: string | null;
+    watermark: number;
+  };
+  assert.equal(qualityFirstPageResponse.status, 200);
+  assert.equal(qualityFirstPage.items.length, 1);
+  assert.ok(qualityFirstPage.nextCursor);
+  assert.ok(qualityFirstPage.watermark > 0);
+  const qualitySecondPageResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/quality?limit=1&cursor=${encodeURIComponent(qualityFirstPage.nextCursor!)}`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  const qualitySecondPage = await qualitySecondPageResponse.json() as {
+    items: Array<{ itemKey: string }>;
+    nextCursor: string | null;
+  };
+  assert.equal(qualitySecondPageResponse.status, 200);
+  assert.equal(qualitySecondPage.items.length, 1);
+  assert.notEqual(qualitySecondPage.items[0]?.itemKey, qualityFirstPage.items[0]?.itemKey);
+  assert.equal(qualitySecondPage.nextCursor, null);
 
   const scenarioList = await fetch(`${address.origin}/api/v1/projects/${projectId}/scenarios`, {
     headers: { Cookie: cookie, Origin: address.origin },
@@ -479,6 +800,27 @@ test("dashboard API sessions and project authorization match MCP access", async 
   assert.equal(scenarioList.status, 200);
   assert.ok(((await scenarioList.json()) as { scenarios: Array<{ key: string; publishedRevision: number | null }> }).scenarios
     .some((scenario) => scenario.key === "PAY-TC-METRICS" && scenario.publishedRevision === 1));
+  const scenarioFirstPageResponse = await fetch(`${address.origin}/api/v1/projects/${projectId}/scenarios?limit=1`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  const scenarioFirstPage = await scenarioFirstPageResponse.json() as {
+    scenarios: Array<{ key: string }>;
+    nextCursor: string | null;
+  };
+  assert.equal(scenarioFirstPageResponse.status, 200);
+  assert.equal(scenarioFirstPage.scenarios.length, 1);
+  assert.ok(scenarioFirstPage.nextCursor);
+  const scenarioSecondPageResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/scenarios?limit=1&cursor=${encodeURIComponent(scenarioFirstPage.nextCursor!)}`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  const scenarioSecondPage = await scenarioSecondPageResponse.json() as {
+    scenarios: Array<{ key: string }>;
+    nextCursor: string | null;
+  };
+  assert.equal(scenarioSecondPageResponse.status, 200);
+  assert.equal(scenarioSecondPage.scenarios.length, 1);
+  assert.notEqual(scenarioSecondPage.scenarios[0]?.key, scenarioFirstPage.scenarios[0]?.key);
 
   const invalidScenarioResponse = await postMutation(`/api/v1/projects/${projectId}/scenarios`, {
     requestId: "dashboard-api-invalid-scenario",
@@ -597,9 +939,9 @@ test("dashboard API sessions and project authorization match MCP access", async 
     headers: { Cookie: cookie, Origin: address.origin },
   });
   assert.equal(qualityDetail.status, 200);
-  const qualityBody = await qualityDetail.json() as { quality: { mode: string; baseline: unknown } };
-  assert.equal(qualityBody.quality.mode, "preview");
-  assert.equal(qualityBody.quality.baseline, null);
+  const qualityBody = await qualityDetail.json() as { quality: { mode: string; baseline: { id: string } | null } };
+  assert.equal(qualityBody.quality.mode, "pinned");
+  assert.equal(qualityBody.quality.baseline?.id, parentBaselineId);
 
   const itemTimeline = await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${story.key}/timeline`, {
     headers: { Cookie: cookie, Origin: address.origin },
@@ -657,6 +999,11 @@ test("dashboard API sessions and project authorization match MCP access", async 
   });
   assert.equal(restrictedMetrics.status, 403);
   assert.equal(((await restrictedMetrics.json()) as { code: string }).code, "FORBIDDEN");
+  const restrictedHistory = await fetch(`${address.origin}/api/v1/projects/${restrictedProjectId}/history`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  assert.equal(restrictedHistory.status, 403);
+  assert.equal(((await restrictedHistory.json()) as { code: string }).code, "FORBIDDEN");
   const restrictedRetrospective = await fetch(
     `${address.origin}/api/v1/projects/${restrictedProjectId}/sprints/hidden-sprint/retrospective`,
     { headers: { Cookie: cookie, Origin: address.origin } },
@@ -716,8 +1063,8 @@ test("dashboard API sessions and project authorization match MCP access", async 
     },
     body: JSON.stringify({
       requestId: "stale-dashboard-version",
-      targetState: "ready",
-      expectedVersion: story.version + 1,
+      targetState: "in_review",
+      expectedVersion: story.version + 2,
       reason: "Confirme que um card desatualizado não altera o item.",
     }),
   });
@@ -728,6 +1075,74 @@ test("dashboard API sessions and project authorization match MCP access", async 
     `${address.origin}/api/v1/session/claim?token=${encodeURIComponent(dashboard.bootstrapToken)}`,
   );
   assert.equal(claimReplay.status, 401);
+
+  const historySeedDatabase = openSqliteDatabase(initialized.databasePath);
+  try {
+    for (let index = 0; index < 201; index += 1) {
+      createWorkItem(historySeedDatabase, {
+        projectId,
+        principalId,
+        requestId: randomUUID(),
+        type: "task",
+        parentId: story.id,
+        title: `History page item ${String(index + 1).padStart(3, "0")}`,
+      });
+    }
+  } finally {
+    historySeedDatabase.close();
+  }
+  const paginationDate = projectToday();
+  const firstHistoryPageResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/history?asOfDate=${paginationDate}`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(firstHistoryPageResponse.status, 200);
+  const firstHistoryPage = await firstHistoryPageResponse.json() as {
+    capturedAt: string;
+    sourceWatermark: number;
+    summary: { workItemsTotal: number };
+    workItems: { items: Array<{ key: string }>; nextCursor: string | null };
+  };
+  assert.equal(firstHistoryPage.workItems.items.length, 200);
+  assert.ok(firstHistoryPage.workItems.nextCursor);
+  const secondHistoryPageResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/history?asOfDate=${paginationDate}&cursor=${encodeURIComponent(firstHistoryPage.workItems.nextCursor)}`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(secondHistoryPageResponse.status, 200);
+  const secondHistoryPage = await secondHistoryPageResponse.json() as {
+    capturedAt: string;
+    sourceWatermark: number;
+    summary: { workItemsTotal: number };
+    workItems: { items: Array<{ key: string }>; nextCursor: string | null };
+  };
+  const pagedKeys = [...firstHistoryPage.workItems.items, ...secondHistoryPage.workItems.items].map((item) => item.key);
+  assert.equal(secondHistoryPage.workItems.nextCursor, null);
+  assert.equal(secondHistoryPage.capturedAt, firstHistoryPage.capturedAt);
+  assert.equal(secondHistoryPage.sourceWatermark, firstHistoryPage.sourceWatermark);
+  assert.equal(new Set(pagedKeys).size, pagedKeys.length);
+  assert.equal(pagedKeys.length, firstHistoryPage.summary.workItemsTotal);
+  assert.equal(secondHistoryPage.summary.workItemsTotal, firstHistoryPage.summary.workItemsTotal);
+
+  const concurrentMutationDatabase = openSqliteDatabase(initialized.databasePath);
+  try {
+    createWorkItem(concurrentMutationDatabase, {
+      projectId,
+      principalId,
+      requestId: randomUUID(),
+      type: "task",
+      parentId: story.id,
+      title: "History item added after the page snapshot",
+    });
+  } finally {
+    concurrentMutationDatabase.close();
+  }
+  const staleHistoryPageResponse = await fetch(
+    `${address.origin}/api/v1/projects/${projectId}/history?asOfDate=${paginationDate}&cursor=${encodeURIComponent(firstHistoryPage.workItems.nextCursor!)}`,
+    { headers: { Cookie: cookie, Origin: address.origin } },
+  );
+  assert.equal(staleHistoryPageResponse.status, 409);
+  assert.equal(((await staleHistoryPageResponse.json()) as { code: string }).code, "STALE_CURSOR");
 });
 
 function projectToday(): string {

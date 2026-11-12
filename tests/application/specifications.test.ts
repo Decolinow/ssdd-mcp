@@ -8,6 +8,7 @@ import {
   createSpecification,
   proposeSpecificationRevision,
   publishSpecificationRevision,
+  withdrawSpecificationRevision,
 } from "../../src/application/specification-commands.js";
 import { ApplicationError } from "../../src/application/errors.js";
 import { initializeProject } from "../../src/application/initialize-project.js";
@@ -107,7 +108,7 @@ describe("versioned specifications", () => {
         { revisionNumber: 2, status: "published" },
       ],
     );
-    assert.equal(listSpecifications(database, projectId, principalId, "business_rule").length, 1);
+    assert.equal(listSpecifications(database, projectId, principalId, { kind: "business_rule" }).specifications.length, 1);
 
     assert.throws(
       () =>
@@ -155,6 +156,26 @@ describe("versioned specifications", () => {
         }),
       (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED",
     );
+  });
+
+  it("withdraws an abandoned draft with a human reason and keeps the audit history", () => {
+    createSpecification(database, {
+      projectId, principalId, requestId: "withdraw-create-adr", key: "ADR-10", kind: "adr",
+      title: "Abandoned direction", content: { decision: "Old implementation direction." },
+    });
+    const withdrawn = withdrawSpecificationRevision(database, {
+      projectId, principalId, requestId: "withdraw-adr-1", specIdOrKey: "ADR-10", revisionNumber: 1,
+      expectedVersion: 1, reason: "Superseded by the corrected ADR-11 decision.",
+    });
+    assert.equal(withdrawn.value.status, "withdrawn");
+    assert.deepEqual(getSpecification(database, projectId, principalId, "ADR-10").revisions.map(({ status }) => status), ["withdrawn"]);
+
+    const replacement = proposeSpecificationRevision(database, {
+      projectId, principalId, requestId: "withdraw-propose-replacement", specIdOrKey: "ADR-10", expectedVersion: 2,
+      content: { decision: "Use the currently implemented workflow contract." },
+    });
+    assert.equal(replacement.value.revisionNumber, 2);
+    assert.deepEqual(getSpecification(database, projectId, principalId, "ADR-10").revisions.map(({ status }) => status), ["withdrawn", "draft"]);
   });
 
   it("enforces type-specific authoring roles and requires a human publisher", () => {
@@ -207,6 +228,84 @@ describe("versioned specifications", () => {
           expectedVersion: 1,
         }),
       (error: unknown) => error instanceof ApplicationError && error.code === "FORBIDDEN",
+    );
+  });
+
+  it("paginates specifications with a cursor bound to its filters and project watermark", () => {
+    for (let index = 1; index <= 101; index += 1) {
+      const key = `BR-${String(index).padStart(3, "0")}`;
+      createSpecification(database, {
+        projectId, principalId, requestId: `page-${key}`, key, kind: "business_rule", title: key,
+        content: { text: `Rule ${key}` },
+      });
+    }
+    const empty = listSpecifications(database, projectId, principalId, { kind: "adr" });
+    assert.deepEqual(empty.specifications, []);
+    assert.equal(empty.nextCursor, null);
+    const one = listSpecifications(database, projectId, principalId, { kind: "business_rule", limit: 1 });
+    assert.deepEqual(one.specifications.map(({ key }) => key), ["BR-001"]);
+    assert.ok(one.nextCursor);
+
+    const first = listSpecifications(database, projectId, principalId, { kind: "business_rule", limit: 100 });
+    assert.equal(first.specifications.length, 100);
+    assert.equal(first.specifications[0]?.key, "BR-001");
+    assert.equal(first.specifications.at(-1)?.key, "BR-100");
+    assert.ok(first.watermark > 0);
+    assert.ok(first.nextCursor);
+
+    const second = listSpecifications(database, projectId, principalId, {
+      kind: "business_rule", limit: 100, cursor: first.nextCursor!,
+    });
+    assert.deepEqual(second.specifications.map(({ key }) => key), ["BR-101"]);
+    assert.equal(second.nextCursor, null);
+    assert.throws(
+      () => listSpecifications(database, projectId, principalId, { kind: "adr", limit: 100, cursor: first.nextCursor! }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED",
+    );
+
+    createSpecification(database, {
+      projectId, principalId, requestId: "page-BR-102", key: "BR-102", kind: "business_rule", title: "BR-102",
+      content: { text: "Rule BR-102" },
+    });
+    assert.throws(
+      () => listSpecifications(database, projectId, principalId, { kind: "business_rule", limit: 100, cursor: first.nextCursor! }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "STALE_CURSOR",
+    );
+  });
+
+  it("searches the latest ADR revision by key, title or content with accent-insensitive stable paging", () => {
+    const adrOne = createSpecification(database, {
+      projectId, principalId, requestId: "search-adr-one", key: "ADR-QUEUE-01", kind: "adr",
+      title: "Fila de eventos de pagamento", content: { decision: "Decisão: persistir eventos antes do processamento." },
+    }).value;
+    createSpecification(database, {
+      projectId, principalId, requestId: "search-adr-two", key: "ADR-QUEUE-02", kind: "adr",
+      title: "Fila de eventos de reembolso", content: { decision: "Registrar a retomada da fila." },
+    });
+    createSpecification(database, {
+      projectId, principalId, requestId: "search-rule", key: "BR-QUEUE-01", kind: "business_rule",
+      title: "Regra para fila", content: { text: "A decisão vale apenas para a fila local." },
+    });
+
+    const first = listSpecifications(database, projectId, principalId, { kind: "adr", search: "FILA", limit: 1 });
+    assert.equal(first.specifications.length, 1);
+    assert.equal(first.specifications[0]?.key, adrOne.key);
+    assert.ok(first.nextCursor);
+    const second = listSpecifications(database, projectId, principalId, {
+      kind: "adr", search: "fila", limit: 1, cursor: first.nextCursor!,
+    });
+    assert.deepEqual(second.specifications.map(({ key }) => key), ["ADR-QUEUE-02"]);
+    assert.equal(second.nextCursor, null);
+
+    const contentSearch = listSpecifications(database, projectId, principalId, { kind: "adr", search: "decisao" });
+    assert.deepEqual(contentSearch.specifications.map(({ key }) => key), [adrOne.key]);
+    assert.throws(
+      () => listSpecifications(database, projectId, principalId, { kind: "adr", search: "pagamento", limit: 1, cursor: first.nextCursor! }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED",
+    );
+    assert.throws(
+      () => listSpecifications(database, projectId, principalId, { kind: "adr", search: "a" }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED",
     );
   });
 });

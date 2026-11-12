@@ -1,6 +1,6 @@
 # Instalação local para agentes de codificação
 
-O instalador conecta um repositório Git existente ao runtime local do SSDD MCP e prepara os perfis de PO, Technical Lead, Developer, QA e Release para Claude Code, Codex e OpenCode. Ele vem neste repositório SSDD e instala um tarball local; o pacote permanece privado e não precisa ser publicado no npm.
+O instalador conecta um repositório Git existente ao runtime local do SSDD MCP e prepara dez skills e dez agentes para Claude Code, Codex e OpenCode. Ele vem neste repositório SSDD e instala um tarball local; o pacote permanece privado e não precisa ser publicado no npm. As skills canônicas de Tech Lead, Developer, desenho de testes e QA descrevem a proposta, publicação, execução ordenada e limites do workflow ponderado por tarefa. O instalador copia essas instruções para os três clientes e atualiza seus agentes gerados sem uma etapa específica ou artefato manual por produto.
 
 ## Uso
 
@@ -10,9 +10,12 @@ Execute os comandos na raiz deste repositório SSDD. O alvo deve ser um diretór
 npm run agents:install -- --target ..\meu-projeto
 npm run agents:install -- --target ..\meu-projeto --check
 npm run agents:install -- --target ..\meu-projeto --apply
+npm run agents:install -- --target ..\meu-projeto --apply --profile tech_lead
 ```
 
 `--check` termina com código 0 quando o alvo corresponde à versão local e com código 1 quando faltam arquivos, há divergência ou existe conflito. `--apply` constrói o pacote se os arquivos compilados estiverem desatualizados, gera um tarball privado local e instala as dependências de produção em `.ssdd/agent-runtime/node_modules/ssdd-mcp` no alvo.
+
+`--profile` é opcional e grava o perfil MCP na configuração nativa do Claude Code (`env.SSDD_PROFILE`), Codex (`mcp_servers.ssdd_mcp.env.SSDD_PROFILE`) e OpenCode (`environment.SSDD_PROFILE`). Use o mesmo argumento em `--check` e `--apply`; isso limita as ferramentas, prompts e skills que o host anuncia. Opções: `full`, `refinement`, `specification`, `dev`, `test_design`, `qa`, `tech_lead`, `security_review`, `po`, `facilitator`, `release`, `devops` e `admin`. Sem `--profile`, o servidor usa o perfil padrão `full`.
 
 O instalador prepara o servidor, mas não inventa a chave, o objetivo ou o fuso do projeto. Se o alvo ainda não tiver workspace SSDD, inicialize-o com os dados escolhidos pela equipe antes de iniciar o cliente:
 
@@ -28,12 +31,12 @@ node .ssdd/agent-runtime/node_modules/ssdd-mcp/dist/src/cli.js init --workspace 
 | `.mcp.json` | Servidor stdio `ssdd_mcp` project-scope do Claude Code |
 | `.codex/config.toml` | Bloco TOML gerenciado `[mcp_servers.ssdd_mcp]` do Codex |
 | `opencode.json` ou `opencode.jsonc` | Servidor local em `mcp.servers.ssdd_mcp` na configuração V2 do OpenCode |
-| `.agents/skills/<id>/SKILL.md` | Cinco skills canônicas, descobertas pelo Codex e pelo OpenCode |
-| `.claude/skills/<id>/SKILL.md` | Cinco cópias para a descoberta nativa de skills do Claude Code |
-| `.opencode/skills/<id>/SKILL.md` | Cinco cópias para a descoberta nativa de skills do OpenCode |
-| `.claude/agents/*.md` | Cinco agentes nativos de Claude Code |
-| `.codex/agents/*.toml` | Cinco agentes nativos de Codex |
-| `.opencode/agents/*.md` | Cinco agentes nativos de OpenCode |
+| `.agents/skills/<id>/SKILL.md` | Dez skills canônicas, descobertas pelo Codex e pelo OpenCode |
+| `.claude/skills/<id>/SKILL.md` | Dez cópias para a descoberta nativa de skills do Claude Code |
+| `.opencode/skills/<id>/SKILL.md` | Dez cópias para a descoberta nativa de skills do OpenCode |
+| `.claude/agents/*.md` | Dez agentes nativos de Claude Code |
+| `.codex/agents/*.toml` | Dez agentes nativos de Codex |
+| `.opencode/agents/*.md` | Dez agentes nativos de OpenCode |
 
 O instalador preserva chaves, comentários e outros servidores existentes. JSONC é editado por caminho; o bloco do Codex fica entre marcadores SSDD para que alterações fora dele permaneçam intactas. Se o nome `ssdd_mcp` já estiver ocupado sem um manifesto SSDD que comprove sua propriedade, o instalador informa o conflito e interrompe a aplicação. Alterações locais em skills ou perfis gerados também são detectadas pelos hashes.
 
@@ -45,11 +48,13 @@ As configurações seguem a documentação oficial verificada em **10/11/2026**:
 
 | Cliente | Configuração MCP | Skills | Agentes |
 |---|---|---|---|
-| Claude Code | `.mcp.json`, `type: "stdio"`; caminho e workspace usam `${CLAUDE_PROJECT_DIR:-.}` | `.claude/skills/<id>/SKILL.md` | `.claude/agents/<id>.md`, com skill carregada pelo agente |
-| Codex | `.codex/config.toml`, tabela `[mcp_servers.ssdd_mcp]` | `.agents/skills/<id>/SKILL.md` | `.codex/agents/<id>.toml`, com `name`, `description` e `developer_instructions` |
-| OpenCode V2 | `opencode.json`/`.jsonc`, `mcp.servers.<id>`, `type: "local"` | `.opencode/skills/<id>/SKILL.md` (e `.agents/skills` como compatibilidade compartilhada) | `.opencode/agents/<id>.md`, `mode: subagent` |
+| Claude Code | `.mcp.json`, `type: "stdio"`; caminho e workspace usam `${CLAUDE_PROJECT_DIR:-.}`; perfil opcional em `env` | `.claude/skills/<id>/SKILL.md` | `.claude/agents/<id>.md`, com skill carregada pelo agente |
+| Codex | `.codex/config.toml`, tabela `[mcp_servers.ssdd_mcp]`; perfil opcional em `env` | `.agents/skills/<id>/SKILL.md` | `.codex/agents/<id>.toml`, com `name`, `description` e `developer_instructions` |
+| OpenCode V2 | `opencode.json`/`.jsonc`, `mcp.servers.<id>`, `type: "local"`; perfil opcional em `environment` | `.opencode/skills/<id>/SKILL.md` (e `.agents/skills` como compatibilidade compartilhada) | `.opencode/agents/<id>.md`, `mode: subagent` |
 
-O Claude Code pede aprovação para o servidor MCP configurado no projeto. O Codex carrega configuração de projeto depois que o repositório é confiável. O instalador prepara os arquivos, mas não concede essa confiança nem aprova o servidor em nome da pessoa. Nenhum perfil fixa um modelo ou armazena segredos.
+O Claude Code pede aprovação para o servidor MCP configurado no projeto. O Codex carrega configuração de projeto depois que o repositório é confiável. O instalador prepara os arquivos, mas não concede essa confiança nem aprova o servidor em nome da pessoa. Nenhum perfil de agente fixa um modelo ou armazena segredos.
+
+`--profile` limita a superfície anunciada pelo MCP para aquela conexão, e a autorização continua validada em cada operação. O perfil fica na entrada compartilhada do servidor: agentes nativos do mesmo cliente herdam a mesma superfície; para executar uma etapa diferente, aplique o perfil correspondente e reinicie o cliente. `full` anuncia o catálogo completo, mas aumenta o contexto. `task_context_get.profile` seleciona conteúdo de tarefa, não tools. Injete `SSDD_AUTH_KEY`/tokens por um secret manager do cliente ou do host; não grave segredos em arquivos gerados ou no Git.
 
 Fontes oficiais:
 

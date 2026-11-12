@@ -8,6 +8,13 @@ import type {
 import type { SqliteDatabase } from "../storage-sqlite/database.js";
 import { ApplicationError } from "./errors.js";
 import { assertProjectAuthorization } from "./local-identity.js";
+import { decodeStableListCursor, encodeStableListCursor, hashListFilters } from "./stable-list-cursor.js";
+
+export interface SpecificationPage {
+  readonly specifications: readonly Specification[];
+  readonly nextCursor: string | null;
+  readonly watermark: number;
+}
 
 interface SpecificationRow {
   readonly spec_id: string;
@@ -32,6 +39,12 @@ interface RevisionRow {
   readonly published_by_principal_id: string | null;
   readonly published_at: string | null;
 }
+
+type ListedSpecificationRow = SpecificationRow & {
+  readonly latest_revision: number;
+  readonly published_revision: number | null;
+  readonly latest_content_json?: string | null;
+};
 
 export function getSpecification(
   database: SqliteDatabase,
@@ -86,28 +99,81 @@ export function listSpecifications(
   database: SqliteDatabase,
   projectId: string,
   principalId: string,
-  kind?: SpecificationKind,
-): Specification[] {
+  input: { readonly kind?: SpecificationKind; readonly search?: string; readonly limit?: number; readonly cursor?: string } = {},
+): SpecificationPage {
   assertProjectAuthorization(database, projectId, principalId);
-  const rows = database
-    .prepare(
+  const limit = input.limit ?? 25;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new ApplicationError("VALIDATION_FAILED", "Specification page size must be an integer between 1 and 100.");
+  }
+  const kind = input.kind ?? null;
+  const search = input.search?.trim() || null;
+  if (search !== null && (search.length < 2 || search.length > 160)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Specification search must contain 2-160 characters.");
+  }
+  const filterHash = hashListFilters({ kind, search: search === null ? null : foldSearch(search), limit });
+  const watermarkRow = database.prepare(
+    "SELECT COALESCE(MAX(sequence), 0) AS watermark FROM audit_events WHERE project_id = ?",
+  ).get(projectId) as { watermark: number };
+  const watermark = watermarkRow.watermark;
+  const cursor = input.cursor === undefined ? undefined : decodeStableListCursor(input.cursor, {
+    projectId, principalId, filterHash, watermark,
+  });
+  const afterClause = cursor === undefined ? "" : `
+       AND (s.spec_key COLLATE NOCASE > ? OR (s.spec_key COLLATE NOCASE = ? AND s.spec_id > ?))`;
+  const parameters: Array<string | number | null> = [projectId, kind, kind];
+  if (cursor !== undefined) parameters.push(cursor.afterKey, cursor.afterKey, cursor.afterId);
+  parameters.push(limit + 1);
+  let rows: ListedSpecificationRow[];
+  if (search === null) {
+    rows = database
+      .prepare(
+        `SELECT s.spec_id, s.project_id, s.spec_key, s.kind, s.title, s.version,
+                s.created_by_principal_id, s.created_at,
+                COALESCE(MAX(r.revision_number), 0) AS latest_revision,
+                MAX(CASE WHEN r.status = 'published' THEN r.revision_number END) AS published_revision
+         FROM specifications AS s
+         LEFT JOIN specification_revisions AS r
+           ON r.project_id = s.project_id AND r.spec_id = s.spec_id
+         WHERE s.project_id = ? AND (? IS NULL OR s.kind = ?)
+         ${afterClause}
+         GROUP BY s.spec_id
+         ORDER BY s.spec_key COLLATE NOCASE, s.spec_id
+         LIMIT ?`,
+      )
+      .all(...parameters) as ListedSpecificationRow[];
+  } else {
+    const statement = database.prepare(
       `SELECT s.spec_id, s.project_id, s.spec_key, s.kind, s.title, s.version,
               s.created_by_principal_id, s.created_at,
               COALESCE(MAX(r.revision_number), 0) AS latest_revision,
-              MAX(CASE WHEN r.status = 'published' THEN r.revision_number END) AS published_revision
+              MAX(CASE WHEN r.status = 'published' THEN r.revision_number END) AS published_revision,
+              (SELECT latest.content_json FROM specification_revisions latest
+               WHERE latest.project_id = s.project_id AND latest.spec_id = s.spec_id
+               ORDER BY latest.revision_number DESC LIMIT 1) AS latest_content_json
        FROM specifications AS s
        LEFT JOIN specification_revisions AS r
          ON r.project_id = s.project_id AND r.spec_id = s.spec_id
        WHERE s.project_id = ? AND (? IS NULL OR s.kind = ?)
+       ${afterClause}
        GROUP BY s.spec_id
-       ORDER BY s.spec_key COLLATE NOCASE
-       LIMIT 100`,
-    )
-    .all(projectId, kind ?? null, kind ?? null) as Array<
-    SpecificationRow & { latest_revision: number; published_revision: number | null }
-  >;
-
-  return rows.map((row) => ({
+       ORDER BY s.spec_key COLLATE NOCASE, s.spec_id`,
+    );
+    rows = [];
+    for (const candidate of statement.iterate(...parameters.slice(0, cursor === undefined ? 3 : 6))) {
+      const row = candidate as ListedSpecificationRow;
+      if (!includesSearch(row.spec_key, search) && !includesSearch(row.title, search) &&
+        !includesSearch(row.latest_content_json ?? "", search)) continue;
+      rows.push(row);
+      if (rows.length > limit) break;
+    }
+  }
+  const matchingRows = rows;
+  const hasMore = matchingRows.length > limit;
+  const pageRows = matchingRows.slice(0, limit);
+  const last = pageRows.at(-1);
+  return {
+    specifications: pageRows.map((row) => ({
     id: row.spec_id,
     projectId: row.project_id,
     key: row.spec_key,
@@ -119,7 +185,20 @@ export function listSpecifications(
     createdByPrincipalId: row.created_by_principal_id,
     createdAt: row.created_at,
     revisions: [],
-  }));
+    })),
+    nextCursor: hasMore && last !== undefined ? encodeStableListCursor({
+      version: 1, projectId, principalId, filterHash, watermark, afterKey: last.spec_key, afterId: last.spec_id,
+    }) : null,
+    watermark,
+  };
+}
+
+function includesSearch(value: string, search: string): boolean {
+  return foldSearch(value).includes(foldSearch(search));
+}
+
+function foldSearch(value: string): string {
+  return value.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase("pt-BR");
 }
 
 function toSpecificationRevision(

@@ -8,7 +8,7 @@ export const specificationKinds = [
 
 export type SpecificationKind = (typeof specificationKinds)[number];
 
-export const specificationRevisionStatuses = ["draft", "in_review", "published", "superseded"] as const;
+export const specificationRevisionStatuses = ["draft", "in_review", "published", "superseded", "withdrawn"] as const;
 
 export type SpecificationRevisionStatus = (typeof specificationRevisionStatuses)[number];
 

@@ -1,4 +1,4 @@
-# Demo local: PO → Dev → QA
+# Demo local: PO → Tech Lead → Dev → QA → Release
 
 ## Rodar a demo reproduzível
 
@@ -19,7 +19,7 @@ A saída confirma o PBI, a sequência da baseline, o build candidato, a execuç�
 npm run demo:release
 ```
 
-Este fluxo cria um issuer/JWKS temporário de teste em loopback, provisiona PO, Developer e QA como identidades distintas, e conecta três clientes MCP autenticados ao Streamable HTTP. O PO registra o escopo e aprova Ready; Developer estima, implementa e envia o build candidato; QA publica o cenário, registra a execução e certifica o resultado; Developer conclui o item somente após os gates. O teste também confirma que um Developer sem papel PO não cria épico e que o dashboard servido localmente mostra o item em `done` com a mesma baseline. O workspace e chaves de teste são efêmeros; nenhum tenant externo é usado.
+Este fluxo cria um issuer/JWKS temporário de teste em loopback, provisiona PO, Tech Lead, Developer, QA e Release Manager como identidades distintas e conecta cinco clientes MCP com perfis filtrados. PO cadastra o PBI; Tech Lead publica um contrato API e liga a especificação à tarefa; QA publica cenário ligado ao critério e à tarefa; Developer confirma estimativa, inicia sessão com as revisões técnicas/cenário fixadas, implementa, envia evidência e conclui a tarefa; QA registra e certifica o resultado; Release Manager tenta produção antes da homologação e recebe bloqueio, registra homologação e promove a mesma build a produção. O teste confirma a matriz de tools de cada perfil e que o dashboard servido localmente mostra o PBI em `done`. O workspace e chaves de teste são efêmeros; nenhum tenant externo é usado.
 
 ## Configurar um cliente MCP local
 
@@ -43,13 +43,14 @@ Adicione um servidor stdio à configuração MCP do cliente. O formato abaixo us
         "stdio",
         "--workspace",
         "C:\\work\\payments-demo"
-      ]
+      ],
+      "env": { "SSDD_PROFILE": "dev" }
     }
   }
 }
 ```
 
-No modo local, o processo usa a identidade do usuário do sistema operacional que o executa, e a instalação inicial recebe os papéis disponíveis para bootstrap. No modo de equipe, configure o issuer e URL do resource no `serve`, depois conceda cada identidade OIDC com `ssdd-mcp access grant`; a revogação usa `ssdd-mcp access revoke`. O CLI deve ser executado por um admin local do projeto. O transporte local não separa processos que compartilham a mesma conta do sistema. Aprovação delegada de uso único continua em SSDD-602.
+No modo local, o processo usa a identidade do sistema operacional e `SSDD_PROFILE` pode limitar as tools visíveis. No primeiro startup do host, essa identidade se torna o admin único da instância e recebe uma authKey impressa uma vez em `stderr`; admin cria usuários/chaves por `user_create`. Para uma identidade gerenciada no stdio, injete `SSDD_AUTH_KEY` a partir do ambiente/secret manager. Para Streamable HTTP, envie `Authorization: Bearer <authKey>`; no modo de equipe OIDC também pode ser usado com `ssdd-mcp access grant/revoke`. `X-SSDD-Profile` seleciona a superfície HTTP. A autenticação identifica a pessoa, memberships conferem acesso por projeto e perfis não concedem papéis. O transporte local não separa processos que compartilham a mesma conta do sistema. Aprovação delegada de uso único continua em SSDD-602.
 
 ## Reproduzir o fluxo pelas ferramentas
 

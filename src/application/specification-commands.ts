@@ -42,6 +42,16 @@ export interface PublishSpecificationRevisionInput {
   readonly expectedVersion: number;
 }
 
+export interface WithdrawSpecificationRevisionInput {
+  readonly projectId: string;
+  readonly principalId: string;
+  readonly requestId: string;
+  readonly specIdOrKey: string;
+  readonly revisionNumber: number;
+  readonly expectedVersion: number;
+  readonly reason: string;
+}
+
 const rolesBySpecificationKind: Readonly<Record<SpecificationKind, readonly ProjectRole[]>> = {
   business_rule: ["po"],
   glossary: ["po"],
@@ -344,6 +354,85 @@ export function publishSpecificationRevision(
         createdAt: revision.created_at,
         publishedByPrincipalId: input.principalId,
         publishedAt: now,
+      };
+    },
+  });
+}
+
+export function withdrawSpecificationRevision(
+  database: SqliteDatabase,
+  input: WithdrawSpecificationRevisionInput,
+): CommandReceipt<SpecificationRevision> {
+  const reference = input.specIdOrKey.trim();
+  const reason = input.reason.trim();
+  if (reason.length < 1 || reason.length > 1000) {
+    throw new ApplicationError("VALIDATION_FAILED", "Withdrawal reason must contain 1-1000 characters.");
+  }
+  const target = findSpecification(database, input.projectId, input.principalId, reference);
+  return executeIdempotentCommand(database, {
+    projectId: input.projectId,
+    principalId: input.principalId,
+    action: "specification.revision.withdraw",
+    requestId: input.requestId,
+    payload: {
+      projectId: input.projectId,
+      specId: target.id,
+      revisionNumber: input.revisionNumber,
+      expectedVersion: input.expectedVersion,
+      reason,
+    },
+    requiredRoles: rolesBySpecificationKind[target.kind],
+    auditEvent: (revision) => ({
+      projectId: input.projectId,
+      principalId: input.principalId,
+      eventType: "specification.revision_withdrawn",
+      entityType: "specification",
+      entityId: target.id,
+      payload: { key: target.key, revisionNumber: revision.revisionNumber, reason },
+    }),
+    execute: () => {
+      assertSpecificationVersion(database, input.projectId, target.id, input.expectedVersion);
+      const principal = database.prepare("SELECT principal_type FROM principals WHERE principal_id = ?")
+        .get(input.principalId) as { principal_type: string } | undefined;
+      if (principal?.principal_type !== "human") {
+        throw new ApplicationError("FORBIDDEN", "Only a human principal may withdraw a specification revision.");
+      }
+      const row = database.prepare(
+        `SELECT revision_id, revision_number, status, content_json, created_by_principal_id, created_at
+         FROM specification_revisions WHERE project_id = ? AND spec_id = ? AND revision_number = ?`,
+      ).get(input.projectId, target.id, input.revisionNumber) as {
+        revision_id: string; revision_number: number; status: string; content_json: string;
+        created_by_principal_id: string; created_at: string;
+      } | undefined;
+      if (row === undefined) throw new ApplicationError("NOT_FOUND", "Specification revision was not found.");
+      if (row.status !== "draft" && row.status !== "in_review") {
+        throw new ApplicationError("VALIDATION_FAILED", "Only a draft or in-review revision can be withdrawn.");
+      }
+      const latest = database.prepare(
+        "SELECT MAX(revision_number) AS revision FROM specification_revisions WHERE project_id = ? AND spec_id = ?",
+      ).get(input.projectId, target.id) as { revision: number };
+      if (latest.revision !== row.revision_number) {
+        throw new ApplicationError("VALIDATION_FAILED", "Only the latest open specification revision can be withdrawn.");
+      }
+      database.prepare(
+        `UPDATE specification_revisions SET status = 'withdrawn'
+         WHERE project_id = ? AND spec_id = ? AND revision_number = ?`,
+      ).run(input.projectId, target.id, input.revisionNumber);
+      database.prepare("UPDATE specifications SET version = version + 1 WHERE spec_id = ?").run(target.id);
+      return {
+        id: row.revision_id,
+        projectId: input.projectId,
+        specId: target.id,
+        key: target.key,
+        kind: target.kind,
+        title: target.title,
+        revisionNumber: row.revision_number,
+        status: "withdrawn" as const,
+        content: JSON.parse(row.content_json) as SpecificationContent,
+        createdByPrincipalId: row.created_by_principal_id,
+        createdAt: row.created_at,
+        publishedByPrincipalId: null,
+        publishedAt: null,
       };
     },
   });

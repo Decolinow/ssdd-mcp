@@ -30,6 +30,10 @@ const RUNTIME_RELATIVE = ".ssdd/agent-runtime";
 const CODEX_MARKER_START = "# >>> SSDD MCP MANAGED mcp_servers.ssdd_mcp";
 const CODEX_MARKER_END = "# <<< SSDD MCP MANAGED mcp_servers.ssdd_mcp";
 const IGNORE_ENTRY = "/.ssdd/agent-runtime/";
+const MCP_PROFILES = [
+  "full", "refinement", "specification", "dev", "test_design", "qa", "tech_lead",
+  "security_review", "po", "facilitator", "release", "devops", "admin",
+];
 const JSONC_FORMAT = { insertSpaces: true, tabSize: 2, eol: "\n" };
 
 class InstallError extends Error {
@@ -326,15 +330,17 @@ function extractCodexBlock(text) {
   return { block, remaining, digest: sha256(block) };
 }
 
-function renderCodexMcpBlock() {
-  return [
+function renderCodexMcpBlock(profile) {
+  const lines = [
     CODEX_MARKER_START,
     "[mcp_servers.ssdd_mcp]",
     'command = "node"',
     'args = [".ssdd/agent-runtime/node_modules/ssdd-mcp/dist/src/cli.js", "stdio", "--workspace", "."]',
     'cwd = "."',
-    CODEX_MARKER_END,
-  ].join("\n");
+  ];
+  if (profile !== undefined) lines.push("", "[mcp_servers.ssdd_mcp.env]", `SSDD_PROFILE = "${profile}"`);
+  lines.push(CODEX_MARKER_END);
+  return lines.join("\n");
 }
 
 function checkGitIgnore(root) {
@@ -407,7 +413,7 @@ function packageBuildIsStale() {
   return checkAssets(assetRoot);
 }
 
-function buildPlan(targetInput) {
+function buildPlan(targetInput, profile) {
   const root = findGitRoot(targetInput);
   const skills = loadSkills();
   const generatedFiles = collectGeneratedFiles(skills);
@@ -437,11 +443,13 @@ function buildPlan(targetInput) {
       "--workspace",
       "${CLAUDE_PROJECT_DIR:-.}",
     ],
+    ...(profile === undefined ? {} : { env: { SSDD_PROFILE: profile } }),
   };
   const openCodeMcp = {
     type: "local",
     command: ["node", ".ssdd/agent-runtime/node_modules/ssdd-mcp/dist/src/cli.js", "stdio", "--workspace", "."],
     cwd: ".",
+    ...(profile === undefined ? {} : { environment: { SSDD_PROFILE: profile } }),
   };
   const jsonConfigs = [
     { path: ".mcp.json", keys: ["mcpServers", "ssdd_mcp"], value: claudeMcp, allowJsonc: false, id: "claudeMcp" },
@@ -486,16 +494,16 @@ function buildPlan(targetInput) {
     const parsedBase = parseTomlDocument(base, codexPath);
     if (hasPath(parsedBase, ["mcp_servers", "ssdd_mcp"])) throw new InstallError(`${codexPath} já define mcp_servers.ssdd_mcp fora do bloco gerenciado`);
     const eol = text.includes("\r\n") ? "\r\n" : "\n";
-    const block = renderCodexMcpBlock().replaceAll("\n", eol);
+    const block = renderCodexMcpBlock(profile).replaceAll("\n", eol);
     const prefix = base.length === 0 ? "" : base.endsWith("\n") ? eol : `${eol}${eol}`;
     const updated = oldBlock
-      ? normalizeEol(text).replace(oldBlock.block, renderCodexMcpBlock()).replaceAll("\n", eol)
+      ? normalizeEol(text).replace(oldBlock.block, renderCodexMcpBlock(profile)).replaceAll("\n", eol)
       : `${base}${prefix}${block}${eol}`;
     parseTomlDocument(updated, codexPath);
     const changed = bytes === undefined || !bytes.equals(Buffer.from(updated, "utf8"));
     actions.push({ path: codexPath, action: changed ? (bytes === undefined ? "create" : "update") : "unchanged" });
     if (changed) changes.set(codexPath, Buffer.from(updated, "utf8"));
-    managedConfigs.codexMcp = { file: codexPath, digest: sha256(normalizeEol(renderCodexMcpBlock())) };
+    managedConfigs.codexMcp = { file: codexPath, digest: sha256(normalizeEol(renderCodexMcpBlock(profile))) };
   } catch (error) {
     conflicts.push(error.message);
     actions.push({ path: codexPath, action: "conflict" });
@@ -555,7 +563,7 @@ function buildPlan(targetInput) {
   }
   if (manifestChanged) changes.set(MANIFEST_RELATIVE, Buffer.from(manifestText, "utf8"));
 
-  return { root, skills, generatedFiles, actions, conflicts, changes, manifest, packageFingerprint };
+  return { root, profile, skills, generatedFiles, actions, conflicts, changes, manifest, packageFingerprint };
 }
 
 function printPlan(mode, plan) {
@@ -565,6 +573,7 @@ function printPlan(mode, plan) {
     mode,
     target: plan.root,
     package: `${PACKAGE_JSON.name}@${PACKAGE_JSON.version}`,
+    ...(plan.profile === undefined ? {} : { profile: plan.profile }),
     actions: [...uniqueActions.values()],
     conflicts: plan.conflicts,
   };
@@ -575,6 +584,7 @@ function parseArguments(args) {
   let mode = "dry-run";
   let modeChosen = false;
   let target;
+  let profile;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--help" || arg === "-h") return { help: true };
@@ -586,16 +596,22 @@ function parseArguments(args) {
       if (target !== undefined || !args[index + 1]) throw new InstallError("--target precisa receber um único diretório");
       target = args[index + 1];
       index += 1;
+    } else if (arg === "--profile") {
+      if (profile !== undefined || !args[index + 1]) throw new InstallError("--profile precisa receber um perfil MCP");
+      profile = args[index + 1];
+      if (!MCP_PROFILES.includes(profile)) throw new InstallError(`Perfil MCP inválido: ${profile}. Opções: ${MCP_PROFILES.join(", ")}`);
+      index += 1;
     } else {
       throw new InstallError(`Argumento desconhecido: ${arg}`);
     }
   }
   if (!target) throw new InstallError("Informe o repositório com --target <diretório>");
-  return { mode, target };
+  return { mode, target, profile };
 }
 
 function printHelp() {
-  process.stdout.write("Uso: npm run agents:install -- --target <repositório> [--dry-run|--apply|--check]\n\n");
+  process.stdout.write("Uso: npm run agents:install -- --target <repositório> [--dry-run|--apply|--check] [--profile <perfil>]\n\n");
+  process.stdout.write(`--profile  Reduz o catálogo MCP ao perfil selecionado (${MCP_PROFILES.join(", ")}).\n`);
   process.stdout.write("--dry-run  Mostra o plano sem executar npm install ou gravar arquivos (padrão).\n");
   process.stdout.write("--apply    Instala o runtime e aplica integrações nos arquivos do projeto.\n");
   process.stdout.write("--check    Verifica instalação e conflitos sem alterar arquivos.\n");
@@ -754,6 +770,7 @@ function printSuccess(plan) {
     mode: "apply",
     target: plan.root,
     package: `${PACKAGE_JSON.name}@${PACKAGE_JSON.version}`,
+    ...(plan.profile === undefined ? {} : { profile: plan.profile }),
     changedFiles: plan.changes.size,
     skills: plan.skills.length,
     agents: plan.skills.length,
@@ -770,7 +787,7 @@ async function main() {
       printHelp();
       return;
     }
-    let plan = buildPlan(options.target);
+    let plan = buildPlan(options.target, options.profile);
     if (options.mode === "check" || options.mode === "dry-run") {
       printPlan(options.mode, plan);
       if (plan.conflicts.length > 0) process.exitCode = 1;
@@ -791,7 +808,7 @@ async function main() {
     let staged;
     try {
       // Building changes dist/src; recompute hashes and conflicts against the exact package to install.
-      plan = buildPlan(options.target);
+      plan = buildPlan(options.target, options.profile);
       if (plan.conflicts.length > 0) {
         printPlan(options.mode, plan);
         process.exitCode = 1;

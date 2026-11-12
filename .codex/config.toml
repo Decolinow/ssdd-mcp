@@ -1,0 +1,6 @@
+# >>> SSDD MCP MANAGED mcp_servers.ssdd_mcp
+[mcp_servers.ssdd_mcp]
+command = "node"
+args = [".ssdd/agent-runtime/node_modules/ssdd-mcp/dist/src/cli.js", "stdio", "--workspace", "."]
+cwd = "."
+# <<< SSDD MCP MANAGED mcp_servers.ssdd_mcp

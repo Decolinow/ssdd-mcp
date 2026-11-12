@@ -887,7 +887,7 @@ function readPointEstimateEvents(
     const rows = database.prepare(
       `SELECT sequence, entity_id, occurred_at, payload_json FROM audit_events
        WHERE project_id = ? AND event_type = ? AND entity_id IN (${placeholders})
-       ORDER BY occurred_at, sequence`,
+       ORDER BY entity_id, occurred_at, sequence`,
     ).all(projectId, estimateAuditEventType, ...itemBatch) as Array<{
       sequence: number;
       entity_id: string;

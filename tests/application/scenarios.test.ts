@@ -123,7 +123,7 @@ describe("versioned scenarios, coverage and test runs", () => {
       { buildId: "build-100", result: "passed" },
       { buildId: "build-101", result: "blocked" },
     ]);
-    assert.equal(listScenarios(database, projectId, principalId, "acceptance")[0]?.key, "PAY-TC-01");
+    assert.equal(listScenarios(database, projectId, principalId, { kind: "acceptance" }).scenarios[0]?.key, "PAY-TC-01");
     assert.equal(getScenario(database, projectId, principalId, "pay-tc-01").publishedRevision, 1);
     assert.throws(
       () => database.prepare("UPDATE test_runs SET result = 'failed' WHERE build_id = 'build-100'").run(),
@@ -245,6 +245,41 @@ describe("versioned scenarios, coverage and test runs", () => {
     assert.deepEqual(filtered.runs.map(({ buildId, result }) => ({ buildId, result })), [
       { buildId: "build-page-1", result: "passed" },
     ]);
+  });
+
+  it("paginates scenario summaries and rejects cursors from another filter or project state", () => {
+    for (let index = 1; index <= 101; index += 1) {
+      const key = `PAY-TC-PAGE-${String(index).padStart(3, "0")}`;
+      createScenario(database, scenarioInput(key, key));
+    }
+    const empty = listScenarios(database, projectId, principalId, { kind: "regression" });
+    assert.deepEqual(empty.scenarios, []);
+    assert.equal(empty.nextCursor, null);
+    const one = listScenarios(database, projectId, principalId, { kind: "acceptance", limit: 1 });
+    assert.deepEqual(one.scenarios.map(({ key }) => key), ["PAY-TC-PAGE-001"]);
+    assert.ok(one.nextCursor);
+
+    const first = listScenarios(database, projectId, principalId, { kind: "acceptance", limit: 100 });
+    assert.equal(first.scenarios.length, 100);
+    assert.equal(first.scenarios[0]?.key, "PAY-TC-PAGE-001");
+    assert.equal(first.scenarios.at(-1)?.key, "PAY-TC-PAGE-100");
+    assert.ok(first.watermark > 0);
+    assert.ok(first.nextCursor);
+    const second = listScenarios(database, projectId, principalId, {
+      kind: "acceptance", limit: 100, cursor: first.nextCursor!,
+    });
+    assert.deepEqual(second.scenarios.map(({ key }) => key), ["PAY-TC-PAGE-101"]);
+    assert.equal(second.nextCursor, null);
+    assert.throws(
+      () => listScenarios(database, projectId, principalId, { kind: "regression", limit: 100, cursor: first.nextCursor! }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED",
+    );
+
+    createScenario(database, scenarioInput("PAY-TC-PAGE-102", "Nova revisão de catálogo"));
+    assert.throws(
+      () => listScenarios(database, projectId, principalId, { kind: "acceptance", limit: 100, cursor: first.nextCursor! }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "STALE_CURSOR",
+    );
   });
 
   it("requires a human QA publisher and prevents cross-project coverage references", () => {

@@ -1,6 +1,7 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
+import { SkillsExtension } from "@modelcontextprotocol/server/ext/skills";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { loadSkills } from "@modelcontextprotocol/server/ext/skills/node";
+import { nodeSkillFiles } from "@modelcontextprotocol/server/ext/skills/node";
 import { z } from "zod";
 import { existsSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
@@ -9,7 +10,16 @@ import { fileURLToPath } from "node:url";
 import { packageVersion } from "../package-version.js";
 import { openSqliteDatabase } from "../storage-sqlite/database.js";
 import { applyMigrations } from "../storage-sqlite/migrations.js";
-import { getOrCreateLocalPrincipal } from "../application/local-identity.js";
+import { getOrCreateLocalPrincipal, projectRoles } from "../application/local-identity.js";
+import {
+  createManagedUser,
+  isInstanceAdministrator,
+  listManagedUsers,
+  resolvePrincipalFromAuthKey,
+  revokeManagedUserAuthKeys,
+  rotateManagedUserAuthKey,
+  ensureBootstrapAdministrator,
+} from "../application/user-management.js";
 import {
   approvableMcpToolNames,
   assertMatchingToolApproval,
@@ -22,6 +32,7 @@ import {
 import type { JsonValue } from "../application/idempotent-command.js";
 import { getProject, listProjects } from "../application/project-queries.js";
 import { getProjectDashboardMetrics } from "../application/dashboard-metrics.js";
+import { getProjectFeatureRoadmap, getTaskExecutionQueue } from "../application/prioritized-roadmap.js";
 import { bindRoadmapItemId, listRoadmapItemIds, resolveRoadmapItemId } from "../application/roadmap-identifiers.js";
 import {
   getDeveloperExecutionMetrics,
@@ -31,6 +42,10 @@ import {
   startDevelopmentSession,
   transitionDevelopmentSession,
 } from "../application/development-lifecycle.js";
+import { linkTaskToAdr } from "../application/adr-commands.js";
+import { startTaskDevelopment } from "../application/task-development-start.js";
+import { getTaskWorkflow } from "../application/task-workflow-queries.js";
+import { proposeTaskWorkflow, publishTaskWorkflow, transitionTaskWorkflowStep } from "../application/task-workflow-commands.js";
 import { listMilestoneForecastHistory, recalculateMilestoneForecast } from "../application/forecast-queries.js";
 import {
   listGithubReferences,
@@ -69,12 +84,14 @@ import {
   createSpecification,
   proposeSpecificationRevision,
   publishSpecificationRevision,
+  withdrawSpecificationRevision,
 } from "../application/specification-commands.js";
 import { getSpecification, listSpecifications } from "../application/specification-queries.js";
 import { specificationKinds, specificationRevisionStatuses } from "../domain/specifications.js";
 import { traceLinkTypes } from "../domain/trace.js";
 import { workItemStates, workItemTypes } from "../domain/work-items.js";
 import { scenarioKinds, testRunResults } from "../domain/scenarios.js";
+import { taskWorkflowRevisionStatuses, taskWorkflowStepStatuses } from "../domain/task-workflow.js";
 import { addTraceLink, removeTraceLink } from "../application/trace-commands.js";
 import { queryTraceGraph } from "../application/trace-queries.js";
 import { proposeWorkItemRevision, publishWorkItemRevision } from "../application/work-item-revisions.js";
@@ -103,6 +120,7 @@ import {
   addWorkItemEvidence,
   certifyTestRun,
   getWorkItemGateReport,
+  getTaskStartReadiness,
   listWorkItemEvidence,
   transitionWorkItem,
 } from "../application/work-item-workflow.js";
@@ -115,11 +133,53 @@ import { cancelSprint, changeSprintScope, closeSprint, createSprintDraft, startS
 import { getSprint, listSprints } from "../application/sprint-queries.js";
 import { getSprintRetrospective, setSprintRetrospective } from "../application/sprint-retrospectives.js";
 import { sprintStates } from "../domain/sprints.js";
+import { indexWorkItemSemantics, searchWorkItemsSemantically } from "../application/semantic-work-item-search.js";
+import { readTextEmbeddingProviderFromEnvironment, type TextEmbeddingProvider } from "../integrations/embeddings.js";
+import {
+  mcpProfileAllowsPrompt,
+  mcpProfileAllowsTool,
+  mcpProfileSkillNames,
+  mcpProfiles,
+  parseMcpProfile,
+  type McpProfile,
+} from "./profiles.js";
 
-const agentSkillCatalog = await loadSkills(
-  resolve(dirname(fileURLToPath(import.meta.url)), "../../../skills"),
-  { prefix: "ssdd", strict: true },
-);
+const skillRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../skills");
+const sourceSkillFiles = nodeSkillFiles(skillRoot);
+type SkillCatalog = Awaited<ReturnType<typeof SkillsExtension.load>>;
+const profileSkillCatalogs = new Map<string, SkillCatalog>();
+const skillSets = new Map<string, ReadonlySet<string>>();
+const profileSkillSetKeys = new Map<string, string>();
+for (const profile of mcpProfiles) {
+  for (const isInstanceAdmin of [false, true]) {
+    const allowedSkills = mcpProfileSkillNames(profile, isInstanceAdmin);
+    if (allowedSkills.size === 0) {
+      profileSkillSetKeys.set(`${profile}:${isInstanceAdmin}`, "");
+      continue;
+    }
+    const skillSetKey = [...allowedSkills].sort().join("\u0000");
+    skillSets.set(skillSetKey, allowedSkills);
+    profileSkillSetKeys.set(`${profile}:${isInstanceAdmin}`, skillSetKey);
+  }
+}
+const skillCatalogsBySet = new Map<string, SkillCatalog>();
+await Promise.all([...skillSets].map(async ([skillSetKey, allowedSkills]) => {
+  const catalog = await SkillsExtension.load({
+    list: async (directory) => {
+      const entries = await sourceSkillFiles.list(directory);
+      return directory === ""
+        ? entries.filter((entry) => entry.kind === "directory" && allowedSkills.has(entry.name))
+        : entries;
+    },
+    read: (path) => sourceSkillFiles.read(path),
+  }, { prefix: "ssdd", strict: true });
+  skillCatalogsBySet.set(skillSetKey, catalog);
+}));
+for (const [profileKey, skillSetKey] of profileSkillSetKeys) {
+  if (skillSetKey === "") continue;
+  const catalog = skillCatalogsBySet.get(skillSetKey);
+  if (catalog !== undefined) profileSkillCatalogs.set(profileKey, catalog);
+}
 
 const projectListItemSchema = z.object({
   id: z.string().uuid(),
@@ -133,6 +193,38 @@ const projectListItemSchema = z.object({
 const projectDetailsSchema = projectListItemSchema.extend({
   productGoal: z.string(),
   createdAt: z.string().datetime(),
+});
+
+const userProjectAccessSchema = z.object({
+  projectId: z.string().uuid(),
+  roles: z.array(z.enum(projectRoles)).min(1).max(projectRoles.length),
+});
+const managedUserReceiptSchema = z.object({
+  principalId: z.string().uuid(),
+  displayName: z.string(),
+  principalType: z.enum(["human", "agent", "service"]),
+  projects: z.array(userProjectAccessSchema),
+  authKeyId: z.string().uuid().nullable(),
+  authKey: z.string().nullable(),
+  authKeyIssued: z.boolean(),
+  replayed: z.boolean(),
+});
+const managedUsersSchema = z.object({
+  users: z.array(z.object({
+    principalId: z.string().uuid(),
+    displayName: z.string(),
+    principalType: z.enum(["human", "agent", "service"]),
+    createdAt: z.string().datetime(),
+    isInstanceAdministrator: z.boolean(),
+    projects: z.array(userProjectAccessSchema),
+    authKeys: z.array(z.object({
+      keyId: z.string().uuid(),
+      prefix: z.string(),
+      createdAt: z.string().datetime(),
+      lastUsedAt: z.string().datetime().nullable(),
+      revokedAt: z.string().datetime().nullable(),
+    })),
+  })),
 });
 
 const criterionSchema = z.object({
@@ -186,6 +278,8 @@ const workItemSchema = z.object({
   description: z.string().nullable(),
   state: z.string(),
   priority: z.number().int().min(1).max(4),
+  businessValueScore: z.number().int().min(0).max(100).nullable(),
+  businessValueRationale: z.string().nullable(),
   rank: z.number().int().positive(),
   version: z.number().int().positive(),
   revision: z.number().int().positive(),
@@ -209,6 +303,8 @@ const workItemContentRevisionSchema = z.object({
     title: z.string(),
     description: z.string().nullable(),
     priority: z.number().int().min(1).max(4),
+    businessValueScore: z.number().int().min(0).max(100).nullable(),
+    businessValueRationale: z.string().nullable(),
     criteria: z.array(criterionSchema),
   }),
   createdByPrincipalId: z.string().uuid(),
@@ -663,8 +759,31 @@ const developmentSessionSchema = z.object({
   endedAt: z.string().datetime().nullable(),
   activeSeconds: z.number().int().nonnegative(),
   version: z.number().int().positive(),
+  taskWorkflowRevisionNumber: z.number().int().positive().nullable(),
   technicalSpecifications: z.array(z.object({ id: z.string().uuid(), key: z.string(), revisionNumber: z.number().int().positive() })),
   scenarios: z.array(z.object({ id: z.string().uuid(), key: z.string(), revisionNumber: z.number().int().positive() })),
+});
+const taskWorkflowStepSchema = z.object({
+  id: z.string().uuid(), position: z.number().int().positive(), title: z.string(), description: z.string(),
+  effortPercent: z.number().positive().max(100), status: z.enum(taskWorkflowStepStatuses),
+  statusChangedAt: z.string().datetime().nullable(), statusChangedByPrincipalId: z.string().uuid().nullable(), statusReason: z.string().nullable(),
+});
+const taskWorkflowRevisionSchema = z.object({
+  id: z.string().uuid(), projectId: z.string().uuid(), taskId: z.string().uuid(), taskKey: z.string(),
+  revisionNumber: z.number().int().positive(), status: z.enum(taskWorkflowRevisionStatuses), reason: z.string(),
+  createdByPrincipalId: z.string().uuid(), createdAt: z.string().datetime(),
+  publishedByPrincipalId: z.string().uuid().nullable(), publishedAt: z.string().datetime().nullable(),
+  steps: z.array(taskWorkflowStepSchema), progressPercent: z.number().min(0).max(100).nullable(),
+  completedEffortPercent: z.number().min(0).max(100).nullable(), remainingEffortPercent: z.number().min(0).max(100).nullable(),
+  allStepsDone: z.boolean().nullable(),
+});
+const taskWorkflowViewSchema = z.object({
+  projectId: z.string().uuid(), taskId: z.string().uuid(), taskKey: z.string(), taskState: z.string(), taskVersion: z.number().int().positive(),
+  latestRevisionNumber: z.number().int().nonnegative(),
+  revisionHistory: z.array(z.object({ revisionNumber: z.number().int().positive(), status: z.enum(taskWorkflowRevisionStatuses), reason: z.string(), createdAt: z.string().datetime(), publishedAt: z.string().datetime().nullable() })),
+  revisionHistoryTruncated: z.boolean(), workflow: taskWorkflowRevisionSchema.nullable(),
+  draft: taskWorkflowRevisionSchema.nullable(), selectedRevision: taskWorkflowRevisionSchema.nullable(),
+  selectedRevisionNumber: z.number().int().positive().nullable(), selectedRevisionIsCurrent: z.boolean(),
 });
 const deploymentEventSchema = z.object({
   id: z.string().uuid(),
@@ -736,10 +855,16 @@ const workItemListItemSchema = z.object({
   title: z.string(),
   state: z.enum(workItemStates),
   priority: z.number().int().min(1).max(4),
+  businessValueScore: z.number().int().min(0).max(100).nullable(),
+  businessValueRationale: z.string().nullable(),
   rank: z.number().int().positive(),
   version: z.number().int().positive(),
   revision: z.number().int().positive(),
   updatedAt: z.string().datetime(),
+  taskWorkflowRevisionNumber: z.number().int().positive().nullable(),
+  taskWorkflowProgressPercent: z.number().min(0).max(100).nullable(),
+  taskWorkflowCompletedSteps: z.number().int().nonnegative().nullable(),
+  taskWorkflowTotalSteps: z.number().int().positive().nullable(),
 });
 
 const specificationContentSchema = z.record(z.string(), z.json()).refine(
@@ -858,6 +983,7 @@ const dashboardMetricsSchema = z.object({
   projectId: z.string().uuid(),
   teams: z.array(teamSummarySchema),
   selectedTeamId: z.string().uuid().nullable(),
+  selectedTeamGenerationNumber: z.number().int().min(0).nullable(),
   asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
   observedAt: z.string().datetime(),
   watermarkSequence: z.number().int().min(0),
@@ -881,22 +1007,43 @@ export function createMcpServer(
     readonly githubRepositories?: GithubRepositoryMappings;
     readonly githubIssueTokens?: GithubIssueTokens;
     readonly azureDevOpsConnections?: AzureDevOpsConnections;
+    readonly embeddingProvider?: TextEmbeddingProvider;
   } = {},
+  profile: McpProfile = "full",
 ): McpServer {
   const githubRepositories = integrations.githubRepositories ?? readGithubRepositoriesFromEnvironment();
   const githubIssueTokens = integrations.githubIssueTokens ?? readGithubIssueTokensFromEnvironment();
   const azureDevOpsConnections = integrations.azureDevOpsConnections ?? readAzureDevOpsConnectionsFromEnvironment();
+  const embeddingProvider = integrations.embeddingProvider ?? readTextEmbeddingProviderFromEnvironment();
   const server = new McpServer({ name: "ssdd-mcp", version: packageVersion });
-  agentSkillCatalog.attach(server);
+  const isHostAdministrator = isInstanceAdministrator(database, principalId);
+  const skillCatalog = profileSkillCatalogs.get(`${profile}:${isHostAdministrator}`);
+  if (skillCatalog === undefined) {
+    if (mcpProfileSkillNames(profile, isHostAdministrator).size > 0) {
+      throw new Error(`No skill catalog is configured for MCP profile '${profile}'.`);
+    }
+  } else {
+    skillCatalog.attach(server);
+  }
   const principal = database.prepare("SELECT principal_type FROM principals WHERE principal_id = ?")
     .get(principalId) as { principal_type: string } | undefined;
   const requiresHumanApproval = principal?.principal_type === "agent" || principal?.principal_type === "service";
+  const originalRegisterPrompt = server.registerPrompt.bind(server) as unknown as (
+    name: string,
+    config: unknown,
+    callback: (...args: never[]) => unknown,
+  ) => unknown;
+  server.registerPrompt = ((name: string, config: unknown, callback: (...args: never[]) => unknown) => {
+    if (!mcpProfileAllowsPrompt(profile, name)) return undefined as never;
+    return originalRegisterPrompt(name, config, callback) as never;
+  }) as typeof server.registerPrompt;
   const originalRegisterTool = server.registerTool.bind(server) as unknown as (
     name: string,
     config: unknown,
     callback: (args: unknown, context: unknown) => unknown,
   ) => unknown;
   server.registerTool = ((name: string, config: unknown, callback: (args: unknown, context: unknown) => unknown) => {
+    if (!mcpProfileAllowsTool(profile, name, isHostAdministrator)) return undefined as never;
     if (!requiresHumanApproval || !isApprovableToolName(name)) {
       return originalRegisterTool(name, config, callback) as never;
     }
@@ -1154,6 +1301,92 @@ export function createMcpServer(
   );
 
   server.registerTool(
+    "user_create",
+    {
+      title: "Criar usuário MCP",
+      description: "Cria um principal, concede papéis por projeto e emite uma authKey aleatória de uso único. O segredo não é gravado em auditoria nem em registros de idempotência.",
+      inputSchema: z.object({
+        requestId: z.string().trim().min(1).max(128),
+        displayName: z.string().trim().min(1).max(128),
+        principalType: z.enum(["human", "agent", "service"]),
+        projects: z.array(userProjectAccessSchema).min(1).max(100),
+        reason: z.string().trim().min(1).max(500),
+      }),
+      outputSchema: managedUserReceiptSchema,
+    },
+    ({ requestId, displayName, principalType, projects, reason }) => {
+      try {
+        const receipt = createManagedUser(database, {
+          actorPrincipalId: principalId, requestId, displayName, principalType, projects, reason,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(receipt) }], structuredContent: receipt };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "user_list",
+    {
+      title: "Listar usuários MCP",
+      description: "Lista identidades, acessos de projeto e metadados de chaves sem revelar segredos.",
+      inputSchema: z.object({}),
+      outputSchema: managedUsersSchema,
+    },
+    () => {
+      try {
+        const result = { users: listManagedUsers(database, principalId) };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "user_auth_key_rotate",
+    {
+      title: "Rotacionar authKey de usuário",
+      description: "Revoga a chave ativa e emite uma substituta uma única vez. Uma repetição idempotente nunca devolve novamente o segredo.",
+      inputSchema: z.object({
+        requestId: z.string().trim().min(1).max(128),
+        principalId: z.string().uuid(),
+        reason: z.string().trim().min(1).max(500),
+      }),
+      outputSchema: managedUserReceiptSchema,
+    },
+    ({ requestId, principalId: targetPrincipalId, reason }) => {
+      try {
+        const receipt = rotateManagedUserAuthKey(database, {
+          actorPrincipalId: principalId, targetPrincipalId, requestId, reason,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(receipt) }], structuredContent: receipt };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "user_auth_key_revoke",
+    {
+      title: "Revogar authKey de usuário",
+      description: "Revoga a chave ativa específica ou todas as chaves de um usuário para bloquear novas conexões.",
+      inputSchema: z.object({
+        requestId: z.string().trim().min(1).max(128),
+        principalId: z.string().uuid(),
+        keyId: z.string().uuid().optional(),
+        reason: z.string().trim().min(1).max(500),
+      }),
+      outputSchema: z.object({ principalId: z.string().uuid(), revokedCount: z.number().int().nonnegative(), replayed: z.boolean() }),
+    },
+    ({ requestId, principalId: targetPrincipalId, keyId, reason }) => {
+      try {
+        const result = revokeManagedUserAuthKeys(database, {
+          actorPrincipalId: principalId, targetPrincipalId, requestId,
+          ...(keyId === undefined ? {} : { keyId }), reason,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
     "roadmap_id_bind",
     {
       title: "Vincular ID estável do roadmap",
@@ -1355,6 +1588,8 @@ export function createMcpServer(
         title: z.string().trim().min(1).max(200),
         description: z.string().max(10_000).optional(),
         priority: z.number().int().min(1).max(4).optional(),
+        businessValueScore: z.number().int().min(0).max(100).nullable().optional(),
+        businessValueRationale: z.string().trim().max(1000).nullable().optional(),
         criteria: z
           .array(z.object({ description: z.string().trim().min(1).max(2_000), required: z.boolean().optional() }))
           .max(50)
@@ -1365,7 +1600,7 @@ export function createMcpServer(
         auditEventIds: z.array(z.string().uuid()),
       }),
     },
-    ({ projectId, requestId, type, parentId, relatedStoryId, title, description, priority, criteria }) => {
+    ({ projectId, requestId, type, parentId, relatedStoryId, title, description, priority, businessValueScore, businessValueRationale, criteria }) => {
       try {
         const receipt = createWorkItem(database, {
           projectId,
@@ -1377,6 +1612,8 @@ export function createMcpServer(
           ...(relatedStoryId === undefined ? {} : { relatedStoryId }),
           ...(description === undefined ? {} : { description }),
           ...(priority === undefined ? {} : { priority }),
+          ...(businessValueScore === undefined ? {} : { businessValueScore }),
+          ...(businessValueRationale === undefined ? {} : { businessValueRationale }),
           ...(criteria === undefined ? {} : { criteria }),
         });
         const result = { workItem: receipt.value, auditEventIds: receipt.auditEventIds };
@@ -1451,6 +1688,8 @@ export function createMcpServer(
         title: z.string().trim().min(1).max(200).optional(),
         description: z.string().max(10_000).nullable().optional(),
         priority: z.number().int().min(1).max(4).optional(),
+        businessValueScore: z.number().int().min(0).max(100).nullable().optional(),
+        businessValueRationale: z.string().trim().max(1000).nullable().optional(),
         criteria: z.array(z.object({
           id: z.string().uuid().optional(),
           description: z.string().trim().min(1).max(2_000),
@@ -1462,7 +1701,7 @@ export function createMcpServer(
         auditEventIds: z.array(z.string().uuid()),
       }),
     },
-    ({ projectId, requestId, itemIdOrKey, expectedVersion, title, description, priority, criteria }) => {
+    ({ projectId, requestId, itemIdOrKey, expectedVersion, title, description, priority, businessValueScore, businessValueRationale, criteria }) => {
       try {
         const receipt = proposeWorkItemRevision(database, {
           projectId,
@@ -1473,6 +1712,8 @@ export function createMcpServer(
           ...(title === undefined ? {} : { title }),
           ...(description === undefined ? {} : { description }),
           ...(priority === undefined ? {} : { priority }),
+          ...(businessValueScore === undefined ? {} : { businessValueScore }),
+          ...(businessValueRationale === undefined ? {} : { businessValueRationale }),
           ...(criteria === undefined
             ? {}
             : {
@@ -1537,13 +1778,14 @@ export function createMcpServer(
     {
       title: "Listar itens de trabalho",
       description:
-        "Lista itens com filtros combináveis, busca textual e cursor estável limitado ao projeto e à identidade.",
+        "Lista itens com filtros combináveis, busca textual e cursor estável. assignedToMe=true limita aos itens atribuídos à identidade autenticada.",
       inputSchema: z.object({
         projectId: z.string().uuid(),
         types: z.array(z.enum(workItemTypes)).max(5).optional(),
         states: z.array(z.enum(workItemStates)).max(7).optional(),
         parentId: z.string().trim().min(1).max(80).optional(),
         search: z.string().trim().min(1).max(200).optional(),
+        assignedToMe: z.boolean().optional(),
         limit: z.number().int().min(1).max(100).optional(),
         cursor: z.string().min(1).max(4096).optional(),
       }),
@@ -1552,7 +1794,7 @@ export function createMcpServer(
         nextCursor: z.string().nullable(),
       }),
     },
-    ({ projectId, types, states, parentId, search, limit, cursor }) => {
+    ({ projectId, types, states, parentId, search, assignedToMe, limit, cursor }) => {
       try {
         const page = listWorkItems(database, {
           projectId,
@@ -1561,6 +1803,7 @@ export function createMcpServer(
           ...(states === undefined ? {} : { states }),
           ...(parentId === undefined ? {} : { parentId }),
           ...(search === undefined ? {} : { search }),
+          ...(assignedToMe === undefined ? {} : { assignedToMe }),
           ...(limit === undefined ? {} : { limit }),
           ...(cursor === undefined ? {} : { cursor }),
         });
@@ -1571,6 +1814,136 @@ export function createMcpServer(
       } catch (error) {
         return toToolError(error);
       }
+    },
+  );
+
+  server.registerTool(
+    "task_execution_queue_get",
+    {
+      title: "Consultar fila priorizada de execução",
+      description: "Lista tarefas Ready/in_progress atribuídas ao principal (por padrão), validadas pelos bloqueios reais de início. Ordena por prioridade efetiva (P1 primeiro), valor de negócio herdado/definido (maior primeiro) e rank; valores ausentes ficam por último. Read-only; inicie somente com task_start após task_start_check.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        assignedToMe: z.boolean().optional().default(true),
+        limit: z.number().int().min(1).max(50).optional().default(20),
+      }),
+      outputSchema: z.object({
+        projectId: z.string().uuid(),
+        order: z.array(z.enum(["startable_first", "priority_ascending", "business_value_descending", "feature_rank", "task_rank", "key"])),
+        assignedToMe: z.boolean(),
+        scannedCount: z.number().int().nonnegative(),
+        candidateLimitReached: z.boolean(),
+        blockedCount: z.number().int().nonnegative(),
+        businessValueMissingCount: z.number().int().nonnegative(),
+        blocked: z.array(z.object({
+          id: z.string().uuid(), key: z.string(), title: z.string(), state: z.string(), assigneeId: z.string().uuid().nullable(),
+          priority: z.number().int().min(1).max(4), prioritySource: z.string(),
+          businessValueScore: z.number().int().min(0).max(100).nullable(), businessValueRationale: z.string().nullable(),
+          businessValueSource: z.string().nullable(), featureKey: z.string().nullable(), rank: z.number().int().positive(),
+          blockerCodes: z.array(z.string()),
+        })),
+        tasks: z.array(z.object({
+          id: z.string().uuid(), key: z.string(), title: z.string(), state: z.string(), assigneeId: z.string().uuid().nullable(),
+          priority: z.number().int().min(1).max(4), prioritySource: z.string(),
+          businessValueScore: z.number().int().min(0).max(100).nullable(), businessValueRationale: z.string().nullable(),
+          businessValueSource: z.string().nullable(), featureKey: z.string().nullable(), rank: z.number().int().positive(),
+        })),
+      }),
+    },
+    ({ projectId, assignedToMe, limit }) => {
+      try {
+        const result = getTaskExecutionQueue(database, {
+          projectId,
+          principalId,
+          assignedToMe,
+          limit,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) {
+        return toToolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "work_item_semantic_index",
+    {
+      title: "Indexar tarefas para busca semântica",
+      description: "Gera ou atualiza vetores de título, descrição e critérios para uma página de itens. Use o cursor até completar o projeto; requer provedor de embeddings configurado.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        assignedToMe: z.boolean().optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        cursor: z.string().trim().min(1).max(4096).optional(),
+      }),
+      outputSchema: z.object({
+        indexedCount: z.number().int().nonnegative(),
+        unchangedCount: z.number().int().nonnegative(),
+        skippedChangedCount: z.number().int().nonnegative(),
+        model: z.string(),
+        watermarkSequence: z.number().int().nonnegative(),
+        nextCursor: z.string().nullable(),
+      }),
+    },
+    async ({ projectId, assignedToMe, limit, cursor }) => {
+      try {
+        const result = await indexWorkItemSemantics(database, embeddingProvider, {
+          projectId,
+          principalId,
+          ...(assignedToMe === undefined ? {} : { assignedToMe }),
+          ...(limit === undefined ? {} : { limit }),
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "work_item_semantic_search",
+    {
+      title: "Buscar tarefas por significado",
+      description: "Busca vetorial por similaridade de embeddings, pode completar automaticamente uma página de índice e informa quando faltam itens indexados.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        query: z.string().trim().min(3).max(1_000),
+        assignedToMe: z.boolean().optional(),
+        types: z.array(z.enum(workItemTypes)).max(5).optional(),
+        states: z.array(z.enum(workItemStates)).max(7).optional(),
+        limit: z.number().int().min(1).max(50).optional(),
+      }),
+      outputSchema: z.object({
+        query: z.string(),
+        model: z.string(),
+        results: z.array(z.object({
+          id: z.string().uuid(),
+          key: z.string(),
+          type: z.enum(workItemTypes),
+          title: z.string(),
+          description: z.string().nullable(),
+          state: z.enum(workItemStates),
+          assigneeId: z.string().uuid().nullable(),
+          similarity: z.number().min(-1).max(1),
+        })),
+        indexedCount: z.number().int().nonnegative(),
+        missingEmbeddingCount: z.number().int().nonnegative(),
+        indexComplete: z.boolean(),
+        nextIndexCursor: z.string().nullable(),
+      }),
+    },
+    async ({ projectId, query, assignedToMe, types, states, limit }) => {
+      try {
+        const result = await searchWorkItemsSemantically(database, embeddingProvider, {
+          projectId,
+          principalId,
+          query,
+          ...(assignedToMe === undefined ? {} : { assignedToMe }),
+          ...(types === undefined ? {} : { types }),
+          ...(states === undefined ? {} : { states }),
+          ...(limit === undefined ? {} : { limit }),
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
     },
   );
 
@@ -1859,6 +2232,29 @@ export function createMcpServer(
   );
 
   server.registerTool(
+    "adr_create",
+    {
+      title: "Cadastrar ADR",
+      description: "Cria uma decisão de arquitetura como revisão Draft imutável. A publicação posterior continua sujeita ao gate humano de Tech Lead.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        requestId: z.string().trim().min(1).max(128),
+        key: z.string().trim().min(1).max(32),
+        title: z.string().trim().min(1).max(200),
+        content: specificationContentSchema,
+      }),
+      outputSchema: z.object({ revision: specificationRevisionSchema, auditEventIds: z.array(z.string().uuid()) }),
+    },
+    ({ projectId, requestId, key, title, content }) => {
+      try {
+        const receipt = createSpecification(database, { projectId, principalId, requestId, key, kind: "adr", title, content });
+        const result = { revision: receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
     "spec_revision_propose",
     {
       title: "Propor revisão de especificação",
@@ -1935,6 +2331,34 @@ export function createMcpServer(
   );
 
   server.registerTool(
+    "spec_revision_withdraw",
+    {
+      title: "Retirar rascunho de especificação",
+      description: "Retira a última revisão Draft/In Review quando foi abandonada ou substituída; exige pessoa PO para regra/glossário e Tech Lead para decisão técnica, motivo auditado, versão esperada e revisão mais recente.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        requestId: z.string().trim().min(1).max(128),
+        specIdOrKey: z.string().trim().min(1).max(80),
+        revisionNumber: z.number().int().positive(),
+        expectedVersion: z.number().int().positive(),
+        reason: z.string().trim().min(1).max(1000),
+      }),
+      outputSchema: z.object({ revision: specificationRevisionSchema, auditEventIds: z.array(z.string().uuid()) }),
+    },
+    ({ projectId, requestId, specIdOrKey, revisionNumber, expectedVersion, reason }) => {
+      try {
+        const receipt = withdrawSpecificationRevision(database, {
+          projectId, principalId, requestId, specIdOrKey, revisionNumber, expectedVersion, reason,
+        });
+        const result = { revision: receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) {
+        return toToolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
     "spec_get",
     {
       title: "Consultar especificação",
@@ -1962,16 +2386,28 @@ export function createMcpServer(
     "spec_list",
     {
       title: "Listar especificações",
-      description: "Lista até 100 especificações do projeto, opcionalmente filtradas por tipo.",
+      description: "Lista ou pesquisa especificações em páginas estáveis, com filtro por tipo e cursor vinculado a projeto, identidade, filtros e watermark.",
       inputSchema: z.object({
         projectId: z.string().uuid(),
         kind: z.enum(specificationKinds).optional(),
+        search: z.string().trim().min(2).max(160).optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+        cursor: z.string().min(1).max(4_096).optional(),
       }),
-      outputSchema: z.object({ specifications: z.array(specificationSchema) }),
+      outputSchema: z.object({
+        specifications: z.array(specificationSchema),
+        nextCursor: z.string().nullable(),
+        watermark: z.number().int().nonnegative(),
+      }),
     },
-    ({ projectId, kind }) => {
+    ({ projectId, kind, search, limit, cursor }) => {
       try {
-        const result = { specifications: listSpecifications(database, projectId, principalId, kind) };
+        const result = listSpecifications(database, projectId, principalId, {
+          ...(kind === undefined ? {} : { kind }),
+          ...(search === undefined ? {} : { search }),
+          ...(limit === undefined ? {} : { limit }),
+          ...(cursor === undefined ? {} : { cursor }),
+        });
         return {
           content: [{ type: "text", text: JSON.stringify(result) }],
           structuredContent: result,
@@ -1979,6 +2415,63 @@ export function createMcpServer(
       } catch (error) {
         return toToolError(error);
       }
+    },
+  );
+
+  server.registerTool(
+    "adr_search",
+    {
+      title: "Buscar ADRs",
+      description: "Busca ADRs por chave, título ou conteúdo da revisão mais recente; retorna resumos paginados para manter o contexto compacto.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        query: z.string().trim().min(2).max(160),
+        limit: z.number().int().min(1).max(100).optional(),
+        cursor: z.string().trim().min(1).max(4_096).optional(),
+      }),
+      outputSchema: z.object({
+        specifications: z.array(specificationSchema),
+        nextCursor: z.string().nullable(),
+        watermark: z.number().int().nonnegative(),
+      }),
+    },
+    ({ projectId, query, limit, cursor }) => {
+      try {
+        const result = listSpecifications(database, projectId, principalId, {
+          kind: "adr",
+          search: query,
+          ...(limit === undefined ? {} : { limit }),
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "adr_link_task",
+    {
+      title: "Vincular ADR a tarefa",
+      description: "Vincula uma tarefa a um ADR com relação implements (padrão) ou relates_to; valida os tipos e retorna as revisões disponíveis.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        requestId: z.string().trim().min(1).max(128),
+        taskIdOrKey: z.string().trim().min(1).max(120),
+        adrIdOrKey: z.string().trim().min(1).max(80),
+        relationship: z.enum(["implements", "relates_to"]).default("implements"),
+      }),
+      outputSchema: z.object({
+        link: traceLinkReceiptSchema,
+        adrRevision: z.object({ latest: z.number().int().nonnegative(), published: z.number().int().positive().nullable() }),
+        auditEventIds: z.array(z.string().uuid()),
+      }),
+    },
+    ({ projectId, requestId, taskIdOrKey, adrIdOrKey, relationship }) => {
+      try {
+        const receipt = linkTaskToAdr(database, { projectId, principalId, requestId, taskIdOrKey, adrIdOrKey, relationship });
+        const result = { ...receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
     },
   );
 
@@ -2130,16 +2623,26 @@ export function createMcpServer(
     "scenario_list",
     {
       title: "Listar cenários",
-      description: "Lista até 100 cenários do projeto, opcionalmente filtrados pelo tipo.",
+      description: "Lista cenários em páginas estáveis, com filtro por tipo e cursor vinculado a projeto, identidade, filtros e watermark.",
       inputSchema: z.object({
         projectId: z.string().uuid(),
         kind: z.enum(scenarioKinds).optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+        cursor: z.string().min(1).max(4_096).optional(),
       }),
-      outputSchema: z.object({ scenarios: z.array(scenarioSummarySchema) }),
+      outputSchema: z.object({
+        scenarios: z.array(scenarioSummarySchema),
+        nextCursor: z.string().nullable(),
+        watermark: z.number().int().nonnegative(),
+      }),
     },
-    ({ projectId, kind }) => {
+    ({ projectId, kind, limit, cursor }) => {
       try {
-        const result = { scenarios: listScenarios(database, projectId, principalId, kind) };
+        const result = listScenarios(database, projectId, principalId, {
+          ...(kind === undefined ? {} : { kind }),
+          ...(limit === undefined ? {} : { limit }),
+          ...(cursor === undefined ? {} : { cursor }),
+        });
         return {
           content: [{ type: "text", text: JSON.stringify(result) }],
           structuredContent: result,
@@ -2218,6 +2721,104 @@ export function createMcpServer(
   );
 
   server.registerTool(
+    "task_workflow_get",
+    {
+      title: "Consultar workflow ponderado da tarefa",
+      description: "Retorna o plano publicado, Draft atual, estados auditados das etapas e percentual calculado apenas pelas etapas concluídas.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), taskIdOrKey: z.string().trim().min(1).max(120),
+        revisionNumber: z.number().int().positive().optional(),
+      }),
+      outputSchema: taskWorkflowViewSchema,
+    },
+    ({ projectId, taskIdOrKey, revisionNumber }) => {
+      try {
+        const view = getTaskWorkflow(database, { projectId, principalId, taskIdOrKey, ...(revisionNumber === undefined ? {} : { revisionNumber }) });
+        return { content: [{ type: "text", text: JSON.stringify(view) }], structuredContent: view };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "task_workflow_propose",
+    {
+      title: "Propor workflow técnico ponderado",
+      description: "Cria revisão Draft imutável com 1-50 etapas cuja soma de esforço é exatamente 100.00%; novo Draft substitui o Draft anterior sem apagar histórico.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), taskIdOrKey: z.string().trim().min(1).max(120),
+        expectedTaskVersion: z.number().int().positive(), expectedWorkflowVersion: z.number().int().nonnegative(),
+        steps: z.array(z.object({ id: z.string().uuid().optional(), title: z.string().trim().min(1).max(160),
+          description: z.string().trim().min(1).max(4_000), effortPercent: z.number().positive().max(100) })).min(1).max(50),
+        reason: z.string().trim().min(1).max(1_000),
+      }),
+      outputSchema: z.object({ workflow: taskWorkflowRevisionSchema, auditEventIds: z.array(z.string().uuid()) }),
+    },
+    ({ projectId, requestId, taskIdOrKey, expectedTaskVersion, expectedWorkflowVersion, steps, reason }) => {
+      try {
+        const receipt = proposeTaskWorkflow(database, {
+          projectId, principalId, requestId, taskIdOrKey, expectedTaskVersion, expectedWorkflowVersion,
+          steps: steps.map((step) => ({ title: step.title, description: step.description, effortPercent: step.effortPercent,
+            ...(step.id === undefined ? {} : { id: step.id }) })), reason,
+        });
+        const result = { workflow: receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "task_workflow_publish",
+    {
+      title: "Publicar workflow da tarefa",
+      description: "Publica uma revisão Draft por Tech Lead humano sem sessões abertas; preserva etapa não alterada e volta etapas com definição alterada para Pendente.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), taskIdOrKey: z.string().trim().min(1).max(120),
+        revisionNumber: z.number().int().positive(), expectedTaskVersion: z.number().int().positive(), reason: z.string().trim().min(1).max(1_000),
+      }),
+      outputSchema: z.object({
+        workflow: taskWorkflowRevisionSchema,
+        migration: z.object({ preservedStepIds: z.array(z.string().uuid()), resetStepIds: z.array(z.string().uuid()), previousProgressPercent: z.number().min(0).max(100).nullable() }),
+        auditEventIds: z.array(z.string().uuid()),
+      }),
+    },
+    ({ projectId, requestId, taskIdOrKey, revisionNumber, expectedTaskVersion, reason }) => {
+      try {
+        const receipt = publishTaskWorkflow(database, { projectId, principalId, requestId, taskIdOrKey, revisionNumber, expectedTaskVersion, reason });
+        const result = { ...receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "task_workflow_step_transition",
+    {
+      title: "Atualizar etapa do workflow",
+      description: "Atualiza status da etapa na revisão publicada; apenas etapa Done compõe o percentual e o Developer precisa de sessão ativa pinned à revisão.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), taskIdOrKey: z.string().trim().min(1).max(120),
+        revisionNumber: z.number().int().positive(), stepId: z.string().uuid(), expectedTaskVersion: z.number().int().positive(),
+        targetStatus: z.enum(taskWorkflowStepStatuses), reason: z.string().trim().min(1).max(1_000),
+      }),
+      outputSchema: z.object({
+        transition: z.object({ projectId: z.string().uuid(), taskId: z.string().uuid(), taskKey: z.string(), taskVersion: z.number().int().positive(),
+          revisionNumber: z.number().int().positive(), stepId: z.string().uuid(), fromStatus: z.enum(taskWorkflowStepStatuses),
+          toStatus: z.enum(taskWorkflowStepStatuses), changedAt: z.string().datetime(), progressPercent: z.number().min(0).max(100) }),
+        auditEventIds: z.array(z.string().uuid()),
+      }),
+    },
+    ({ projectId, requestId, taskIdOrKey, revisionNumber, stepId, expectedTaskVersion, targetStatus, reason }) => {
+      try {
+        const receipt = transitionTaskWorkflowStep(database, {
+          projectId, principalId, requestId, taskIdOrKey, revisionNumber, stepId, expectedTaskVersion, targetStatus, reason,
+        });
+        const result = { transition: receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
     "development_session_start",
     {
       title: "Iniciar sessão de desenvolvimento",
@@ -2236,6 +2837,60 @@ export function createMcpServer(
           ...(sessionReference === undefined ? {} : { sessionReference }),
         });
         const result = { session: receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "task_start_check",
+    {
+      title: "Verificar se a tarefa pode iniciar",
+      description: "Diagnostica estado, atribuição, papel Developer, PBI pai e baseline, dependências e sessão aberta antes de iniciar uma tarefa.",
+      inputSchema: z.object({ projectId: z.string().uuid(), taskIdOrKey: z.string().trim().min(1).max(120) }),
+      outputSchema: z.object({
+        itemId: z.string().uuid(), itemKey: z.string(), title: z.string(), state: z.string(), version: z.number().int().positive(),
+        assigneeId: z.string().uuid().nullable(),
+        parent: z.object({ id: z.string().uuid(), key: z.string(), state: z.string(), baselineId: z.string().uuid().nullable() }).nullable(),
+        dependencies: z.array(z.object({ id: z.string().uuid(), key: z.string(), title: z.string(), state: z.string(), complete: z.boolean() })),
+        openSession: z.object({ id: z.string().uuid(), status: z.enum(["active", "paused"]), developerPrincipalId: z.string().uuid() }).nullable(),
+        blockers: z.array(z.object({ code: z.string(), message: z.string(), details: z.unknown().optional() })),
+        warnings: z.array(z.object({ code: z.string(), message: z.string(), keys: z.array(z.string()) })),
+        canStart: z.boolean(),
+      }),
+    },
+    ({ projectId, taskIdOrKey }) => {
+      try {
+        const report = getTaskStartReadiness(database, { projectId, principalId, itemIdOrKey: taskIdOrKey });
+        return { content: [{ type: "text", text: JSON.stringify(report) }], structuredContent: report };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "task_start",
+    {
+      title: "Iniciar tarefa atomicamente",
+      description: "Valida todos os gates e, se a tarefa estiver Ready, transiciona para in_progress e abre a sessão numa única transação; uma falha reverte ambas as operações.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        requestId: z.string().trim().min(1).max(100),
+        taskIdOrKey: z.string().trim().min(1).max(120),
+        expectedVersion: z.number().int().positive(),
+        reason: z.string().trim().min(1).max(1_000),
+        sessionReference: z.string().trim().min(1).max(160).optional(),
+      }),
+      outputSchema: z.object({ task: z.object({ id: z.string().uuid(), key: z.string(), state: z.literal("in_progress"), version: z.number().int().positive() }),
+        transition: workItemTransitionSchema.nullable(), session: developmentSessionSchema, auditEventIds: z.array(z.string().uuid()) }),
+    },
+    ({ projectId, requestId, taskIdOrKey, expectedVersion, reason, sessionReference }) => {
+      try {
+        const receipt = startTaskDevelopment(database, {
+          projectId, principalId, requestId, itemIdOrKey: taskIdOrKey, expectedVersion, reason,
+          ...(sessionReference === undefined ? {} : { sessionReference }),
+        });
+        const { operationAuditEventIds, ...started } = receipt.value;
+        const result = { ...started, auditEventIds: [...operationAuditEventIds, ...receipt.auditEventIds] };
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) { return toToolError(error); }
     },
@@ -2290,8 +2945,8 @@ export function createMcpServer(
   server.registerTool(
     "developer_execution_metrics_get",
     {
-      title: "Consultar esforço e velocidade por desenvolvedor",
-      description: "Resume horas ativas registradas, tarefas concluídas e variância contra horas estimadas; amostras menores que cinco tarefas são sinalizadas e não ranqueadas.",
+      title: "Consultar esforço e calibração por desenvolvedor",
+      description: "Resume horas ativas no período, tarefas com última conclusão no período e calibração apenas sobre tarefas com estimativa confirmada. As datas usam o fuso do projeto; a amostra mínima é de cinco tarefas estimadas. Não calcula velocidade em pontos por pessoa nem produz ranking.",
       inputSchema: z.object({
         projectId: z.string().uuid(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
         to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(), developerPrincipalId: z.string().uuid().optional(),
@@ -2300,7 +2955,8 @@ export function createMcpServer(
         projectId: z.string().uuid(), period: z.object({ from: z.string(), to: z.string() }), minimumSampleTasks: z.number().int(),
         developers: z.array(z.object({
           principalId: z.string().uuid(), name: z.string(), completedSessions: z.number().int(), completedTasks: z.number().int(),
-          activeHours: z.number(), activeHoursOnCompletedTasks: z.number(), estimatedHoursOnCompletedTasks: z.number(),
+          estimatedCompletedTasks: z.number().int(), activeHours: z.number(), activeHoursOnCompletedTasks: z.number(),
+          activeHoursOnEstimatedCompletedTasks: z.number(), estimatedHoursOnCompletedTasks: z.number(),
           estimateVariancePercent: z.number().nullable(), effortCalibrationFactor: z.number().nullable(), sampleSufficient: z.boolean(),
         })),
       }),
@@ -2578,6 +3234,56 @@ export function createMcpServer(
           ...(asOfDate === undefined ? {} : { asOfDate }),
         });
         return { content: [{ type: "text", text: JSON.stringify(metrics) }], structuredContent: metrics };
+      } catch (error) {
+        return toToolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "project_feature_roadmap_get",
+    {
+      title: "Consultar roadmap priorizado por feature",
+      description: "Retorna Features ordenadas por prioridade efetiva e valor de negócio, progresso por story points confirmados, bloqueios externos, sprints planejadas e previsão P25/P50/P75. Exige três sprints fechadas comparáveis para datas; escopo sem estimativa, dependências abertas ou ausência de capacidade mantém datas indisponíveis.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        teamId: z.string().uuid().optional(),
+        asOfDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/u).optional(),
+      }),
+      outputSchema: z.object({
+        projectId: z.string().uuid(), teamId: z.string().uuid().nullable(), teamName: z.string().nullable(),
+        teamGenerationNumber: z.number().int().nonnegative().nullable(), asOfDate: z.string(), timezone: z.string(),
+        watermarkSequence: z.number().int().nonnegative(), velocitySampleSize: z.number().int().nonnegative(),
+        minimumVelocitySamples: z.number().int().positive(),
+        forecastBasis: z.enum(["historical_sprint_velocity_sequential_priority", "unavailable"]),
+        forecastAssumption: z.string(),
+        forecastUnavailableReason: z.enum(["team_required", "insufficient_velocity_samples", "unknown_feature_scope", "external_dependency", "zero_velocity"]).nullable(),
+        featuresTruncated: z.boolean(),
+        sprintTimeline: z.array(z.object({ index: z.number().int().positive(), startsOn: z.string(), endsOn: z.string(), source: z.enum(["planned_sprint", "historical_median"]) })),
+        features: z.array(z.object({
+          id: z.string().uuid(), key: z.string(), title: z.string(), state: z.string(), priority: z.number().int().min(1).max(4),
+          effectivePriority: z.number().int().min(1).max(4), businessValueScore: z.number().int().min(0).max(100).nullable(),
+          businessValueRationale: z.string().nullable(), businessValueSource: z.string().nullable(), rank: z.number().int().positive(),
+          completedPoints: z.number().nonnegative(), remainingPoints: z.number().nonnegative(), cancelledPoints: z.number().nonnegative(),
+          unestimatedItemCount: z.number().int().nonnegative(), totalItems: z.number().int().nonnegative(), completedItems: z.number().int().nonnegative(),
+          cancelledItems: z.number().int().nonnegative(),
+          progressPercent: z.number().min(0).max(100).nullable(),
+          externalBlockers: z.array(z.object({ key: z.string(), state: z.string() })),
+          forecast: z.object({ status: z.enum(["completed", "forecast_ready", "insufficient_data", "incomplete_scope", "blocked", "zero_velocity"]),
+            favorableDate: z.string().nullable(), baseDate: z.string().nullable(), cautiousDate: z.string().nullable(),
+            favorableSprint: z.number().int().positive().nullable(), baseSprint: z.number().int().positive().nullable(), cautiousSprint: z.number().int().positive().nullable() }),
+        })),
+      }),
+    },
+    ({ projectId, teamId, asOfDate }) => {
+      try {
+        const result = getProjectFeatureRoadmap(database, {
+          projectId,
+          principalId,
+          ...(teamId === undefined ? {} : { teamId }),
+          ...(asOfDate === undefined ? {} : { asOfDate }),
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) {
         return toToolError(error);
       }
@@ -3562,6 +4268,8 @@ export function createMcpServer(
             ...(epicIdOrKey ? [`Épico em foco: ${epicIdOrKey}.`] : []),
             ...(outcome ? [`Resultado solicitado: ${outcome}.`] : []),
             "Leia project_get e work_item_list; localize itens existentes, estados, revisões publicadas, critérios e tarefas filhas. Use trace_query e task_context_get quando rastreabilidade, dependências ou baseline mudarem a decisão.",
+            "Use project_feature_roadmap_get para comparar prioridade efetiva, valor de negócio, progresso e dependências. Separe prioridade P1–P4 de score 0–100. Para o score, proponha evidências nas cinco dimensões PO (impacto, risco, alinhamento, habilitação/reuso, urgência), 0–20 cada; o PO publica a soma e registra a decomposição/rationale. Não invente scores nem complete dados sem avaliação humana.",
+            "Use spec_list/spec_get para consultar regras de negócio e o glossário publicados quando termos de domínio afetarem a política. O contexto de tarefa não inclui o glossário automaticamente; use spec_get para SSDD-GLOSS-CORE-01 quando termos de domínio forem relevantes.",
             "Separe necessidade do usuário, história/bug, critérios de aceite observáveis e tarefas técnicas testáveis. Proponha cobertura de cada critério por cenário publicado e identifique quais tarefas devem ser associadas ao cenário e aos runs que as validarem. Cubra sucesso, validações, falhas e autorização quando aplicável; identifique dependências em vez de duplicar trabalho.",
             "Não invente chaves SSDD-###: ao criar itens por solicitação explícita, deixe work_item_create emitir as chaves. Sugira pontos somente para PBIs e horas somente para tarefas; nunca converta uma unidade na outra.",
             "Sem solicitação explícita para gravar, entregue somente a proposta. Mesmo quando solicitada a gravação, mantenha itens novos em Draft e não publique revisões, confirme estimativas, altere escopo ou avance estados sem autorização humana e gates válidos.",
@@ -3592,9 +4300,11 @@ export function createMcpServer(
             "Atue como Technical Lead SSDD e refine o desenho técnico sem redefinir a necessidade de negócio.",
             `Projeto: ${projectId}; PBI ou tarefa em foco: ${itemIdOrKey}.`,
             ...(outcome ? [`Resultado ou restrição adicional: ${outcome}.`] : []),
-            "Leia project_get, work_item_get, task_context_get com profile=dev, include=[hierarchy, acceptanceCriteria, businessRules, technicalDecisions, scenarios, testRuns, baseline], e work_item_gate_check; confira revisões publicadas, baseline, critérios, regras, decisões, cenários, runs por build, avisos de drift, dependências e papéis disponíveis. Use trace_query e specification_get/list para entender decisões relacionadas.",
+            "Leia project_get, work_item_get, task_context_get com profile=dev, include=[hierarchy, acceptanceCriteria, businessRules, technicalDecisions, scenarios, testRuns, baseline], e work_item_gate_check; confira revisões publicadas, baseline, critérios, regras, decisões, cenários, runs por build, avisos de drift, dependências e papéis disponíveis. Use trace_query, spec_get, spec_list e adr_search para entender decisões relacionadas.",
+            "O contexto de tarefa não inclui o glossário automaticamente; use spec_get para SSDD-GLOSS-CORE-01 quando termos de domínio forem relevantes. Siga nextCursor e resources quando o contexto estiver truncado ou mover uma entrada para resource.",
             "Separe requisito/critério de aceite de decisão técnica. Proponha componentes, contratos, fluxo de dados, limites de transação, autorização, isolamento por projeto, idempotência, migração/rollback, observabilidade, riscos e estratégia de testes conforme o escopo exigir.",
-            "Decomponha apenas trabalho implementável e verificável; descreva dependências e aceite por tarefa. Use horas para tarefas e pontos somente para PBIs, com premissas explícitas e sem converter unidades.",
+            "Decomponha apenas trabalho implementável e verificável; preserve a prioridade e o valor herdados da Feature, levante lacunas para decisão PO e descreva dependências e aceite por tarefa. Use horas para tarefas e pontos somente para PBIs, com premissas explícitas e sem converter unidades.",
+            "Para cada tarefa que precise de execução detalhada, use task_workflow_get e proponha 1-50 etapas ordenadas, com instrução e resultado observável. Os pesos relativos aceitam até duas casas e precisam totalizar exatamente 100.00%; eles não representam horas/pontos nem cobertura QA. Etapas avançam Pendente→Em andamento→Concluída em ordem; só Concluída soma no progresso. Não publique Draft: somente Tech Lead humano publica e apenas sem sessões abertas.",
             "Quando houver especificação técnica publicada, proponha rastreabilidade work item → specification com trace_link_add do tipo implements e valide que task_context_get devolve a decisão esperada. Se faltar uma decisão duradoura, recomende criar/revisar uma specification; não trate texto do prompt ou comentário como especificação aprovada.",
             "Sem solicitação explícita para gravar, entregue somente a proposta. Mesmo se solicitada gravação, mantenha revisões em Draft e não publique, confirme estimativas ou avance workflow sem pessoa autorizada e gates válidos. Não invente dados, chaves, métricas nem evidência de teste.",
             "Entregue: fatos verificados; decisões e alternativas; tarefas/dependências; vínculos de rastreabilidade propostos; matriz requisito→regra/especificação→tarefa→cenário→build/run; riscos, rollout/rollback e perguntas bloqueantes.",
@@ -3627,6 +4337,7 @@ export function createMcpServer(
             ...(sprintGoal ? [`Objetivo informado: ${sprintGoal}.`] : []),
             "Consulte project_get, team_list, sprint_list, definition_of_done_get e work_item_list. Se houver vários times, peça ou use o teamId informado; consulte team_capacity_get para o intervalo exato proposto.",
             "Para cada PBI candidato, consulte work_item_gate_check e task_context_get; use trace_query para dependências. Diferencie pontos de PBIs de horas de tarefas e explicite cobertura de capacidade, DoD, bloqueios e itens fora de Ready.",
+            "Consulte project_feature_roadmap_get para ordenar Features por prioridade efetiva (P1 primeiro), depois business value score (0–100, maior primeiro), rank e chave. São dimensões distintas: score ausente não é zero; não invente nem faça backfill, solicite avaliação PO com justificativa. Planeje as sprints nessa sequência sem contrariar dependências e capacidade. Datas só podem ser usadas quando há três sprints comparáveis, escopo estimado e nenhum bloqueio externo; uma previsão continua sendo hipótese, não compromisso.",
             "Proponha objetivo de sprint claro, seleção pequena e critérios observáveis. Preserve as chaves existentes; apresente lacunas e premissas sem inventar dados de capacidade ou velocidade.",
             "Entregue proposta, total de pontos, horas de tarefas e capacidade em unidades separadas, dependências, riscos e perguntas abertas. Não grave sprint draft/escopo nem inicie sprint sem solicitação explícita e confirmação humana exigida pelo gate.",
           ].join("\n"),
@@ -3653,8 +4364,12 @@ export function createMcpServer(
           text: [
             "Atue como Developer neste projeto SSDD.",
             `Projeto: ${projectId}; tarefa: ${taskIdOrKey}.`,
-            "Antes de editar, consulte work_item_get, task_context_get com profile=dev e include=[hierarchy, acceptanceCriteria, businessRules, technicalDecisions, scenarios, testRuns, baseline], e work_item_gate_check. Leia critérios, regras, decisões, cenários, execuções por build, revisões pinned, avisos de drift e dependências; registre o plano técnico e os arquivos prováveis.",
-            "Quando a pessoa pedir para iniciar, confirme a atribuição ao principal Developer autenticado. Se a tarefa ainda não estiver in_progress, use work_item_transition com a versão atual e motivo; em seguida use development_session_start para registrar o início e fixar as revisões técnicas/cenários do contexto. Guarde o sessionId e expectedVersion retornados.",
+            "Use work_item_list com assignedToMe=true quando precisar descobrir ou conferir as tarefas atribuídas ao principal Developer autenticado; nunca escolha a identidade de outra pessoa para esse filtro.",
+            "Para selecionar a próxima tarefa, consulte task_execution_queue_get (assignedToMe=true por padrão) e escolha a primeira tarefa startable. Ordem: P1 antes de P4; entre prioridades iguais, maior valor de negócio (0–100), depois rank da Feature/tarefa. Valor desconhecido fica no fim e deve ser refinado pelo PO; fila não substitui task_start_check.",
+            "Antes de editar, consulte work_item_get e task_context_get com profile=dev e include=[hierarchy, acceptanceCriteria, businessRules, technicalDecisions, scenarios, testRuns, baseline]. Leia critérios, regras, decisões, cenários, execuções por build, revisões pinned e avisos de drift; siga cursor/resource quando necessário. Use task_start_check para conferir status, atribuição, PBI pai, baseline, dependências, papel, ADRs implementing publicados e sessões abertas.",
+            "O contexto de tarefa não inclui o glossário automaticamente; use spec_get para SSDD-GLOSS-CORE-01 quando termos de domínio forem relevantes. Siga nextCursor e resources quando o contexto estiver truncado ou mover uma entrada para resource.",
+            "Consulte task_workflow_get antes de começar. Se houver Draft sem workflow publicado, o início está bloqueado até publicação por Tech Lead humano; não tente contornar. Siga a revisão publicada pinada pela sessão e avance uma etapa por vez: Pendente→Em andamento→Concluída. O percentual é somente a soma dos pesos Done; 100% não significa QA aprovado. Se não houver workflow publicado, progresso é desconhecido.",
+            "Quando a pessoa pedir para iniciar, consulte task_start_check. Draft precisa ser refinada e aprovada em Ready; não tente iniciar Draft. Se houver uma sessão pausada sua, retome-a com development_session_transition; uma sessão pausada de outro Developer exige que o dono a encerre ou cancele. Para qualquer outro bloqueio — dependência, baseline, ADR implementing não publicado, atribuição/papel, status ou sessão concorrente — explique o código e a ação necessária; não altere a tarefa para contornar o gate. Só chame task_start quando canStart=true, usando expectedVersion retornada, motivo e requestId novo; task_start revalida e muda Ready para in_progress e abre a sessão atomicamente. Guarde session.id, sua version e task.version. Para iniciar várias tarefas independentes em paralelo, cada agente precisa de atribuição e sessão próprias e checkout/worktree Git isolado; o MCP não reserva arquivos e não evita conflito de edição entre worktrees.",
             "Ao interromper, retome ou terminar o esforço de desenvolvimento, chame development_session_transition com pause/resume/complete e motivo; conclua a sessão mesmo que o item continue em revisão. O serviço registra timestamps UTC e duração ativa. Nunca invente nome, sessão, data ou horas.",
             "Inspecione git status e os diffs existentes antes de editar. Preserve alterações preexistentes e não reverta trabalho alheio à tarefa.",
             "Implemente somente o escopo aceito e acrescente testes de regressão para o comportamento alterado. Execute npm run check quando o repositório usar esse comando e reporte a saída real.",
@@ -3687,6 +4402,8 @@ export function createMcpServer(
             `Projeto: ${projectId}; item: ${itemIdOrKey}.`,
             ...(buildId ? [`Build candidata: ${buildId}.`] : []),
             "Comece por work_item_quality_get para ver critérios, cobertura, cenário, execução mais recente por build, certificação e evidências na baseline/preview. Confira baseline_get e work_item_gate_check; use scenario_criterion_search e test_run_list para investigar lacunas ou filtrar a build candidata. Confirme que as revisões são as mesmas da baseline.",
+            "Para uma tarefa, task_workflow_get mostra a decomposição publicada e ajuda a selecionar casos de teste; progresso ponderado, mesmo em 100%, não é resultado, cobertura nem certificação QA.",
+            "O contexto de tarefa não inclui o glossário automaticamente; use spec_get para SSDD-GLOSS-CORE-01 quando termos de domínio forem relevantes.",
             "test_run_record é uma gravação, não uma consulta: use-o somente depois de executar ou observar de fato o teste, com cenário/revisão publicada, build exata, resultado e evidência reproduzível. Nunca crie um run para preencher lacunas de documentação.",
             "Reporte falhas, cobertura ausente, revisão/build incompatível e drift. Se não houver build ou acesso aos testes, declare a validação bloqueada em vez de inferir aprovação.",
             "Nunca invente execução, build, evidência ou certificação. test_run_certify e a transição para Done exigem o papel QA/gates aplicáveis; deixe a certificação para uma pessoa QA autorizada.",
@@ -3728,6 +4445,68 @@ export function createMcpServer(
     }),
   );
 
+  server.registerPrompt(
+    "ssdd_design_tests",
+    {
+      title: "Desenhar cobertura de testes SSDD",
+      description: "Converte critérios e regras publicadas em cenários rastreáveis, sem registrar execução fictícia.",
+      argsSchema: z.object({
+        projectId: z.string().uuid(),
+        itemIdOrKey: z.string().trim().min(1).max(80),
+      }),
+    },
+    ({ projectId, itemIdOrKey }) => ({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: [
+            "Atue como Test Designer SSDD. Projete cobertura verificável a partir do contrato publicado; não declare teste executado.",
+            `Projeto: ${projectId}; item: ${itemIdOrKey}.`,
+            "Leia project_get, work_item_get, work_item_quality_get e work_item_gate_check. Para uma tarefa, use task_context_get com profile=qa e seções hierarchy, acceptanceCriteria, businessRules, technicalDecisions, scenarios, testRuns e baseline.",
+            "O contexto de tarefa não inclui o glossário automaticamente; use spec_get para SSDD-GLOSS-CORE-01 quando termos de domínio forem relevantes. Siga nextCursor e resources quando o contexto estiver truncado ou mover uma entrada para resource.",
+            "Use scenario_criterion_search e test_run_list para conferir cobertura existente, revisão publicada e resultados por build antes de propor novos cenários.",
+            "Produza uma matriz critério → regra/especificação → cenário → tarefa vinculada. Para cada cenário, defina pré-condições, dados, ação e resultado observável; inclua sucesso, entradas inválidas, falhas, limites, autorização e regressão quando se aplicarem.",
+            "Identifique IDs reais de critério, especificações e tarefas. Sugira cenários ou vínculos em Draft somente se o usuário pedir para registrar a proposta. Não publique revisão nem use test_run_record, test_run_certify ou evidência sem execução real e pessoa QA autorizada.",
+            "Reporte lacunas, duplicatas, drift, dependências de ambiente/build e decisões de negócio ainda não resolvidas.",
+          ].join("\n"),
+        },
+      }],
+    }),
+  );
+
+  server.registerPrompt(
+    "ssdd_security_review",
+    {
+      title: "Revisar segurança de uma mudança SSDD",
+      description: "Faz uma revisão de engenharia baseada em evidências para identidade, autorização, isolamento e operação.",
+      argsSchema: z.object({
+        projectId: z.string().uuid(),
+        itemIdOrKey: z.string().trim().min(1).max(80).optional(),
+        focus: z.string().trim().min(1).max(500).optional(),
+      }),
+    },
+    ({ projectId, itemIdOrKey, focus }) => ({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: [
+            "Atue como security reviewer SSDD em modo somente leitura. Esta revisão de engenharia não é pentest nem certificação de conformidade.",
+            `Projeto: ${projectId}.`,
+            ...(itemIdOrKey ? [`Item em foco: ${itemIdOrKey}.`] : []),
+            ...(focus ? [`Foco informado: ${focus}.`] : []),
+            "Confirme escopo, versões publicadas e baseline com project_get, work_item_get/work_item_list, spec_list/spec_get, trace_query, cenário/qualidade e gates. Para uma tarefa, leia task_context_get incluindo regras, decisões, cenários, execuções e baseline.",
+            "O contexto de tarefa não inclui o glossário automaticamente; use spec_get para SSDD-GLOSS-CORE-01 quando termos de domínio forem relevantes.",
+            "Inspecione fronteiras de confiança, autenticação/autorização, isolamento por projeto, menor privilégio, segredos, validação, replay/idempotência, concorrência, limites contra abuso, dados enviados a integrações, persistência, logs, erros e recuperação operacional conforme aplicável.",
+            "Para cada achado, informe severidade e justificativa, evidência/localização, pré-condições do atacante, impacto e mitigação concreta. Separe comportamento verificado, inferência e evidência ausente. Não recomende uma severidade sem explicar o risco.",
+            "Associe achados a critérios/especificações e proponha cenários de regressão. Não altere registros, não alegue que um bug foi corrigido sem verificação e não declare conformidade sem escopo e evidência adequados.",
+          ].join("\n"),
+        },
+      }],
+    }),
+  );
+
   return server;
 }
 
@@ -3740,8 +4519,18 @@ export function startMcpServer(workspace: string): void {
   const database = openSqliteDatabase(databasePath);
   try {
     applyMigrations(database);
-    const principal = getOrCreateLocalPrincipal(database);
-    const server = createMcpServer(database, principal.id);
+    const localPrincipal = getOrCreateLocalPrincipal(database);
+    const bootstrapAdministrator = ensureBootstrapAdministrator(database, localPrincipal.id);
+    if (bootstrapAdministrator.authKey !== null) {
+      process.stderr.write(`Administrador inicial SSDD. Guarde esta authKey; ela será exibida uma única vez: ${bootstrapAdministrator.authKey}\n`);
+    }
+    const providedAuthKey = process.env.SSDD_AUTH_KEY;
+    const principalId = providedAuthKey === undefined
+      ? localPrincipal.id
+      : resolvePrincipalFromAuthKey(database, providedAuthKey);
+    if (principalId === undefined) throw new ApplicationError("UNAUTHENTICATED", "SSDD_AUTH_KEY is invalid or revoked.");
+    const profile = parseMcpProfile(process.env.SSDD_PROFILE);
+    const server = createMcpServer(database, principalId, {}, profile);
     server.server.onclose = () => database.close();
     serveStdio(() => server, {
       onerror: (error) => process.stderr.write(`SSDD MCP transport error: ${error.message}\n`),
