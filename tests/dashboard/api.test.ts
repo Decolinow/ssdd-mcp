@@ -93,6 +93,23 @@ test("dashboard API sessions and project authorization match MCP access", async 
     title: "Implement purchase confirmation",
     description: "Persist the purchase confirmation result.",
   }).value;
+  const claimableTask = createWorkItem(database, {
+    projectId,
+    principalId,
+    requestId: randomUUID(),
+    type: "task",
+    parentId: story.id,
+    title: "Add purchase confirmation audit event",
+    description: "Record the confirmation in the purchase audit log.",
+  }).value;
+  const gatedTask = createWorkItem(database, {
+    projectId,
+    principalId,
+    requestId: randomUUID(),
+    type: "task",
+    parentId: story.id,
+    title: "Task missing its expected output",
+  }).value;
   const draftSpecification = createSpecification(database, {
     projectId,
     principalId,
@@ -235,6 +252,8 @@ test("dashboard API sessions and project authorization match MCP access", async 
   ).run(parentBaselineId, projectId, story.id, principalId, baselineCreatedAt);
   database.prepare("UPDATE work_items SET state = 'ready', assignee_principal_id = ?, version = version + 1 WHERE project_id = ? AND item_id = ?")
     .run(taskDeveloper.principalId, projectId, task.id);
+  database.prepare("UPDATE work_items SET state = 'ready', version = version + 1 WHERE project_id = ? AND item_id IN (?, ?)")
+    .run(projectId, claimableTask.id, gatedTask.id);
   database.close();
 
   const dashboard = createDashboardApiServer(workspace);
@@ -262,6 +281,9 @@ test("dashboard API sessions and project authorization match MCP access", async 
   assert.match(landingPage.headers.get("content-type") ?? "", /text\/html/u);
   const dashboardHtml = await landingPage.text();
   assert.match(dashboardHtml, /Product Backlog/u);
+  assert.match(dashboardHtml, /quick-access-view/u);
+  assert.match(dashboardHtml, /id="home-tab"[^>]*aria-selected="true"/u);
+  assert.match(dashboardHtml, /A seleção muda a visão\. Suas permissões permanecem as mesmas\./u);
   assert.match(dashboardHtml, /Retrato do projeto em uma data/u);
   assert.match(dashboardHtml, /Criar rascunho/u);
   assert.match(dashboardHtml, /Registrar execução/u);
@@ -456,6 +478,67 @@ test("dashboard API sessions and project authorization match MCP access", async 
     },
     body: JSON.stringify(body),
   });
+  const quickAccessResponse = await fetch(`${address.origin}/api/v1/projects/${projectId}/quick-access`, {
+    headers: { Cookie: taskDeveloperCookie, Origin: address.origin },
+  });
+  assert.equal(quickAccessResponse.status, 200);
+  const quickAccess = await quickAccessResponse.json() as {
+    roles: string[];
+    developer: {
+      startableTasks: Array<{ key: string }>;
+      claimableTasks: Array<{ id: string; key: string; version: number }>;
+      blockedTasks: Array<{ key: string }>;
+    } | null;
+  };
+  assert.ok(quickAccess.roles.includes("developer"));
+  assert.ok(quickAccess.developer);
+  assert.ok(quickAccess.developer.claimableTasks.some((candidate) => candidate.id === claimableTask.id));
+  assert.ok(!quickAccess.developer.claimableTasks.some((candidate) => candidate.id === gatedTask.id), "tasks with unresolved gates must not be offered for claiming");
+  const claimCandidate = quickAccess.developer.claimableTasks.find((candidate) => candidate.id === claimableTask.id)!;
+  const claimedTaskResponse = await postAsTaskDeveloper(`/api/v1/projects/${projectId}/work-items/${claimCandidate.key}/claim`, {
+    requestId: "dashboard-claimable-task",
+    expectedVersion: claimCandidate.version,
+    reason: "Assumir pela visão inicial do dashboard.",
+  });
+  assert.equal(claimedTaskResponse.status, 200);
+  const claimedTaskBody = await claimedTaskResponse.json() as { task: { id: string; assigneeId: string; state: string; version: number }; auditEventIds: string[] };
+  assert.equal(claimedTaskBody.task.id, claimableTask.id);
+  assert.equal(claimedTaskBody.task.assigneeId, taskDeveloper.principalId);
+  assert.equal(claimedTaskBody.task.state, "ready");
+  assert.equal(claimedTaskBody.task.version, claimCandidate.version + 1);
+  assert.ok(claimedTaskBody.auditEventIds.length > 0);
+  const taskClaimReplay = await postAsTaskDeveloper(`/api/v1/projects/${projectId}/work-items/${claimCandidate.key}/claim`, {
+    requestId: "dashboard-claimable-task",
+    expectedVersion: claimCandidate.version,
+    reason: "Assumir pela visão inicial do dashboard.",
+  });
+  assert.equal(taskClaimReplay.status, 200);
+  assert.deepEqual(await taskClaimReplay.json(), claimedTaskBody, "replaying a claim must not create a second assignment");
+  const blockedClaim = await postAsTaskDeveloper(`/api/v1/projects/${projectId}/work-items/${gatedTask.key}/claim`, {
+    requestId: "dashboard-blocked-claim",
+    expectedVersion: gatedTask.version + 1,
+    reason: "Tentativa para confirmar bloqueio dos gates.",
+  });
+  assert.equal(blockedClaim.status, 409);
+  const blockedClaimError = await blockedClaim.json() as { code: string; retryable: boolean };
+  assert.equal(blockedClaimError.code, "TASK_NOT_STARTABLE");
+  assert.equal(blockedClaimError.retryable, false);
+  const staleClaim = await postAsTaskDeveloper(`/api/v1/projects/${projectId}/work-items/${claimCandidate.key}/claim`, {
+    requestId: "dashboard-stale-claim",
+    expectedVersion: claimCandidate.version,
+    reason: "A versão anterior precisa ser reconciliada.",
+  });
+  assert.equal(staleClaim.status, 409);
+  const staleClaimError = await staleClaim.json() as { code: string; retryable: boolean };
+  assert.equal(staleClaimError.code, "VERSION_CONFLICT");
+  assert.equal(staleClaimError.retryable, false);
+  const alreadyAssignedClaim = await postAsTaskDeveloper(`/api/v1/projects/${projectId}/work-items/${claimCandidate.key}/claim`, {
+    requestId: "dashboard-already-assigned-claim",
+    expectedVersion: claimedTaskBody.task.version,
+    reason: "A tarefa já está atribuída.",
+  });
+  assert.equal(alreadyAssignedClaim.status, 409);
+  assert.equal(((await alreadyAssignedClaim.json()) as { code: string }).code, "TASK_ALREADY_ASSIGNED");
   const startReadiness = await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${task.key}/start-readiness`, {
     headers: { Cookie: taskDeveloperCookie, Origin: address.origin },
   });
@@ -558,7 +641,7 @@ test("dashboard API sessions and project authorization match MCP access", async 
   };
   assert.equal(projectHistory.asOfDate, projectToday());
   assert.equal(projectHistory.timezone, "America/Sao_Paulo");
-  assert.equal(projectHistory.summary.workItemsTotal, 5);
+  assert.equal(projectHistory.summary.workItemsTotal, 7);
   assert.equal(projectHistory.summary.workItemsByState.ready, 1);
   assert.equal(projectHistory.summary.testRunsTotal, 1);
   assert.equal(projectHistory.summary.testRunsByResult.passed, 1);

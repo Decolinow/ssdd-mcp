@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -91,12 +92,37 @@ describe("approval-bound MCP mutations", () => {
         SELECT RAISE(ABORT, 'forced approval audit failure');
       END;
     `);
-    const rollbackResult = await executorClient.callTool({
-      name: "work_item_create",
-      arguments: argumentsValue,
-      _meta: approvalMetadata(approvalId),
-    });
+    const originalStderrWrite = process.stderr.write;
+    const diagnosticOutput: string[] = [];
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      diagnosticOutput.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+      return true;
+    }) as typeof process.stderr.write;
+    let rollbackResult: Awaited<ReturnType<Client["callTool"]>>;
+    try {
+      rollbackResult = await executorClient.callTool({
+        name: "work_item_create",
+        arguments: argumentsValue,
+        _meta: approvalMetadata(approvalId),
+      });
+    } finally {
+      process.stderr.write = originalStderrWrite;
+    }
+    assert.equal(rollbackResult.isError, true);
+    assert.equal(rollbackResult.structuredContent, undefined);
     assert.equal(readErrorCode(rollbackResult), "INTERNAL_ERROR", JSON.stringify(rollbackResult));
+    const errorText = rollbackResult.content?.find((entry) => entry.type === "text")?.text;
+    assert.ok(errorText);
+    const error = JSON.parse(errorText) as {
+      code: string; message: string; details: unknown; retryable: boolean; correlationId: string;
+    };
+    assert.equal(error.message, "An unexpected server error occurred.");
+    assert.equal(error.details, null);
+    assert.equal(error.retryable, false);
+    assert.match(error.correlationId, /^[0-9a-f-]{36}$/u);
+    assert.match(diagnosticOutput.join(""), new RegExp(`MCP tool failure ${error.correlationId} \\(`));
+    assert.doesNotMatch(errorText, /forced approval audit failure/u);
+    assert.doesNotMatch(diagnosticOutput.join(""), /forced approval audit failure/u);
     assert.equal(countStories("Approved story"), 0);
     assert.equal(approvalStatus(approvalId), "pending");
     database.exec("DROP TRIGGER fail_approval_consume_for_test");

@@ -146,7 +146,10 @@ it("installs the local MCP runtime and native Claude, Codex, and OpenCode files"
   for (const id of skillIds) {
     const installedSkill = readFileSync(join(target, ".agents", "skills", id, "SKILL.md"), "utf8");
     assert.equal(installedSkill, readFileSync(join(repositoryRoot, "skills", id, "SKILL.md"), "utf8"));
-    assert.match(readFileSync(join(target, ".claude", "agents", `${id}.md`), "utf8"), new RegExp(`name: ${id}`));
+    const claudeAgent = readFileSync(join(target, ".claude", "agents", `${id}.md`), "utf8");
+    assert.match(claudeAgent, new RegExp(`name: ${id}`));
+    assert.match(claudeAgent, /isError=true como falha/u);
+    assert.match(claudeAgent, /retryable=true/u);
     const codexAgent = parseToml(readFileSync(join(target, ".codex", "agents", `${id}.toml`), "utf8")) as {
       name: string;
       description: string;
@@ -155,9 +158,13 @@ it("installs the local MCP runtime and native Claude, Codex, and OpenCode files"
     assert.equal(codexAgent.name, id);
     assert.ok(codexAgent.description);
     assert.match(codexAgent.developer_instructions, new RegExp(`.agents/skills/${id}/SKILL.md`));
+    assert.match(codexAgent.developer_instructions, /isError=true como falha/u);
+    assert.match(codexAgent.developer_instructions, /retryable=true/u);
     const openCodeAgent = readFileSync(join(target, ".opencode", "agents", `${id}.md`), "utf8");
     assert.match(openCodeAgent, /mode: subagent/);
     assert.match(openCodeAgent, new RegExp(`.opencode/skills/${id}/SKILL.md`));
+    assert.match(openCodeAgent, /isError=true como falha/u);
+    assert.match(openCodeAgent, /retryable=true/u);
     assert.equal(readFileSync(join(target, ".opencode", "skills", id, "SKILL.md"), "utf8"), installedSkill);
   }
   assert.equal(readdirSync(join(target, ".agents", "skills")).length, 10);

@@ -4633,12 +4633,17 @@ function toToolError(error: unknown) {
     error instanceof ApplicationError
       ? error
       : new ApplicationError("INTERNAL_ERROR", "An unexpected server error occurred.");
+  const correlationId = randomUUID();
+  if (applicationError.code === "INTERNAL_ERROR") {
+    const errorType = error instanceof Error ? error.name : "UnknownError";
+    process.stderr.write(`MCP tool failure ${correlationId} (${errorType}).\n`);
+  }
   const envelope = {
     code: applicationError.code,
     message: applicationError.message,
     details: applicationError.details,
     retryable: applicationError.retryable,
-    correlationId: randomUUID(),
+    correlationId,
   };
 
   return {

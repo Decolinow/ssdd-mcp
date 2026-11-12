@@ -1,11 +1,20 @@
 # Dashboard e projeções
 
+## Início e próximas ações
+
+Após autenticar, o dashboard abre na aba **Início**. Ela mostra as próximas ações para o papel de trabalho escolhido entre os papéis que a identidade autenticada possui no projeto. A escolha é apenas uma preferência de navegação e apresentação; todas as operações continuam autorizadas pelo principal e pelos papéis persistidos no servidor. Ela não corresponde ao `SSDD_PROFILE` do transporte MCP, que filtra as ferramentas expostas por conexão.
+
+Para Developer, a home apresenta até oito tarefas atribuídas elegíveis para iniciar sessão (Ready ou Em andamento), até oito tarefas em andamento atribuídas, até três impedimentos e até oito tarefas Ready sem responsável que podem ser assumidas. A lista de claim usa a mesma ordem de prioridade e valor do projeto e só inclui tarefas cujos outros gates de início passaram. **Assumir** grava a atribuição com versão, auditoria e idempotência, mas não inicia sessão; após assumir, abra o detalhe e use o fluxo **Iniciar e abrir sessão**, que repete os gates atomicamente. Uma atualização concorrente ou gate recém-bloqueado é recusado e a fila é recarregada.
+
+Para QA, a home destaca itens em validação e leva à área de cenários/execuções. Para PO, mostra histórias e bugs em Draft que precisam de refinamento. Para Tech Lead, separa itens aguardando revisão de tarefas em Draft. Facilitador vê a sprint do time selecionado e atalhos para Board/retrospectiva. Stakeholder e administração recebem atalhos para roadmap, métricas e histórico. As listas de ação mostram até oito itens e declaram esse limite; a busca global não altera essas listas.
+
 ## Abas disponíveis hoje
 
-O dashboard atual tem oito abas. A aba Roadmap reúne Features ordenadas por prioridade/valor, progresso em pontos confirmados, bloqueios e timeline de conclusão quando há dados suficientes.
+O dashboard atual tem nove abas. A aba Roadmap reúne Features ordenadas por prioridade/valor, progresso em pontos confirmados, bloqueios e timeline de conclusão quando há dados suficientes.
 
 | Aba | O que permite fazer |
 |---|---|
+| Início | Abrir na fila do papel selecionado, ver pendências, impedimentos, tarefas que podem ser assumidas e atalhos para as áreas principais. |
 | Métricas | Consultar burndown, burnup, previsão, velocidade, WIP, bloqueios e cobertura; filtrar por time, marco, sprint e data de corte; abrir a composição dos indicadores disponíveis e o esforço/calibração por Developer. |
 | Roadmap | Ver a ordem de entrega de Features por prioridade e valor de negócio, o progresso de cada Feature e as datas P25/P50/P75 somente quando três sprints comparáveis e escopo estimado permitem uma previsão. |
 | Histórico | Selecionar uma data local do projeto e reconstruir itens, revisões publicadas, QA, sessões, releases, sprints, marcos e atividade auditada. |
@@ -18,6 +27,8 @@ O dashboard atual tem oito abas. A aba Roadmap reúne Features ordenadas por pri
 ### Início seguro de tarefa
 
 Ao mover uma tarefa Ready para Em andamento pelo dashboard, o formulário consulta `GET /api/v1/projects/{projectId}/work-items/{id}/start-readiness` e mostra as condições pendentes. **Iniciar e abrir sessão** envia `POST /api/v1/projects/{projectId}/work-items/{id}/start`; o serviço repete os gates e grava a transição e a sessão atomicamente. Mudança concorrente em estado, versão, responsável, pai/baseline, dependência, ADR ou sessão faz a operação falhar sem deixar uma transição incompleta. A tentativa pelo endpoint genérico retorna `USE_TASK_START`.
+
+`GET /api/v1/projects/{projectId}/quick-access` exige uma sessão autenticada e associação ao projeto. Ele retorna os papéis da sessão, a fila atribuída e as listas curtas de validação/refinamento pertinentes. `POST /api/v1/projects/{projectId}/work-items/{id}/claim` exige CSRF, papel Developer, versão esperada e motivo. A operação revalida Ready, ausência de responsável e todos os gates, exceto a própria atribuição; atualiza responsável, versão e auditoria em uma transação idempotente. Uma tarefa com outros impedimentos não aparece como disponível e não pode ser assumida pela API. `TASK_NOT_STARTABLE`, `TASK_ALREADY_ASSIGNED` e `VERSION_CONFLICT` retornam HTTP 409 com o envelope padrão; a interface mostra o motivo e atualiza a home. O conflito de versão não é retryable: recarregue a tarefa e confirme os gates antes de emitir nova tentativa.
 
 O gate exige dependências diretas concluídas, baseline herdada do PBI pai e revisões publicadas para ADRs ligados como `implements`; `relates_to` é apenas informativo. Uma sessão pausada de outro Developer deve ser concluída/cancelada pelo dono antes do handoff. A tela lista impedimentos calculados, mas não existe hoje um estado de bloqueio manual nem duração genérica de bloqueio. Criação, pesquisa e vínculo de ADR estão disponíveis no MCP; catálogo e edição no dashboard continuam planejados em SSDD-98.
 
@@ -101,7 +112,7 @@ O dashboard cobre cadastro/revisão/publicação de PBI, cadastro/revisão/publi
 
 ## Conteúdo da aba Métricas
 
-A aba **Métricas** é a entrada do dashboard. Ela reúne burndown da sprint, burnup do marco, cenários de previsão P25/P50/P75, velocidade recente, WIP, bloqueios, cobertura e esforço por desenvolvedor. O seletor global de time filtra sprints, velocidade e previsão; os filtros da aba selecionam marco, sprint e data local de corte. Em projetos com vários times, o usuário escolhe explicitamente um time; uma única equipe é selecionada automaticamente. A janela de velocidade pode usar as últimas 4, 8 ou 12 sprints fechadas da geração comparável; média e mediana são recalculadas para essa janela. A sprint escolhida também é comparada, em pontos aceitos, com a mediana das sprints anteriores da mesma equipe e geração. O resumo do burndown distingue compromisso inicial, escopo no corte, conclusão e alterações acumuladas.
+A aba **Métricas** reúne burndown da sprint, burnup do marco, cenários de previsão P25/P50/P75, velocidade recente, WIP, bloqueios, cobertura e esforço por desenvolvedor. O seletor global de time filtra sprints, velocidade e previsão; os filtros da aba selecionam marco, sprint e data local de corte. Em projetos com vários times, o usuário escolhe explicitamente um time; uma única equipe é selecionada automaticamente. A janela de velocidade pode usar as últimas 4, 8 ou 12 sprints fechadas da geração comparável; média e mediana são recalculadas para essa janela. A sprint escolhida também é comparada, em pontos aceitos, com a mediana das sprints anteriores da mesma equipe e geração. O resumo do burndown distingue compromisso inicial, escopo no corte, conclusão e alterações acumuladas.
 
 O corte histórico é aplicado às séries de marco/sprint, velocidade e previsão. **WIP e cobertura representam o estado observado agora**, mesmo quando o usuário consulta uma data passada; a interface identifica essa diferença acima dos indicadores para não sugerir reconstrução histórica que esses dois relatórios não fazem. A tela informa a data observada e o watermark; séries usam pontos como unidade explícita e a previsão mostra geração, tamanho de amostra, capacidade e riscos.
 
@@ -189,7 +200,7 @@ Rotas disponíveis:
 - `POST /api/v1/projects/{projectId}/work-items/{itemIdOrKey}/transition`, usando o mesmo comando do MCP; Ready→`in_progress` para tarefa retorna `USE_TASK_START` e exige a rota atômica acima.
 - `POST /api/v1/projects/{projectId}/sprints/{sprintIdOrKey}/retrospective`, usando o mesmo comando do MCP e proteção CSRF; a autorização de facilitador humano é aplicada no serviço.
 
-O servidor valida `Host` e `Origin` de loopback, não habilita CORS e define políticas de cache, CSP, enquadramento e referrer. Toda escrita exige `Origin` exata e `X-SSDD-CSRF` obtido na sessão. O token de bootstrap é consumido uma vez por processo; sessões autenticadas expiram em 12 horas, vivem em memória e desaparecem ao encerrar o servidor. A validade da authKey é conferida nas chamadas protegidas para aplicar rotação/revogação imediatamente. Erros mantêm `code`, `message`, `details`, `retryable` e `correlationId`; uma falta de associação ao projeto produz `FORBIDDEN`, igual ao MCP. Todas as rotas de mutação chamam os serviços de aplicação compartilhados e não escrevem diretamente no SQLite. A interface continua local e não carrega scripts ou fontes externos. As demais operações MCP seguem o roadmap `SSDD-85–100`.
+O servidor valida `Host` e `Origin` de loopback, não habilita CORS e define políticas de cache, CSP, enquadramento e referrer. Toda escrita exige `Origin` exata e `X-SSDD-CSRF` obtido na sessão. O token de bootstrap é consumido uma vez por processo; sessões autenticadas expiram em 12 horas, vivem em memória e desaparecem ao encerrar o servidor. A validade da authKey é conferida nas chamadas protegidas para aplicar rotação/revogação imediatamente. Erros mantêm `code`, `message`, `details`, `retryable` e `correlationId`; conflitos de estado/versão retornam 409, validação 400 e falha interna 500. Uma falta de associação ao projeto produz `FORBIDDEN`, igual ao MCP. Todas as rotas de mutação chamam os serviços de aplicação compartilhados e não escrevem diretamente no SQLite. A interface continua local e não carrega scripts ou fontes externos. As demais operações MCP seguem o roadmap `SSDD-85–100`.
 
 Iniciar/pausar/concluir sessões e gravar homologação/produção são mutações disponíveis pelo MCP nesta versão; o dashboard consome as consultas e apresenta as datas/histórico. Use `ssdd_start_task` ou `development_session_*` para registrar desenvolvimento e `deployment_event_record` para registrar um resultado efetivamente observado no ambiente.
 

@@ -143,6 +143,22 @@ export function getTaskStartReadiness(
   database: SqliteDatabase,
   input: { readonly projectId: string; readonly principalId: string; readonly itemIdOrKey: string },
 ): TaskStartReadinessReport {
+  return evaluateTaskStartReadiness(database, input, false);
+}
+
+/** Evaluates an unassigned task's gates as if it were assigned to this Developer. */
+export function getTaskClaimReadiness(
+  database: SqliteDatabase,
+  input: { readonly projectId: string; readonly principalId: string; readonly itemIdOrKey: string },
+): TaskStartReadinessReport {
+  return evaluateTaskStartReadiness(database, input, true);
+}
+
+function evaluateTaskStartReadiness(
+  database: SqliteDatabase,
+  input: { readonly projectId: string; readonly principalId: string; readonly itemIdOrKey: string },
+  allowUnassigned: boolean,
+): TaskStartReadinessReport {
   const item = getWorkItem(database, input.projectId, input.principalId, input.itemIdOrKey.trim());
   if (item.type !== "task") {
     throw new ApplicationError("VALIDATION_FAILED", "Only task work items can be checked for development start.");
@@ -163,7 +179,9 @@ export function getTaskStartReadiness(
     blockers.push({ code: "developer_role_required", message: "The authenticated principal must have the Developer role in this project." });
   }
   if (item.assigneeId === null) {
-    blockers.push({ code: "task_unassigned", message: "Assign the task to an eligible Developer before starting." });
+    if (!allowUnassigned) {
+      blockers.push({ code: "task_unassigned", message: "Assign the task to an eligible Developer before starting." });
+    }
   } else if (item.assigneeId !== input.principalId) {
     blockers.push({ code: "task_assigned_to_another_user", message: "Only the task's assigned Developer can start it.", details: { assigneeId: item.assigneeId } });
   }

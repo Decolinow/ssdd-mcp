@@ -71,19 +71,19 @@ it("reuses imported roadmap items, preserves cancelled mapped tasks, and ignores
 
     const firstRun = runSync(syncScriptPath, cliPath, workspace, repositoryRoot);
     const initialSummary = readSummary(firstRun.stdout);
-    assert.equal(initialSummary.roadmapTasks, 87);
-    assert.equal(initialSummary.stableRoadmapIdsMapped, 76);
+    assert.equal(initialSummary.roadmapTasks, 88);
+    assert.equal(initialSummary.stableRoadmapIdsMapped, 77);
     assert.equal(initialSummary.installerTasks, 11);
     assert.equal(initialSummary.installerStoryPoints, 26);
     assert.equal(initialSummary.installerTaskHours, 49);
-    assert.equal(initialSummary.dependencyLinksReconciled, 172);
-    assert.deepEqual(initialSummary.counts, { epic: 4, feature: 13, story: 15, task: 87 });
+    assert.equal(initialSummary.dependencyLinksReconciled, 175);
+    assert.deepEqual(initialSummary.counts, { epic: 4, feature: 13, story: 15, task: 88 });
     const mappingDocument = JSON.parse(readFileSync(join(workspace, ".ssdd", "roadmap-id-map.json"), "utf8")) as {
       projectId: string;
       items: Record<string, { itemId: string; itemKey: string; title: string }>;
     };
     assert.equal(mappingDocument.projectId, initialSummary.projectId);
-    assert.equal(Object.keys(mappingDocument.items).length, 76);
+    assert.equal(Object.keys(mappingDocument.items).length, 77);
     assert.ok(mappingDocument.items["SSDD-902"]);
     assert.equal(mappingDocument.items["SSDD-924"]?.itemId, mappedTask.itemId);
     assert.ok(mappingDocument.items["SSDD-925"]);
@@ -98,6 +98,7 @@ it("reuses imported roadmap items, preserves cancelled mapped tasks, and ignores
     assert.ok(mappingDocument.items["SSDD-934"]);
     assert.ok(mappingDocument.items["SSDD-935"]);
     assert.ok(mappingDocument.items["SSDD-936"]);
+    assert.ok(mappingDocument.items["SSDD-937"]);
     const importedImprovement = await readRoadmapTask(workspace, cliPath, mappingDocument.projectId, mappingDocument.items["SSDD-904"]!.itemId);
     assert.match(importedImprovement.description, /docs\/status\.md \(2099-06-15\)/);
     const activityImprovement = await readRoadmapTask(workspace, cliPath, mappingDocument.projectId, mappingDocument.items["SSDD-924"]!.itemId);

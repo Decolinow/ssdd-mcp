@@ -12,6 +12,7 @@ import { listAuditEvents } from "../application/audit-queries.js";
 import { getProjectDashboardMetrics } from "../application/dashboard-metrics.js";
 import { getProjectHistorySnapshot } from "../application/project-history.js";
 import { getProjectFeatureRoadmap } from "../application/prioritized-roadmap.js";
+import { getDashboardQuickAccess } from "../application/dashboard-quick-access.js";
 import { getDeveloperExecutionMetrics, listDeploymentEvents, listDevelopmentSessions } from "../application/development-lifecycle.js";
 import { listProjectTeams } from "../application/team-directory.js";
 import { getWorkItemQualityReport, listProjectQualitySummaries } from "../application/quality-queries.js";
@@ -19,6 +20,7 @@ import { getTaskContext, taskContextProfiles, taskContextSections } from "../app
 import { getSprint, listSprints } from "../application/sprint-queries.js";
 import { getSprintRetrospective, setSprintRetrospective } from "../application/sprint-retrospectives.js";
 import { startTaskDevelopment } from "../application/task-development-start.js";
+import { claimTaskForDevelopment } from "../application/task-development-claim.js";
 import { getTaskWorkflow } from "../application/task-workflow-queries.js";
 import { proposeTaskWorkflow, publishTaskWorkflow, transitionTaskWorkflowStep } from "../application/task-workflow-commands.js";
 import { getWorkItem, listWorkItemRevisions, listWorkItems } from "../application/work-item-queries.js";
@@ -161,6 +163,13 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
       }
       if (request.method === "GET" && route === "/api/v1/projects") {
         sendJson(response, 200, { projects: listProjects(database, session.principalId) });
+        return;
+      }
+
+      const quickAccessMatch = /^\/api\/v1\/projects\/([^/]+)\/quick-access$/.exec(route);
+      if (request.method === "GET" && quickAccessMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(quickAccessMatch[1]));
+        sendJson(response, 200, getDashboardQuickAccess(database, { projectId, principalId: principal.id }));
         return;
       }
 
@@ -631,6 +640,24 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
         return;
       }
 
+      const taskClaimMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/claim$/.exec(route);
+      if (request.method === "POST" && taskClaimMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(taskClaimMatch[1]));
+        const itemIdOrKey = decodePathSegment(taskClaimMatch[2]);
+        assertSameOriginMutation(request, origin, session);
+        const input = taskClaimBodySchema.parse(await readJsonBody(request));
+        const receipt = claimTaskForDevelopment(database, {
+          projectId,
+          principalId: principal.id,
+          itemIdOrKey,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          reason: input.reason,
+        });
+        sendJson(response, 200, { task: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
       const taskStartMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/start$/.exec(route);
       if (request.method === "POST" && taskStartMatch !== null) {
         const projectId = parseUuid(decodePathSegment(taskStartMatch[1]));
@@ -739,6 +766,12 @@ const taskStartBodySchema = z.object({
   expectedVersion: z.number().int().positive(),
   reason: z.string().trim().min(1).max(1_000),
   sessionReference: z.string().trim().min(1).max(160).optional(),
+});
+
+const taskClaimBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(100),
+  expectedVersion: z.number().int().positive(),
+  reason: z.string().trim().min(1).max(1_000),
 });
 
 const taskWorkflowProposalBodySchema = z.object({
@@ -1326,7 +1359,10 @@ function statusForError(code: string): number {
   if (code === "NOT_FOUND") return 404;
   if (code === "METHOD_NOT_ALLOWED") return 405;
   if (code === "REQUEST_TOO_LARGE") return 413;
-  if (["GATE_BLOCKED", "INVALID_TRANSITION", "VERSION_CONFLICT", "IDEMPOTENCY_CONFLICT", "STALE_CURSOR"].includes(code)) return 409;
+  if ([
+    "GATE_BLOCKED", "INVALID_TRANSITION", "VERSION_CONFLICT", "IDEMPOTENCY_CONFLICT", "STALE_CURSOR",
+    "TASK_NOT_STARTABLE", "TASK_ALREADY_ASSIGNED",
+  ].includes(code)) return 409;
   if (code === "INTERNAL_ERROR") return 500;
   return 400;
 }

@@ -49,18 +49,19 @@
         <div class="page-heading">
           <div>
             <p class="eyebrow">SPEC DRIVEN DELIVERY</p>
-            <h1>Visão do projeto</h1>
-            <p class="intro">Acompanhe entrega, qualidade e fluxo de trabalho com métricas ligadas ao histórico auditado.</p>
+            <h1>Painel do projeto</h1>
+            <p class="intro">Comece pelas próximas ações do seu perfil e acesse o backlog, a qualidade e as análises em seguida.</p>
           </div>
           <p id="last-updated" class="last-updated" aria-live="polite">Carregando…</p>
         </div>
 
         <section id="sprint-summary" class="sprint-summary" aria-label="Sprint ativa" hidden></section>
 
-        <section class="workspace-panel" aria-label="Backlog e board do projeto">
+        <section class="workspace-panel" aria-label="Visões do projeto">
           <div class="list-toolbar">
             <div class="tabs" role="tablist" aria-label="Visão de trabalho">
-              <button id="metrics-tab" class="tab is-active" role="tab" aria-selected="true" aria-controls="metrics-view" type="button">Métricas</button>
+              <button id="home-tab" class="tab is-active" role="tab" aria-selected="true" aria-controls="home-view" type="button">Início</button>
+              <button id="metrics-tab" class="tab" role="tab" aria-selected="false" aria-controls="metrics-view" type="button">Métricas</button>
               <button id="roadmap-tab" class="tab" role="tab" aria-selected="false" aria-controls="roadmap-view" type="button">Roadmap</button>
               <button id="history-tab" class="tab" role="tab" aria-selected="false" aria-controls="history-view" type="button">Histórico</button>
               <button id="backlog-tab" class="tab" role="tab" aria-selected="false" aria-controls="backlog-view" type="button">Product Backlog</button>
@@ -96,7 +97,32 @@
             <button id="retry-button" class="button button-secondary" type="button">Tentar novamente</button>
           </div>
 
-          <section id="metrics-view" class="view" role="tabpanel" aria-labelledby="metrics-tab">
+          <section id="home-view" class="view quick-access-view" role="tabpanel" aria-labelledby="home-tab">
+            <div class="quick-access-welcome">
+              <div>
+                <p class="eyebrow">PRÓXIMOS PASSOS</p>
+                <h2 id="quick-access-title">Sua fila de trabalho</h2>
+                <p id="quick-access-description">Ações do projeto filtradas pelo seu papel de trabalho.</p>
+              </div>
+              <label class="quick-access-profile" for="work-profile">
+                <span>Visão de trabalho</span>
+                <select id="work-profile" aria-describedby="work-profile-help"></select>
+                <small id="work-profile-help">A seleção muda a visão. Suas permissões permanecem as mesmas.</small>
+              </label>
+            </div>
+            <div id="quick-access-summary" class="quick-access-summary" aria-live="polite"></div>
+            <div id="quick-access-actions" class="quick-access-actions"></div>
+            <nav class="quick-access-links" aria-label="Atalhos do projeto">
+              <button type="button" class="quick-link" data-home-view="board"><strong>Board</strong><span>Acompanhar o fluxo</span></button>
+              <button type="button" class="quick-link" data-home-view="backlog"><strong>Product Backlog</strong><span>Refinar histórias e bugs</span></button>
+              <button type="button" class="quick-link" data-home-view="quality"><strong>Qualidade</strong><span>Cenários e execuções</span></button>
+              <button type="button" class="quick-link" data-home-view="roadmap"><strong>Roadmap</strong><span>Prioridade e timeline</span></button>
+              <button type="button" class="quick-link" data-home-view="metrics"><strong>Métricas</strong><span>Velocidade e entrega</span></button>
+              <button type="button" class="quick-link" data-home-view="history"><strong>Histórico</strong><span>Consultar uma data</span></button>
+            </nav>
+          </section>
+
+          <section id="metrics-view" class="view" role="tabpanel" aria-labelledby="metrics-tab" hidden>
             <div class="metrics-controls">
               <label for="metrics-milestone">Marco
                 <select id="metrics-milestone"><option value="none">Sem marco</option></select>

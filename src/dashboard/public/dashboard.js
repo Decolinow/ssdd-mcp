@@ -18,6 +18,11 @@
   };
   const typeLabels = { epic: "Épico", feature: "Feature", story: "História", bug: "Bug", task: "Tarefa" };
   const typeMarks = { epic: "E", feature: "F", story: "H", bug: "B", task: "T" };
+  const workProfileLabels = {
+    admin: "Administração", po: "Product Owner", developer: "Developer", qa: "QA",
+    tech_lead: "Tech Lead", facilitator: "Facilitador", stakeholder: "Stakeholder",
+  };
+  const workProfileOrder = ["developer", "qa", "po", "tech_lead", "facilitator", "stakeholder", "admin"];
   const scenarioKindLabels = {
     acceptance: "Aceitação", regression: "Regressão", integration: "Integração",
     performance: "Performance", security: "Segurança", manual: "Manual",
@@ -48,6 +53,13 @@
     principalName: document.querySelector("#principal-name"),
     lastUpdated: document.querySelector("#last-updated"),
     sprintSummary: document.querySelector("#sprint-summary"),
+    homeTab: document.querySelector("#home-tab"),
+    homeView: document.querySelector("#home-view"),
+    homeTitle: document.querySelector("#quick-access-title"),
+    homeDescription: document.querySelector("#quick-access-description"),
+    homeProfile: document.querySelector("#work-profile"),
+    homeSummary: document.querySelector("#quick-access-summary"),
+    homeActions: document.querySelector("#quick-access-actions"),
     filters: document.querySelector(".filters"),
     metricsTab: document.querySelector("#metrics-tab"),
     metricsView: document.querySelector("#metrics-view"),
@@ -191,6 +203,8 @@
     teams: [],
     selectedTeamId: null,
     project: null,
+    quickAccess: null,
+    workProfile: null,
     historySnapshot: null,
     historyDate: null,
     historyCursor: null,
@@ -297,6 +311,7 @@
     elements.errorMessage.textContent = `${error?.code ? `${error.code}: ` : ""}${error?.message ?? "Erro inesperado."}${detail}`;
     elements.error.hidden = false;
     elements.loading.hidden = true;
+    elements.homeView.hidden = true;
     elements.backlogView.hidden = true;
     elements.boardView.hidden = true;
     elements.qualityView.hidden = true;
@@ -311,6 +326,7 @@
     elements.error.hidden = true;
     elements.loading.hidden = true;
     const selectedTab = document.querySelector('[role="tab"][aria-selected="true"]')?.id;
+    elements.homeView.hidden = selectedTab !== "home-tab";
     elements.backlogView.hidden = selectedTab !== "backlog-tab";
     elements.boardView.hidden = selectedTab !== "board-tab";
     elements.qualityView.hidden = selectedTab !== "quality-tab";
@@ -319,7 +335,7 @@
     elements.historyView.hidden = selectedTab !== "history-tab";
     elements.metricsView.hidden = selectedTab !== "metrics-tab";
     elements.roadmapView.hidden = selectedTab !== "roadmap-tab";
-    elements.filters.hidden = selectedTab === "metrics-tab" || selectedTab === "history-tab" || selectedTab === "roadmap-tab";
+    elements.filters.hidden = selectedTab === "home-tab" || selectedTab === "metrics-tab" || selectedTab === "history-tab" || selectedTab === "roadmap-tab";
   }
 
   async function loadWorkItems(projectId) {
@@ -447,7 +463,7 @@
       const closedSprints = model.selectedTeamId
         ? api(`/api/v1/projects/${encodeURIComponent(projectId)}/sprints?status=closed&limit=100${teamFilter}`)
         : Promise.resolve({ sprints: [] });
-      const [projectResult, sprintResult, items, qualityResult, activityPage, closedSprintResult, scenariosResult, testRunsResult, parentFeatures] = await Promise.all([
+      const [projectResult, sprintResult, items, qualityResult, activityPage, closedSprintResult, scenariosResult, testRunsResult, parentFeatures, quickAccess] = await Promise.all([
         api(`/api/v1/projects/${encodeURIComponent(projectId)}`),
         activeSprints,
         loadWorkItems(projectId),
@@ -457,8 +473,11 @@
         loadScenarioSummaries(projectId),
         api(`/api/v1/projects/${encodeURIComponent(projectId)}/test-runs?limit=100`),
         loadParentFeatures(projectId),
+        api(`/api/v1/projects/${encodeURIComponent(projectId)}/quick-access`),
       ]);
       model.project = projectResult.project;
+      model.quickAccess = quickAccess;
+      syncWorkProfileOptions();
       const minimumHistoryDate = projectLocalDate(new Date(model.project.createdAt), model.project.timezone);
       const maximumHistoryDate = projectLocalDate(new Date(), model.project.timezone);
       elements.historyDate.min = minimumHistoryDate;
@@ -716,6 +735,33 @@
     elements.authKey.focus();
   }
 
+  async function claimQuickAccessTask(button) {
+    const taskKey = button.getAttribute("data-home-claim");
+    const expectedVersion = Number(button.getAttribute("data-task-version"));
+    if (!taskKey || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1 || !model.session?.csrfToken) return;
+    button.disabled = true;
+    try {
+      const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(taskKey)}/claim`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
+        body: JSON.stringify({
+          requestId: crypto.randomUUID(),
+          expectedVersion,
+          reason: "Tarefa assumida a partir da visão de próximas ações do dashboard.",
+        }),
+      });
+      toast(`${result.task.key} atribuída a você. Confira os gates antes de iniciar a sessão.`);
+      await loadProjectData();
+      await openItem(result.task.id);
+    } catch (error) {
+      const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
+      toast(`${error.code ?? "ERRO"}: ${error.message}${details}`, true);
+      if (["VERSION_CONFLICT", "TASK_NOT_STARTABLE", "TASK_ALREADY_ASSIGNED", "STALE_CURSOR"].includes(error.code)) await loadProjectData();
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function startAuthenticatedDashboard(session) {
     model.session = session;
     model.projects = session.projects;
@@ -730,6 +776,8 @@
       return;
     }
     model.projectId = model.projects[0].id;
+    model.quickAccess = null;
+    syncWorkProfileOptions();
     await loadProjectData();
     if (model.refreshTimer !== null) window.clearInterval(model.refreshTimer);
     model.refreshTimer = window.setInterval(() => { void loadProjectData(); }, 30_000);
@@ -824,7 +872,145 @@
     return filteredItems(model.items).filter((item) => model.sprint === null || !scope.has(item.id));
   }
 
+  function syncWorkProfileOptions() {
+    const projectRoles = model.quickAccess?.roles
+      ?? model.project?.roles
+      ?? model.projects.find((project) => project.id === model.projectId)?.roles
+      ?? [];
+    const storageKey = `ssdd-dashboard-work-profile:${model.projectId}`;
+    const storedProfile = readStoredWorkProfile(storageKey);
+    const defaultProfile = workProfileOrder.find((role) => projectRoles.includes(role)) ?? projectRoles[0] ?? "";
+    if (!projectRoles.includes(model.workProfile)) {
+      model.workProfile = projectRoles.includes(storedProfile) ? storedProfile : defaultProfile;
+    }
+    elements.homeProfile.innerHTML = projectRoles.map((role) =>
+      `<option value="${escapeHtml(role)}">${escapeHtml(workProfileLabels[role] ?? role)}</option>`).join("");
+    elements.homeProfile.value = model.workProfile ?? "";
+    elements.homeProfile.disabled = projectRoles.length <= 1;
+  }
+
+  function readStoredWorkProfile(storageKey) {
+    try { return window.sessionStorage.getItem(storageKey); } catch { return null; }
+  }
+
+  function storeWorkProfile(storageKey, profile) {
+    try { window.sessionStorage.setItem(storageKey, profile); } catch { return; }
+  }
+
+  function quickStat(value, label, attention = false) {
+    return `<article class="quick-stat${attention ? " is-attention" : ""}"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></article>`;
+  }
+
+  function blockerLabel(code) {
+    const labels = {
+      task_not_ready_for_development: "a tarefa não está Ready",
+      developer_role_required: "papel Developer necessário",
+      task_unassigned: "sem responsável",
+      task_assigned_to_another_user: "atribuída a outra pessoa",
+      task_output_missing: "falta descrever a entrega",
+      parent_pbi_missing: "falta PBI pai",
+      parent_pbi_not_active: "PBI pai fora de Ready/Em andamento",
+      parent_baseline_missing: "falta baseline do PBI pai",
+      dependencies_incomplete: "dependências pendentes",
+      task_session_already_active: "já existe sessão ativa",
+      task_session_paused: "há sessão pausada para retomar ou encerrar",
+      task_session_handoff_required: "handoff da sessão pendente",
+      implementing_adr_unpublished: "ADR ligada ainda não publicada",
+      task_workflow_unpublished: "workflow ainda não publicado",
+    };
+    return labels[code] ?? code.replaceAll("_", " ");
+  }
+
+  function renderQuickTask(item, mode = "open") {
+    const meta = [
+      stateLabel(item.state),
+      Number.isInteger(item.priority) ? `P${item.priority}` : null,
+      item.businessValueScore === null || item.businessValueScore === undefined ? null : `valor ${item.businessValueScore}/100`,
+    ].filter(Boolean).join(" · ");
+    const blockers = Array.isArray(item.blockerCodes) && item.blockerCodes.length > 0
+      ? `<small>${escapeHtml(item.blockerCodes.map(blockerLabel).join("; "))}</small>` : "";
+    const action = mode === "claim"
+      ? `<button class="button button-primary" type="button" data-home-claim="${escapeHtml(item.key)}" data-task-version="${escapeHtml(item.version)}">Assumir</button>`
+      : `<button class="button button-secondary" type="button" data-open-item="${escapeHtml(item.id)}">${item.state === "ready" ? "Ver gates e iniciar" : "Abrir tarefa"}</button>`;
+    return `<li class="quick-task"><div class="quick-task-main"><strong>${escapeHtml(item.key)} · ${escapeHtml(item.title)}</strong><span>${escapeHtml(meta || "Sem metadados adicionais")}</span>${blockers}</div><div class="quick-task-actions">${action}</div></li>`;
+  }
+
+  function quickPanel(title, description, items, emptyMessage, mode = "open") {
+    const content = items.length > 0
+      ? `<ul class="quick-task-list">${items.map((item) => renderQuickTask(item, mode)).join("")}</ul>`
+      : `<p class="quick-empty">${escapeHtml(emptyMessage)}</p>`;
+    return `<section class="quick-panel"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(description)}</p>${content}</section>`;
+  }
+
+  function renderQuickAccess() {
+    const quickAccess = model.quickAccess;
+    if (quickAccess === null) return;
+    syncWorkProfileOptions();
+    const profile = model.workProfile;
+    const profileLabel = workProfileLabels[profile] ?? profile ?? "Perfil";
+    const displayName = model.session?.principal?.displayName ?? "pessoa usuária";
+    elements.homeTitle.textContent = `Olá, ${displayName}`;
+    elements.homeDescription.textContent = `Estas são as próximas ações de ${profileLabel} em ${model.project?.name ?? "seu projeto"}. A autorização continua vinculada aos papéis da sua sessão.`;
+
+    if (profile === "developer" && quickAccess.developer !== null) {
+      const view = quickAccess.developer;
+      const assigned = [...view.startableTasks, ...view.activeTasks]
+        .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index);
+      elements.homeSummary.innerHTML = [
+        quickStat(view.startableTasks.length, "Elegíveis para iniciar sessão · até 8"),
+        quickStat(view.activeTasks.length, "Em andamento · até 8"),
+        quickStat(view.blockedCount, "Sem início seguro", view.blockedCount > 0),
+        quickStat(view.claimableTasks.length, "Pode assumir · até 8"),
+      ].join("");
+      elements.homeActions.innerHTML = [
+        quickPanel("Minha fila", "Tarefas atribuídas a você, ordenadas por prioridade e gates de início.", assigned,
+          "Você não tem tarefas Ready ou em andamento atribuídas neste projeto."),
+        quickPanel("Pode assumir", "Só aparecem tarefas Ready sem responsável e com os gates de início aprovados. Assumir não inicia uma sessão.", view.claimableTasks,
+          view.claimCandidatesTruncated ? "Não encontramos tarefas elegíveis entre as primeiras candidatas. Use o Product Backlog para consultar mais itens." : "Nenhuma tarefa está liberada para assumir agora.", "claim"),
+        quickPanel("Impedimentos", "Até três tarefas com dependências, baseline, ADRs ou sessões que impedem um novo início.", view.blockedTasks,
+          "Nenhum impedimento de início foi encontrado na amostra da fila."),
+      ].join("");
+      return;
+    }
+
+    if (profile === "qa" && quickAccess.qa !== null) {
+      const items = quickAccess.qa.pendingValidation;
+      elements.homeSummary.innerHTML = [quickStat(items.length, "Aguardando validação · até 8", items.length > 0), quickStat(model.scenarios.length, "Cenários carregados"), quickStat(model.testRuns.length, "Execuções recentes")].join("");
+      elements.homeActions.innerHTML = `${quickPanel("Próxima validação", "Abra um item em validação para conferir critérios, cenários e evidências.", items, "Não há itens aguardando validação agora.")}<section class="quick-panel"><h3>Atalhos de QA</h3><p>Consulte cobertura, publique revisões de cenário e registre execuções vinculadas ao build.</p><button class="button button-primary" type="button" data-home-view="quality">Abrir Qualidade</button></section>`;
+      return;
+    }
+
+    if (profile === "po" && quickAccess.productOwner !== null) {
+      const drafts = quickAccess.productOwner.drafts;
+      elements.homeSummary.innerHTML = [quickStat(drafts.length, "Drafts para refinar · até 8", drafts.length > 0), quickStat(model.items.length, "Histórias e bugs carregados")].join("");
+      elements.homeActions.innerHTML = `${quickPanel("Refinamento pendente", "Revise conteúdo, valor de negócio, critérios e vínculos antes de preparar itens para Ready.", drafts, "Não há histórias ou bugs em Draft na amostra atual.")}<section class="quick-panel"><h3>Próximas decisões</h3><p>Use a prioridade e o valor de negócio do backlog para orientar a ordem de refinamento.</p><button class="button button-primary" type="button" data-home-view="backlog">Abrir Product Backlog</button></section>`;
+      return;
+    }
+
+    if (profile === "tech_lead" && quickAccess.techLead !== null) {
+      const review = quickAccess.techLead.awaitingReview;
+      const drafts = quickAccess.techLead.draftTasks;
+      elements.homeSummary.innerHTML = [quickStat(review.length, "Aguardando revisão · até 8", review.length > 0), quickStat(drafts.length, "Tarefas Draft · até 8")].join("");
+      elements.homeActions.innerHTML = [
+        quickPanel("Revisões pendentes", "Verifique implementação, rastreabilidade técnica e critérios de aceite.", review, "Não há itens aguardando revisão agora."),
+        quickPanel("Tarefas para refinar", "Especifique o plano técnico antes de liberar tarefas para desenvolvimento.", drafts, "Não há tarefas em Draft na amostra atual."),
+      ].join("");
+      return;
+    }
+
+    if (profile === "facilitator") {
+      elements.homeSummary.innerHTML = [quickStat(model.sprint?.key ?? "—", "Sprint ativa no time selecionado"), quickStat(model.closedSprints.length, "Sprints encerradas")].join("");
+      elements.homeActions.innerHTML = `<section class="quick-panel"><h3>Fluxo da equipe</h3><p>${model.sprint ? `Sprint ${escapeHtml(model.sprint.key)} · ${escapeHtml(model.sprint.title)}` : "Selecione um time com sprint ativa para acompanhar o ciclo."}</p><button class="button button-primary" type="button" data-home-view="board">Abrir Board</button></section><section class="quick-panel"><h3>Fechar o ciclo</h3><p>Consulte aprendizados registrados e acompanhe ações da retrospectiva.</p><button class="button button-secondary" type="button" data-home-view="retrospective">Abrir Retrospectiva</button></section>`;
+      return;
+    }
+
+    const title = profile === "stakeholder" ? "Acompanhar entrega" : "Atalhos do projeto";
+    elements.homeSummary.innerHTML = [quickStat(model.items.length, "PBIs carregados"), quickStat(model.scenarios.length, "Cenários carregados"), quickStat(model.testRuns.length, "Execuções recentes")].join("");
+    elements.homeActions.innerHTML = `<section class="quick-panel"><h3>${escapeHtml(title)}</h3><p>Consulte a ordem priorizada das Features, o progresso confirmado e os indicadores do projeto.</p><button class="button button-primary" type="button" data-home-view="roadmap">Abrir Roadmap</button></section><section class="quick-panel"><h3>Estado observado</h3><p>Use a data do projeto para consultar um retrato histórico ou abra as métricas para acompanhar a entrega.</p><div class="quick-task-actions"><button class="button button-secondary" type="button" data-home-view="metrics">Métricas</button><button class="button button-secondary" type="button" data-home-view="history">Histórico</button></div></section>`;
+  }
+
   function render() {
+    renderQuickAccess();
     renderSprintSummary();
     renderBacklog();
     renderBoard();
@@ -2328,6 +2514,7 @@
 
   function setView(view) {
     const views = {
+      home: [elements.homeTab, elements.homeView],
       metrics: [elements.metricsTab, elements.metricsView],
       roadmap: [elements.roadmapTab, elements.roadmapView],
       history: [elements.historyTab, elements.historyView],
@@ -2343,7 +2530,8 @@
       tab.setAttribute("aria-selected", String(selected));
       panel.hidden = !selected;
     }
-    elements.filters.hidden = view === "metrics" || view === "history" || view === "roadmap";
+    elements.filters.hidden = view === "home" || view === "metrics" || view === "history" || view === "roadmap";
+    if (view === "home") renderQuickAccess();
     if (view === "metrics") void loadDashboardMetrics();
     if (view === "roadmap") void loadProjectRoadmap();
     if (view === "history") void loadProjectHistory();
@@ -2353,6 +2541,9 @@
   elements.logout.addEventListener("click", () => { void logout(); });
   elements.projectSelect.addEventListener("change", () => {
     model.projectId = elements.projectSelect.value;
+    model.project = null;
+    model.quickAccess = null;
+    model.workProfile = null;
     model.teams = [];
     model.selectedTeamId = null;
     model.items = [];
@@ -2371,7 +2562,13 @@
     model.developerMetricsRangeCustomized = false;
     model.selectedMetricsDeveloperId = null;
     elements.loading.hidden = false;
+    syncWorkProfileOptions();
     void loadProjectData();
+  });
+  elements.homeProfile.addEventListener("change", () => {
+    model.workProfile = elements.homeProfile.value;
+    storeWorkProfile(`ssdd-dashboard-work-profile:${model.projectId}`, model.workProfile);
+    renderQuickAccess();
   });
   elements.teamSelect.addEventListener("change", () => {
     model.selectedTeamId = elements.teamSelect.value || null;
@@ -2392,6 +2589,7 @@
   elements.retry.addEventListener("click", () => { void loadProjectData(); });
   elements.search.addEventListener("input", render);
   elements.typeFilter.addEventListener("change", render);
+  elements.homeTab.addEventListener("click", () => setView("home"));
   elements.metricsTab.addEventListener("click", () => setView("metrics"));
   elements.roadmapTab.addEventListener("click", () => setView("roadmap"));
   elements.roadmapDate.addEventListener("change", () => { void loadProjectRoadmap(); });
@@ -2401,8 +2599,8 @@
   elements.qualityTab.addEventListener("click", () => setView("quality"));
   elements.activityTab.addEventListener("click", () => setView("activity"));
   elements.retrospectiveTab.addEventListener("click", () => setView("retrospective"));
-  const tabs = [elements.metricsTab, elements.roadmapTab, elements.historyTab, elements.backlogTab, elements.boardTab, elements.qualityTab, elements.activityTab, elements.retrospectiveTab];
-  const tabViews = ["metrics", "roadmap", "history", "backlog", "board", "quality", "activity", "retrospective"];
+  const tabs = [elements.homeTab, elements.metricsTab, elements.roadmapTab, elements.historyTab, elements.backlogTab, elements.boardTab, elements.qualityTab, elements.activityTab, elements.retrospectiveTab];
+  const tabViews = ["home", "metrics", "roadmap", "history", "backlog", "board", "quality", "activity", "retrospective"];
   for (const [index, tab] of tabs.entries()) {
     tab.addEventListener("keydown", (event) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -2567,6 +2765,14 @@
   elements.createScenario.addEventListener("click", () => { void openScenarioEditor(); });
   elements.scenarioForm.addEventListener("submit", (event) => { void submitScenarioForm(event); });
   elements.testRunForm.addEventListener("submit", (event) => { void submitTestRun(event); });
+  document.querySelectorAll("[data-home-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const view = button.getAttribute("data-home-view");
+      if (!view) return;
+      setView(view);
+      document.getElementById(`${view}-tab`)?.focus();
+    });
+  });
   document.addEventListener("click", (event) => {
     if (event.target.closest(".retro-pbi")) event.preventDefault();
     const evidenceButton = event.target.closest("[data-load-evidence]");
@@ -2582,6 +2788,11 @@
     const scenarioPublish = event.target.closest("[data-publish-scenario]");
     if (scenarioPublish) {
       void publishScenario(scenarioPublish.getAttribute("data-publish-scenario"), Number(scenarioPublish.getAttribute("data-revision")));
+      return;
+    }
+    const claimButton = event.target.closest("[data-home-claim]");
+    if (claimButton) {
+      void claimQuickAccessTask(claimButton);
       return;
     }
     if (event.target.closest("[data-edit-task-workflow]")) {

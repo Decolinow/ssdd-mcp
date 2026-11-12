@@ -17,7 +17,9 @@ npm run agents:install -- --target ..\meu-projeto --apply --profile tech_lead
 
 `--profile` é opcional e grava o perfil MCP na configuração nativa do Claude Code (`env.SSDD_PROFILE`), Codex (`mcp_servers.ssdd_mcp.env.SSDD_PROFILE`) e OpenCode (`environment.SSDD_PROFILE`). Use o mesmo argumento em `--check` e `--apply`; isso limita as ferramentas, prompts e skills que o host anuncia. Opções: `full`, `refinement`, `specification`, `dev`, `test_design`, `qa`, `tech_lead`, `security_review`, `po`, `facilitator`, `release`, `devops` e `admin`. Sem `--profile`, o servidor usa o perfil padrão `full`.
 
-O instalador prepara o servidor, mas não inventa a chave, o objetivo ou o fuso do projeto. Se o alvo ainda não tiver workspace SSDD, inicialize-o com os dados escolhidos pela equipe antes de iniciar o cliente:
+O instalador prepara o servidor, mas não inventa a chave, o objetivo ou o fuso do projeto. As instruções geradas para Claude Code, Codex e OpenCode incluem o mesmo contrato de falha: agentes devem tratar `isError=true` como chamada malsucedida, ler `code/details/retryable/correlationId`, não declarar mutações concluídas em erro, repetir somente quando `retryable=true` e reconciliar o estado após timeout/conflitos. Em comandos idempotentes, a repetição segura conserva o `requestId` e o payload; erros internos são reportados pelo `correlationId` sem revelar credenciais.
+
+Se o alvo ainda não tiver workspace SSDD, inicialize-o com os dados escolhidos pela equipe antes de iniciar o cliente:
 
 ```powershell
 node .ssdd/agent-runtime/node_modules/ssdd-mcp/dist/src/cli.js init --workspace . --key PAY --name "Pagamentos" --goal "Pagamentos confiáveis" --timezone America/Sao_Paulo

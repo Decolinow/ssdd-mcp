@@ -162,7 +162,7 @@ function parseRoadmap(markdown) {
   assert.equal(installerFeatures.reduce((count, feature) => count + feature.stories.length, 0), 4, "Expected four local agent installer stories");
   assert.equal(installerFeatures.reduce((count, feature) => count + feature.stories.reduce((storyCount, story) => storyCount + story.tasks.length, 0), 0), 11,
     "Expected eleven local agent installer tasks");
-  assert.equal(improvementTasks.length, 35, "Expected thirty-five technical and enterprise improvement tasks (SSDD-902 through SSDD-936)");
+  assert.equal(improvementTasks.length, 36, "Expected thirty-six technical and enterprise improvement tasks (SSDD-902 through SSDD-937)");
   for (const entry of sprints) {
     if (!entry.goal) {
       entry.goal = `Executar as tarefas refinadas para ${entry.name}: ${entry.tasks.map((task) => task.title).join("; ")}.`;
@@ -700,7 +700,7 @@ try {
     assert.ok(mapping, `Stable ID ${task.id} has no persisted MCP mapping`);
     assert.equal(mapping.itemId, itemIds.get(task.id), `${task.id} resolves to a different task`);
   }
-  assert.equal(stableRoadmapTasks.length, 76, "Expected mappings for all 76 stable roadmap tasks, including SSDD-934 through SSDD-936");
+  assert.equal(stableRoadmapTasks.length, 77, "Expected mappings for all 77 stable roadmap tasks, including SSDD-934 through SSDD-937");
   assert.equal(finalMappings.size, stableRoadmapTasks.length, "MCP project contains unexpected roadmap ID mappings");
   let stableIdCollisionsVerified = 0;
   for (const [roadmapId, stableMapping] of finalMappings) {
