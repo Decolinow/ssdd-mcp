@@ -60,5 +60,6 @@ export interface WorkItemGateReport {
   readonly buildId: string | null;
   readonly gates: readonly WorkflowGate[];
   readonly canProceed: boolean;
+  readonly transitionPath: readonly string[];
 }
 

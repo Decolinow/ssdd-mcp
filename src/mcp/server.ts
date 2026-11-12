@@ -387,6 +387,7 @@ const workItemGateReportSchema = z.object({
   buildId: z.string().nullable(),
   gates: z.array(workflowGateSchema),
   canProceed: z.boolean(),
+  transitionPath: z.array(z.string()),
 });
 const workItemEvidenceSchema = z.object({
   id: z.string().uuid(),
@@ -3989,7 +3990,7 @@ export function createMcpServer(
     "work_item_gate_check",
     {
       title: "Verificar gates do item",
-      description: "Mostra os critérios pendentes para Ready ou Done, incluindo baseline, evidência, cenários e build candidato.",
+      description: "Mostra os critérios pendentes para Ready ou Done, incluindo baseline, evidência, cenários e build candidato. transitionPath lista os estados a percorrer (ex.: in_review, in_validation, done) a partir do estado atual.",
       inputSchema: z.object({
         projectId: z.string().uuid(),
         itemIdOrKey: z.string().trim().min(1).max(80),

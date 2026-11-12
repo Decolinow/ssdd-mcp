@@ -73,6 +73,7 @@ describe("work item workflow, evidence and QA gates", () => {
       projectId, principalId, itemIdOrKey: storyKey, targetState: "ready",
     });
     assert.equal(initialReport.canProceed, false);
+    assert.deepEqual(initialReport.transitionPath, ["ready"]);
     assert.deepEqual(initialReport.gates.filter((gate) => !gate.passed).map((gate) => gate.id), [
       "required-criterion-coverage", "confirmed-estimate",
     ]);

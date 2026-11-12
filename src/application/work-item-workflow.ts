@@ -693,7 +693,31 @@ function evaluateGates(
     buildId,
     gates,
     canProceed: gates.every((gate) => gate.passed),
+    transitionPath: shortestTransitionPath(item.state as WorkItemState, targetState),
   };
+}
+
+/** Estados intermediários e finais a percorrer para chegar ao alvo, sem passar por cancelled. */
+export function shortestTransitionPath(from: WorkItemState, to: WorkItemState): WorkItemState[] {
+  if (from === to) return [];
+  const previous = new Map<WorkItemState, WorkItemState>();
+  const queue: WorkItemState[] = [from];
+  const seen = new Set<WorkItemState>([from]);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const next of allowedTransitions[current] ?? []) {
+      if (next === "cancelled" || seen.has(next)) continue;
+      seen.add(next);
+      previous.set(next, current);
+      if (next === to) {
+        const path: WorkItemState[] = [to];
+        for (let step = previous.get(to); step !== undefined && step !== from; step = previous.get(step)) path.unshift(step);
+        return path;
+      }
+      queue.push(next);
+    }
+  }
+  return [];
 }
 
 function evaluateReadyGates(

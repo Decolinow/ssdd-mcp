@@ -145,3 +145,17 @@ Fases A–C somam 99 pontos propostos (A: 44, B: 26, C: 29).
 - Leitura de código foi dirigida (gates, transições, registro de tools, CI); não houve auditoria linha a linha nem revisão de segurança.
 - O dashboard não foi aberto em navegador nesta revisão.
 - Os números de backlog vêm de `docs/status.md`; o banco do workspace só foi consultado e alterado depois, para registrar as propostas como Draft.
+
+## Achados do uso do próprio MCP (2026-11-12)
+
+Ao seguir a fila do MCP para escolher e fechar a SSDD-158, apareceram atritos reais. Os dois primeiros foram corrigidos na hora; os demais viraram tarefas.
+
+| # | Achado | Situação |
+| --- | --- | --- |
+| U1 | Fila vazia não dizia o motivo nem a próxima tarefa. | Corrigido: `emptyReason` e `upNext` em `task_execution_queue_get`. |
+| U2 | `work_item_gate_check` para Done não indicava que `in_progress → done` exige `in_review` e `in_validation`; a transição direta falhou. | Corrigido: campo `transitionPath`. |
+| U3 | ~70 tarefas históricas entregues localmente continuam Draft ("permanece Draft") e dominam `upNext`; também bloqueiam por dependência as novas SSDD-141–157. A fila reflete a burocracia, não o trabalho pendente. | Tarefa SSDD-956 (rótulo "entregue localmente, aceite pendente" na fila e fechamento retroativo com evidência). |
+| U4 | O mesmo principal implementa, revisa, valida e conclui a tarefa; o MCP aceita. A SSDD-158 foi fechada assim e a razão da transição teve de registrar a autorrevisão. | Tarefa SSDD-957 (política de independência de revisão/validação, ao menos como aviso nos gates). |
+| U5 | Nomes de parâmetro inconsistentes (`itemIdOrKey` vs `taskIdOrKey`) e comandos de escrita que não devolvem `version` (estimate, propose), forçando releitura ou tentativa e erro com `expectedVersion`. | Tarefa SSDD-958 (devolver `version` em todo resultado de escrita; aceitar alias de parâmetro). |
+| U6 | O servidor roda uma cópia instalada em `.ssdd/agent-runtime`; mudanças do código só chegam após `agents:install --apply` e reinício do processo. | Documentado; candidato a um comando `dev:reload`. |
+| U7 | Critério marcado como obrigatório exige cenário publicado; a falha só aparece no gate. | Mensagem do gate já lista os critérios; avaliar aviso na proposta de revisão. |
