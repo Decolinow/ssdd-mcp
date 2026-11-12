@@ -37,12 +37,33 @@ export interface TaskExecutionQueue {
   readonly businessValueMissingCount: number;
   readonly blocked: readonly (PrioritizedTask & { readonly blockerCodes: readonly string[] })[];
   readonly tasks: readonly PrioritizedTask[];
+  readonly emptyReason: "no_ready_tasks" | "ready_tasks_blocked" | null;
+  readonly upNext: readonly UpNextTask[];
+}
+
+export interface UpNextTask extends PrioritizedTask {
+  readonly unmetDependencies: readonly string[];
+  readonly missing: readonly ("not_ready_state" | "assignee" | "estimate" | "business_value" | "dependencies")[];
+  readonly nextAction: string;
 }
 
 export function getTaskExecutionQueue(
   database: SqliteDatabase,
   input: { readonly projectId: string; readonly principalId: string; readonly limit?: number; readonly assignedToMe?: boolean },
 ): TaskExecutionQueue {
+  const queue = getStartableQueue(database, input);
+  const startable = queue.tasks.length;
+  return {
+    ...queue,
+    emptyReason: startable > 0 ? null : queue.scannedCount === 0 ? "no_ready_tasks" : "ready_tasks_blocked",
+    upNext: startable > 0 ? [] : getUpNextTasks(database, input.projectId, 5),
+  };
+}
+
+function getStartableQueue(
+  database: SqliteDatabase,
+  input: { readonly projectId: string; readonly principalId: string; readonly limit?: number; readonly assignedToMe?: boolean },
+): Omit<TaskExecutionQueue, "emptyReason" | "upNext"> {
   const limit = input.limit ?? 20;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
     throw new ApplicationError("VALIDATION_FAILED", "Execution queue limit must be an integer between 1 and 50.");
@@ -489,6 +510,72 @@ function simulateFeatureCompletionOrdinals(
     }
   }
   return results;
+}
+
+function getUpNextTasks(database: SqliteDatabase, projectId: string, limit: number): UpNextTask[] {
+  const rows = database.prepare(
+    `SELECT task.item_id, task.item_key, task.title, task.state, task.assignee_principal_id,
+            task.priority AS task_priority, task.business_value_score AS task_value,
+            task.business_value_rationale AS task_value_rationale, task.rank AS task_rank,
+            feature.item_key AS feature_key, feature.rank AS feature_rank,
+            feature.priority AS feature_priority, feature.business_value_score AS feature_value,
+            feature.business_value_rationale AS feature_value_rationale,
+            epic.item_key AS epic_key, epic.priority AS epic_priority,
+            epic.business_value_score AS epic_value, epic.business_value_rationale AS epic_value_rationale,
+            story.item_key AS story_key, story.priority AS story_priority,
+            (SELECT value FROM work_item_estimates e WHERE e.project_id = task.project_id AND e.item_id = task.item_id AND e.unit = 'points') AS points,
+            (SELECT GROUP_CONCAT(target.item_key, ',') FROM trace_links link
+               INNER JOIN work_items target ON target.project_id = link.project_id AND target.item_id = link.target_id
+              WHERE link.project_id = task.project_id AND link.source_id = task.item_id
+                AND link.link_type = 'depends_on' AND link.removed_at IS NULL AND target.state <> 'done') AS unmet
+     FROM work_items task
+     LEFT JOIN work_items story ON story.project_id = task.project_id AND story.item_id = task.parent_id
+     LEFT JOIN work_items feature ON feature.project_id = story.project_id AND feature.item_id = story.parent_id
+     LEFT JOIN work_items epic ON epic.project_id = feature.project_id AND epic.item_id = feature.parent_id
+     WHERE task.project_id = ? AND task.type = 'task' AND task.state NOT IN ('ready', 'in_progress', 'done', 'cancelled')
+     LIMIT ?`,
+  ).all(projectId, maximumQueueCandidates) as Array<{
+    item_id: string; item_key: string; title: string; state: string; assignee_principal_id: string | null;
+    task_priority: number; task_value: number | null; task_value_rationale: string | null; task_rank: number;
+    feature_key: string | null; feature_rank: number | null; feature_priority: number | null;
+    feature_value: number | null; feature_value_rationale: string | null;
+    epic_key: string | null; epic_priority: number | null; epic_value: number | null; epic_value_rationale: string | null;
+    story_key: string | null; story_priority: number | null; points: number | null; unmet: string | null;
+  }>;
+  const mapped = rows.map((row) => {
+    const priorities = [row.task_priority, row.story_priority, row.feature_priority, row.epic_priority]
+      .filter((value): value is number => value !== null);
+    const priority = Math.min(...priorities);
+    const prioritySource = row.task_priority === priority ? row.item_key
+      : row.story_priority === priority ? row.story_key ?? row.item_key
+        : row.feature_priority === priority ? row.feature_key ?? row.item_key
+          : row.epic_key ?? row.item_key;
+    const businessValueScore = row.task_value ?? row.feature_value ?? row.epic_value;
+    const unmetDependencies = row.unmet === null ? [] : row.unmet.split(",").sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+    const missing: UpNextTask["missing"][number][] = ["not_ready_state"];
+    if (row.assignee_principal_id === null) missing.push("assignee");
+    if (row.points === null) missing.push("estimate");
+    if (businessValueScore === null) missing.push("business_value");
+    if (unmetDependencies.length > 0) missing.push("dependencies");
+    const nextAction = unmetDependencies.length > 0
+      ? `Concluir antes: ${unmetDependencies.slice(0, 5).join(", ")}. Depois refinar, estimar, atribuir e passar nos gates Ready.`
+      : `Sem dependência aberta: refinar${row.points === null ? ", estimar" : ""}${row.assignee_principal_id === null ? ", atribuir" : ""} e passar nos gates Ready (work_item_gate_check) antes de task_start.`;
+    return {
+      sort: { priority, value: businessValueScore ?? -1, featureRank: row.feature_rank ?? Number.MAX_SAFE_INTEGER, rank: row.task_rank, free: unmetDependencies.length === 0 },
+      task: {
+        id: row.item_id, key: row.item_key, title: row.title, state: row.state, assigneeId: row.assignee_principal_id,
+        priority, prioritySource, businessValueScore,
+        businessValueRationale: row.task_value !== null ? row.task_value_rationale : row.feature_value !== null ? row.feature_value_rationale : row.epic_value_rationale,
+        businessValueSource: row.task_value !== null ? row.item_key : row.feature_value !== null ? row.feature_key : row.epic_value !== null ? row.epic_key : null,
+        featureKey: row.feature_key, rank: row.task_rank,
+        unmetDependencies, missing, nextAction,
+      } satisfies UpNextTask,
+    };
+  });
+  mapped.sort((l, r) => Number(r.sort.free) - Number(l.sort.free) || l.sort.priority - r.sort.priority ||
+    r.sort.value - l.sort.value || l.sort.featureRank - r.sort.featureRank || l.sort.rank - r.sort.rank ||
+    l.task.key.localeCompare(r.task.key, "en", { numeric: true }));
+  return mapped.slice(0, limit).map((entry) => entry.task);
 }
 
 function publicTask(task: PrioritizedTask & { featureRank?: number; readiness?: unknown }): PrioritizedTask {

@@ -2,6 +2,11 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Fila de execução com próxima ação (2026-11-12)
+
+- Motivo: a fila retornava vazia quando nenhuma tarefa estava Ready/atribuída, deixando a ordem de prioridade das tarefas Draft (por exemplo SSDD-141–158) invisível no MCP.
+- `task_execution_queue_get` agora devolve `emptyReason` e `upNext` (até 5 tarefas não Ready, sem dependência aberta primeiro, depois prioridade efetiva, valor, rank) com `unmetDependencies`, `missing` e `nextAction`. Nada é promovido automaticamente. Teste em `tests/application/prioritized-roadmap.test.ts`.
+
 ## Reorganização da leitura obrigatória (2026-11-12, SSDD-955 implementada localmente)
 
 - `docs/status.md` caiu de ~97 KB (305 linhas) para ~32 KB (~115 linhas): ficaram o resumo atual, a tabela por tarefa e o próximo passo. As seções datadas e as verificações anteriores vieram para este arquivo sem alteração de conteúdo.

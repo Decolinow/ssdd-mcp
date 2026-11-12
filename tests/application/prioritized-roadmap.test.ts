@@ -54,6 +54,28 @@ describe("business value, prioritized execution and project feature roadmap", ()
     assert.equal(queue.assignedToMe, true);
   });
 
+  it("explains an empty queue and lists the next not-ready tasks with what is missing", () => {
+    const epic = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "epic", title: "Epic", priority: 2 }).value;
+    const feature = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "feature", title: "Feature", parentId: epic.id, priority: 2 }).value;
+    const story = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "story", title: "Story", parentId: feature.id, priority: 2 }).value;
+    const first = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "task", title: "First", parentId: story.id }).value;
+    const second = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "task", title: "Second", parentId: story.id }).value;
+    database.prepare(
+      `INSERT INTO trace_links (link_id, project_id, source_id, target_id, link_type, created_by_principal_id, created_at)
+       VALUES (?, ?, ?, ?, 'depends_on', ?, ?)`,
+    ).run(randomUUID(), projectId, first.id, second.id, principalId, new Date().toISOString());
+
+    const queue = getTaskExecutionQueue(database, { projectId, principalId });
+
+    assert.equal(queue.tasks.length, 0);
+    assert.equal(queue.emptyReason, "no_ready_tasks");
+    assert.deepEqual(queue.upNext.map((task) => task.key), [second.key, first.key]);
+    assert.deepEqual(queue.upNext[1]?.unmetDependencies, [second.key]);
+    assert.ok(queue.upNext[0]?.missing.includes("estimate"));
+    assert.ok(queue.upNext[1]?.missing.includes("dependencies"));
+    assert.match(queue.upNext[1]?.nextAction ?? "", /Concluir antes/);
+  });
+
   it("reports the story as the priority source when it raises a task above its Feature", () => {
     const urgent = createQueueTask("P1 from story", 3, 3, 50, 1);
     const queue = getTaskExecutionQueue(database, { projectId, principalId });
