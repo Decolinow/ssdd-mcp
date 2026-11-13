@@ -129,6 +129,10 @@ O pacote é validado como tarball local; `private: true` impede publicação aci
 - A CI executa o mesmo `npm run check` em Node 24 e 26, em Linux, macOS e Windows.
 - Um teste que cobre uma regra de domínio inclui cenário válido e as condições recusadas relevantes. A aceitação da tarefa deve apontar para o comportamento testado.
 
+## Imagens dos manuais
+
+`docs/images/` é gerado por `scripts/capture-dashboard-screenshots.mjs <url-com-token> docs/images`, que abre cada aba e diálogo do dashboard em Chrome (`SSDD_BROWSER_CHANNEL` troca o canal). Rode-o depois de mudar a interface e revise as imagens antes de commitar; use uma cópia do workspace para não expor dados reais. Os textos estão em [manual-usuario.md](manual-usuario.md) e [manual-administrador.md](manual-administrador.md).
+
 ## Fluxo por tarefa
 
 1. Selecione uma tarefa pronta em [ROADMAP.md](../ROADMAP.md), respeitando pré-requisitos. IDs como `SSDD-103` são referências estáveis.

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
-    <title>SSDD · Visão do projeto</title>
+    <title>Início · SSDD</title>
     <link rel="stylesheet" href="/dashboard.css">
     <script type="module" src="/dashboard.js"></script>
   </head>
@@ -223,7 +223,7 @@
 
           <section id="backlog-view" class="view" role="tabpanel" aria-labelledby="backlog-tab">
             <div class="view-heading backlog-heading">
-              <div><h2>Itens fora da sprint ativa</h2><p>Itens ordenados pela prioridade do backlog. Abra um item para consultar critérios, estimativas e versão.</p></div>
+              <div><h2>Backlog do produto</h2><p>Itens ordenados pela prioridade do backlog. Abra um item para consultar critérios, estimativas e versão.</p></div>
               <div class="view-heading-actions"><span id="backlog-count" class="count-label">0 itens</span><button id="create-work-item" class="button button-primary" type="button">Novo PBI</button></div>
             </div>
             <div id="backlog-list" class="backlog-list"></div>
@@ -265,7 +265,9 @@
               </form>
               <div id="test-run-history" class="test-run-history"></div>
             </section>
-            <div id="quality-list" class="quality-list"></div>
+            <h3 class="quality-list-heading" id="quality-list-title">Qualidade por PBI</h3>
+            <p class="quality-list-hint">Critérios obrigatórios cobertos, certificados e baseline vigente de cada história ou bug.</p>
+            <div id="quality-list" class="quality-list" aria-labelledby="quality-list-title"></div>
           </section>
 
           <section id="activity-view" class="view" role="tabpanel" aria-labelledby="activity-tab" hidden>
@@ -330,7 +332,7 @@
         <label class="form-field" id="work-item-parent-field" for="work-item-parent"><span id="work-item-parent-label">Item pai</span><select id="work-item-parent"></select></label>
         <label class="form-field" for="work-item-title">Título<input id="work-item-title" maxlength="200" required></label>
         <label class="form-field" for="work-item-description">Descrição<textarea id="work-item-description" rows="3" maxlength="10000"></textarea></label>
-        <label class="form-field" for="work-item-priority">Prioridade<select id="work-item-priority"><option value="1">P1 · Mais alta</option><option value="2">P2</option><option value="3">P3</option><option value="4">P4 · Mais baixa</option></select></label>
+        <label class="form-field" for="work-item-priority">Prioridade<select id="work-item-priority"><option value="1">P1 · Mais alta</option><option value="2">P2 · Alta</option><option value="3">P3 · Média</option><option value="4">P4 · Mais baixa</option></select></label>
         <label class="form-field" id="work-item-value-field" for="work-item-business-value">Valor de negócio (0–100)<input id="work-item-business-value" type="number" min="0" max="100" step="1"><small>Somente épicos, features e tarefas. Deixe vazio enquanto o PO não tiver avaliado.</small></label>
         <label class="form-field" id="work-item-rationale-field" for="work-item-business-rationale">Justificativa do valor<textarea id="work-item-business-rationale" rows="2" maxlength="1000" placeholder="Benefício esperado e motivo da nota"></textarea></label>
         <label class="form-field" id="work-item-criteria-field" for="work-item-criteria">Critérios de aceite<textarea id="work-item-criteria" rows="5" placeholder="Um critério por linha"></textarea><small>Na edição, use a chave existente no início, por exemplo AC-1: resultado visível, para preservar o vínculo.</small></label>

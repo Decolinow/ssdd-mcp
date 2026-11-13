@@ -1,5 +1,5 @@
 /* global URL */
-import { states, typeMarks } from "./constants.js";
+import { states, typeLabels, typeMarks } from "./constants.js";
 import { elements } from "./elements.js";
 import { model } from "./model.js";
 import { escapeHtml, scenarioKindLabel, stateLabel } from "./ui.js";
@@ -35,7 +35,7 @@ export function renderBacklog() {
   }
   elements.backlogList.innerHTML = items.map((item) => `
     <article class="backlog-row">
-      <div class="row-key"><span class="type-mark ${escapeHtml(item.type)}">${escapeHtml(typeMarks[item.type] ?? "·")}</span>${escapeHtml(item.key)}</div>
+      <div class="row-key"><span class="type-mark ${escapeHtml(item.type)}" title="${escapeHtml(typeLabels[item.type] ?? item.type)}" role="img" aria-label="${escapeHtml(typeLabels[item.type] ?? item.type)}">${escapeHtml(typeMarks[item.type] ?? "·")}</span>${escapeHtml(item.key)}</div>
       <div class="row-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
       <span class="state-badge ${escapeHtml(item.state)}">${escapeHtml(stateLabel(item.state))}</span>
       <span class="row-meta">Prioridade ${escapeHtml(item.priority)}</span>
@@ -76,7 +76,7 @@ export function renderQuality() {
     const coverageClass = percent === null ? "coverage-unknown" : `coverage-${Math.floor(percent / 10) * 10}`;
     const statusClass = percent === 100 ? "is-current" : item.baselineSequence === null ? "is-missing" : "";
     return `<article class="quality-row">
-      <div class="row-key quality-key"><span class="type-mark ${escapeHtml(item.type)}">${escapeHtml(typeMarks[item.type] ?? "·")}</span>${escapeHtml(item.itemKey)}</div>
+      <div class="row-key quality-key"><span class="type-mark ${escapeHtml(item.type)}" title="${escapeHtml(typeLabels[item.type] ?? item.type)}" role="img" aria-label="${escapeHtml(typeLabels[item.type] ?? item.type)}">${escapeHtml(typeMarks[item.type] ?? "·")}</span>${escapeHtml(item.itemKey)}</div>
       <div class="quality-row-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
       <div class="quality-ratio">${escapeHtml(ratio)}<div class="quality-meter ${coverageClass} ${item.baselineSequence === null ? "is-preview" : ""}" aria-hidden="true"><span></span></div></div>
       <span class="quality-state ${statusClass}">${escapeHtml(baselineLabel)} · ${escapeHtml(stateLabel(item.state))}</span>

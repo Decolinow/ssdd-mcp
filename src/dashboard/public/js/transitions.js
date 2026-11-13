@@ -1,4 +1,4 @@
-/* global crypto */
+/* global crypto, document */
 import { transitions } from "./constants.js";
 import { elements } from "./elements.js";
 import { model } from "./model.js";
@@ -128,6 +128,8 @@ export function setView(view) {
     tab.setAttribute("aria-selected", String(selected));
     panel.hidden = !selected;
   }
+  const activeTab = views[view]?.[0];
+  if (activeTab) document.title = `${activeTab.firstChild?.textContent?.trim() || activeTab.textContent.trim()} · SSDD`;
   elements.filters.hidden = view === "home" || view === "metrics" || view === "history" || view === "roadmap" || view === "specifications";
   if (view === "home") renderQuickAccess();
   if (view === "metrics") void loadDashboardMetrics();

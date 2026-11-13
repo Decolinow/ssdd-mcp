@@ -2,6 +2,12 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Revisão de usabilidade e manuais (2026-11-13)
+
+- Auditoria de todas as telas do dashboard com capturas reais (Chrome, 1440×900) e correções de legibilidade (fontes ≥ 11px), listas longas com rolagem interna (Board, Qualidade, Histórico), Board sem colunas esticadas, catálogo de Especificações em grade, cartões de progresso por épico no Roadmap, rótulos (`Backlog do produto`, tooltips das marcas de tipo, seção `Qualidade por PBI`, prioridades P1–P4), item pai e responsáveis legíveis no detalhe, foco visível e `prefers-reduced-motion`. Lista completa em [dashboard.md](dashboard.md#revisao-de-usabilidade-2026-11-13).
+- Novos: [manual do usuário](manual-usuario.md) (tela por tela, com 18 imagens em `docs/images/`), [manual do administrador](manual-administrador.md) e `scripts/capture-dashboard-screenshots.mjs` para regenerar as imagens.
+- `npm run check` 265/265 e `npm run test:browser` verde. Limites: as imagens vêm de uma cópia do banco do próprio projeto; não houve teste com leitor de tela nem em outros navegadores além do Chrome; a revisão visual foi feita pelo desenvolvedor, não por designer.
+
 ## Evidência de CI, fatia 2 (2026-11-13, SSDD-163)
 
 - Nova tool `test_run_import_junit`: importa relatório JUnit e grava uma execução por cenário, associada pela chave do cenário no nome, `classname` ou property `scenario` do `testcase`; falha vence, hash SHA-256 do XML como evidência, DOCTYPE recusado, idempotente por `requestId` e cenário (não atômica).

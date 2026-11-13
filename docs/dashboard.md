@@ -57,6 +57,20 @@ A interface atualiza os dados automaticamente a cada 30 segundos enquanto a aba 
 
 O dashboard é uma aplicação local de loopback. Para vários usuários no mesmo host, cada pessoa entra com a `authKey` já administrada pelo MCP; o servidor resolve o principal e os projetos dessa identidade. Papéis por projeto continuam sendo verificados pelos serviços de aplicação compartilhados com o MCP. O dashboard não implementa o fluxo de login interativo OIDC; essa autenticação permanece disponível aos clientes do servidor MCP.
 
+## Revisão de usabilidade (2026-11-13)
+
+Auditoria da interface inteira com capturas reais (ver [manual do usuário](manual-usuario.md)) e correções:
+
+- **Legibilidade:** nenhuma fonte abaixo de 11px; textos secundários subiram de 10–11px para 12–13px e cinzas de baixo contraste foram escurecidos.
+- **Listas longas:** colunas do Board, cenários e histórico de execuções da aba Qualidade, tabelas e listas do Histórico agora rolam dentro do painel (com cabeçalho fixo nas tabelas), em vez de produzir páginas com dezenas de milhares de pixels.
+- **Board:** colunas vazias não esticam mais até a altura da maior coluna; botões dos cards não quebram linha.
+- **Especificações:** sem item aberto, o catálogo usa a largura toda (grade), sem painel vazio ao lado.
+- **Roadmap:** o resumo por épico ganhou cartões com barra de progresso.
+- **Rótulos:** "Backlog do produto" substitui "Itens fora da sprint ativa"; as marcas H/B/F/E/T têm nome acessível e tooltip; o título da janela acompanha a aba; a seção "Qualidade por PBI" ganhou título e explicação; prioridades do formulário descrevem P1–P4.
+- **Detalhe do item:** o item pai mostra chave e título (não o UUID) e responsáveis aparecem como o seu nome ("você") ou um identificador curto.
+- **Acessibilidade:** foco visível padronizado e respeito a `prefers-reduced-motion`.
+- `scripts/capture-dashboard-screenshots.mjs` regenera as imagens de `docs/images/`.
+
 ## Retrato histórico por data
 
 Na aba **Histórico**, selecione a data no fuso configurado do projeto e escolha **Ver retrato**. O limite é o fim daquele dia local; o controle começa na criação do projeto e não permite datas futuras. **Hoje** consulta a data atual do projeto. A resposta mostra o corte UTC, o fuso, o horário da consulta e os watermarks de auditoria no corte e na fonte atual.

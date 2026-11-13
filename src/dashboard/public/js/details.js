@@ -3,6 +3,14 @@ import { transitions } from "./constants.js";
 import { elements } from "./elements.js";
 import { model } from "./model.js";
 import { escapeHtml, itemTypeLabel, stateLabel, api, toast } from "./ui.js";
+
+/** Nome legível para um principal: a própria sessão mostra o nome; os demais, um identificador curto (UUID completo no title). */
+function personLabel(id) {
+  if (!id) return "Não atribuído";
+  const principal = model.session?.principal;
+  if (principal && principal.id === id) return `${principal.displayName} (você)`;
+  return `Pessoa ${String(id).slice(0, 8)}`;
+}
 import { loadChildTasks, loadTaskContext, loadProjectData } from "./data.js";
 import { renderActivityEvent, formatDate, renderActivity, renderRetrospective } from "./views.js";
 import { metricNumber } from "./metrics.js";
@@ -285,12 +293,12 @@ export async function openItem(itemId) {
       ? `<div class="estimate-list">${item.estimates.map((estimate) => `<span class="estimate-chip">${escapeHtml(formatEstimate(estimate))}</span>`).join("")}</div>`
       : "<p>Sem estimativa confirmada.</p>";
     const parentReference = taskContext?.sections.hierarchy.find((entry) => entry.source.entityId === item.parentId);
-    const parent = item.parentId ? `<p>${escapeHtml(parentReference ? `${parentReference.key} · ${parentReference.title}` : item.parentId)}</p>` : "<p>Sem item pai.</p>";
+    const parent = item.parentId ? `<p>${escapeHtml(parentReference ? `${parentReference.key} · ${parentReference.title}` : ((model.items ?? []).find((candidate) => candidate.id === item.parentId) ? `${(model.items).find((candidate) => candidate.id === item.parentId).key} · ${(model.items).find((candidate) => candidate.id === item.parentId).title}` : item.parentId))}</p>` : "<p>Sem item pai.</p>";
     const businessValue = item.businessValueScore === null
       ? "Ainda não avaliado"
       : `${item.businessValueScore}/100 · ${item.businessValueRationale ? escapeHtml(item.businessValueRationale) : "sem justificativa"}`;
     const children = childTasks.length
-      ? `<ul class="child-task-list">${childTasks.map((task) => `<li><div><button class="link-button" type="button" data-open-item="${escapeHtml(task.id)}"><strong>${escapeHtml(task.key)}</strong> · ${escapeHtml(task.title)}</button><span>${escapeHtml(stateLabel(task.state))} · ${escapeHtml(task.assigneeId || "sem responsável")}</span></div>${renderWorkflowProgress(task)}</li>`).join("")}</ul>`
+      ? `<ul class="child-task-list">${childTasks.map((task) => `<li><div><button class="link-button" type="button" data-open-item="${escapeHtml(task.id)}"><strong>${escapeHtml(task.key)}</strong> · ${escapeHtml(task.title)}</button><span>${escapeHtml(stateLabel(task.state))} · ${escapeHtml(task.assigneeId ? personLabel(task.assigneeId) : "sem responsável")}</span></div>${renderWorkflowProgress(task)}</li>`).join("")}</ul>`
       : "<p>Nenhuma tarefa filha cadastrada.</p>";
     const draftRevision = model.currentRevisions.find((revision) => revision.status === "draft");
     const revisions = model.currentRevisions.map((revision) => `<li>r${revision.revisionNumber} · ${escapeHtml(revision.status)} · ${escapeHtml(new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(revision.createdAt)))}</li>`).join("");
@@ -302,7 +310,7 @@ export async function openItem(itemId) {
       <section class="detail-section"><h3>Item pai</h3>${parent}</section>
       ${item.type === "story" || item.type === "bug" ? `<section class="detail-section"><h3>Tarefas de desenvolvimento · ${childTasks.length}</h3>${children}</section>` : ""}
       ${item.type === "task" ? renderTaskWorkflow(item, workflowResult.workflow) : ""}
-      <section class="detail-section"><h3>Responsável</h3><p>${escapeHtml(item.assigneeId || "Não atribuído")}</p></section>
+      <section class="detail-section"><h3>Responsável</h3><p title="${escapeHtml(item.assigneeId ?? "")}">${escapeHtml(personLabel(item.assigneeId))}</p></section>
       <section class="detail-section"><h3>Revisões de conteúdo</h3><ul>${revisions || "<li>Nenhuma revisão.</li>"}</ul>${draftRevision ? `<button class="button button-secondary" type="button" data-publish-item-revision="${draftRevision.revisionNumber}">Publicar rascunho r${draftRevision.revisionNumber}</button>` : ""}</section>
       ${isPbi ? renderBaselinePanel(baselineResult?.baseline ?? null, impactsResult.impacts) : ""}
       ${qualityResult ? renderQualityDetail(qualityResult.quality) : renderTaskContext(taskContext)}
