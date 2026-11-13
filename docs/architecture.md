@@ -208,6 +208,10 @@ Tabela append-only (triggers bloqueiam `UPDATE`/`DELETE`) com decisão, indicado
 
 Tabela append-only de revisões por projeto (`lite`/`standard`/`strict`, motivo, autor). A política vigente é a maior revisão; sem revisão vale `standard`. Os gates consultam `getGatePolicy` na avaliação.
 
+## Modelos de item (`item_template_revisions`, SSDD-949)
+
+Revisões imutáveis por `template_key` com checklist e etapas ponderadas; `applyItemTemplate` reutiliza `proposeWorkItemRevision` e `proposeTaskWorkflow` (Drafts), com request ids aninhados `:checklist` e `:workflow`.
+
 ## Orientações do projeto (`project_guidance_revisions`, SSDD-948)
 
 Tabela append-only de revisões por projeto com convenções, comandos de verificação, autor e motivo. A seção `guidance` do contexto combina a revisão vigente com as ações da retrospectiva corrente e as devoluções recentes lidas de `work_item_state_transitions`.

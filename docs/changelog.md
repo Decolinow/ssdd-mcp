@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Modelos de item e de workflow (2026-11-13, SSDD-949 / MCP SSDD-152)
+
+- Migração 42 `item_template_revisions` (imutável) e tools `template_set`, `template_apply`, `template_list`. Aplicar um modelo gera Drafts do checklist e do workflow da tarefa, sem publicar.
+
 ## Orientações do projeto no contexto (2026-11-13, SSDD-948 / MCP SSDD-151)
 
 - Migração 41 cria `project_guidance_revisions`. `project_guidance_get/set` gerenciam convenções e comandos de verificação; a seção `guidance` do contexto reúne essas orientações, as ações da retrospectiva vigente e os motivos das últimas devoluções do PBI, com proveniência.

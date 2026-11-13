@@ -100,6 +100,9 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `team_capacity_set` | escrita (aprovável) | — | facilitator | chamada direta (sem skill dedicada) |
 | `team_create` | escrita (aprovável) | — | facilitator | chamada direta (sem skill dedicada) |
 | `team_list` | leitura | — | security_review, po, facilitator, devops | chamada direta (sem skill dedicada) |
+| `template_apply` | escrita (aprovável) | — | dev, tech_lead, po | chamada direta (sem skill dedicada) |
+| `template_list` | leitura | — | dev, tech_lead, po | chamada direta (sem skill dedicada) |
+| `template_set` | escrita (aprovável) | — | tech_lead, po | chamada direta (sem skill dedicada) |
 | `test_run_certify` | escrita (aprovável) | — | qa | ssdd-quality-assurance |
 | `test_run_list` | leitura | cursor | specification, dev, test_design, qa, tech_lead, security_review, po, release, devops, admin | ssdd-quality-assurance, ssdd-test-designer |
 | `test_run_record` | escrita (aprovável) | — | qa | ssdd-quality-assurance |

@@ -133,6 +133,7 @@ import { evidenceKinds } from "../domain/workflow.js";
 import { acceptTask } from "../application/task-accept.js";
 import { describeWithHint } from "./tool-hints.js";
 import { getFlowMetrics } from "../application/flow-metrics.js";
+import { applyItemTemplate, listItemTemplates, setItemTemplate } from "../application/item-templates.js";
 import { readProjectGuidance, setProjectGuidance } from "../application/project-guidance.js";
 import { readGatePolicy, setGatePolicy } from "../application/gate-policy.js";
 import { listReviews, recordReview } from "../application/task-reviews.js";
@@ -3277,6 +3278,73 @@ export function createMcpServer(
     content: z.object({ conventions: z.array(z.object({ title: z.string(), text: z.string() })), verificationCommands: z.array(z.string()) }),
     reason: z.string().nullable(), setByPrincipalId: z.string().uuid().nullable(), setAt: z.string().nullable(),
   });
+
+  const templateSchema = z.object({
+    key: z.string(), revisionNumber: z.number().int().positive(), name: z.string(), checklist: z.array(z.string()),
+    steps: z.array(z.object({ title: z.string(), description: z.string(), effortPercent: z.number() })),
+    reason: z.string(), createdByPrincipalId: z.string().uuid(), createdAt: z.string(),
+  });
+
+  server.registerTool(
+    "template_set",
+    {
+      title: "Definir modelo de trabalho",
+      description: "PO ou Tech Lead humano grava nova revisão imutável de um modelo (chave como endpoint, migracao, correcao) com checklist de saída e etapas ponderadas que somam 100%; expectedRevision 0 cria o modelo.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), key: z.string().trim().min(2).max(60),
+        name: z.string().trim().min(1).max(160), checklist: z.array(z.string().trim().min(1).max(2_000)).max(30),
+        steps: z.array(z.object({ title: z.string().trim().min(1).max(160), description: z.string().trim().min(1).max(4_000), effortPercent: z.number().gt(0).max(100) })).max(50),
+        expectedRevision: z.number().int().min(0), reason: z.string().trim().min(10).max(1_000),
+      }),
+      outputSchema: z.object({ template: templateSchema, auditEventCount: z.number().int().nonnegative() }),
+    },
+    ({ projectId, requestId, key, name, checklist, steps, expectedRevision, reason }) => {
+      try {
+        const receipt = setItemTemplate(database, { projectId, principalId, requestId, key, name, checklist, steps, expectedRevision, reason });
+        const result = { template: receipt.value.template, auditEventCount: receipt.auditEventIds.length };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "template_list",
+    {
+      title: "Listar modelos de trabalho",
+      description: "Lista a revisão mais recente de cada modelo do projeto, ou o histórico de um modelo quando key é informada.",
+      inputSchema: z.object({ projectId: z.string().uuid(), key: z.string().trim().min(2).max(60).optional() }),
+      outputSchema: z.object({ templates: z.array(templateSchema) }),
+    },
+    ({ projectId, key }) => {
+      try {
+        const result = listItemTemplates(database, { projectId, principalId, ...(key === undefined ? {} : { key }) });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "template_apply",
+    {
+      title: "Aplicar modelo a uma tarefa",
+      description: "Opcional e auditado: cria Draft de revisão com o checklist do modelo e Draft de workflow ponderado na tarefa; a publicação continua com o papel humano de sempre.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(100), taskIdOrKey: z.string().trim().min(1).max(120), templateKey: z.string().trim().min(2).max(60),
+      }),
+      outputSchema: z.object({
+        taskKey: z.string(), templateKey: z.string(), templateRevision: z.number().int().positive(),
+        checklistDraftRevision: z.number().int().positive().nullable(), workflowDraftRevision: z.number().int().positive().nullable(),
+        auditEventCount: z.number().int().nonnegative(),
+      }),
+    },
+    ({ projectId, requestId, taskIdOrKey, templateKey }) => {
+      try {
+        const receipt = applyItemTemplate(database, { projectId, principalId, requestId, taskIdOrKey, templateKey });
+        const result = { ...receipt.value, auditEventCount: receipt.auditEventIds.length };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
 
   server.registerTool(
     "project_guidance_get",

@@ -51,6 +51,8 @@ export const approvableMcpToolNames = [
   "task_scope_set",
   "gate_policy_set",
   "project_guidance_set",
+  "template_set",
+  "template_apply",
   "question_answer",
   "task_workflow_propose",
   "task_workflow_publish",

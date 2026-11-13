@@ -2760,6 +2760,28 @@ export const initialMigrations: readonly SqliteMigration[] = [
       BEGIN SELECT RAISE(ABORT, 'project guidance revisions are immutable'); END;
     `,
   },
+  {
+    version: 42,
+    name: "item-templates",
+    sql: `
+      CREATE TABLE item_template_revisions (
+        project_id TEXT NOT NULL REFERENCES projects(project_id),
+        template_key TEXT NOT NULL CHECK (length(template_key) BETWEEN 2 AND 60),
+        revision_number INTEGER NOT NULL CHECK (revision_number > 0),
+        name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 160),
+        checklist_json TEXT NOT NULL CHECK (json_valid(checklist_json)),
+        steps_json TEXT NOT NULL CHECK (json_valid(steps_json)),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) BETWEEN 1 AND 1000),
+        created_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, template_key, revision_number)
+      ) STRICT;
+      CREATE TRIGGER item_template_revisions_no_update BEFORE UPDATE ON item_template_revisions
+      BEGIN SELECT RAISE(ABORT, 'item template revisions are immutable'); END;
+      CREATE TRIGGER item_template_revisions_no_delete BEFORE DELETE ON item_template_revisions
+      BEGIN SELECT RAISE(ABORT, 'item template revisions are immutable'); END;
+    `,
+  },
 ];
 
 export function applyMigrations(
