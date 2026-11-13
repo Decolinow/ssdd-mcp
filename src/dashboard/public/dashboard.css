@@ -745,3 +745,6 @@ footer { display: flex; justify-content: space-between; padding: 15px 4.5vw 20px
   .specification-revision { grid-template-columns: auto minmax(0, 1fr); }
   .specification-revision time { grid-column: 2; }
 }
+.planning-actions { display: flex; justify-content: flex-end; margin: 0 0 10px; }
+.form-hint { margin: 0 0 8px; color: #58677c; font-size: 10px; }
+#planning-payload { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }

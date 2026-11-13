@@ -94,5 +94,12 @@ test("dashboard smoke: login, backlog and board, gate-refused transition and PBI
   await page.fill("#qa-filter-build", "build-inexistente");
   await page.locator("#qa-run-chart .empty-state").waitFor({ state: "visible" });
 
+  await page.click("#open-planning");
+  await page.locator("#planning-dialog[open]").waitFor();
+  await page.selectOption("#planning-operation", "definition_of_done_set");
+  await page.fill("#planning-payload", '{"expectedVersion": 0, "criteria": [{"description": "Smoke verde"}], "reason": "DoD criada pelo smoke."}');
+  await page.click("#submit-planning");
+  await page.locator("#toast:not([hidden])").filter({ hasText: "concluído" }).waitFor();
+
   assert.deepEqual(pageErrors.filter((message) => !/ERR_|Failed to load resource/u.test(message)), [], "the browser console must stay free of script errors");
 });

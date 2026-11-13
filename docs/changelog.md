@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Operações de planejamento no dashboard (2026-11-13, SSDD-99)
+
+- Rota `planning/:operation` e diálogo Planejamento cobrem times, capacidade, DoD, marcos e ciclo de sprint pelos mesmos comandos do MCP. `tests/dashboard/planning-operations.test.ts` cobre CSRF, validação, operação desconhecida e conflito de versão; o smoke de navegador cria uma DoD. `npm run check` 256/256.
+
 ## Gráfico de resultados QA com tabela acessível (2026-11-13, SSDD-95)
 
 - Aba Qualidade: filtros de build, cenário, tarefa/PBI e período, drill-down por resultado por teclado, tabela acessível, estados vazios, watermark e painel de cobertura. Lógica pura em `src/dashboard/public/js/qa-runs.js` com `tests/dashboard/qa-runs.test.ts`; o smoke de navegador exercita a aba. `npm run check` 255/255.

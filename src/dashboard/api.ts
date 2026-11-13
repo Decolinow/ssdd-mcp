@@ -36,6 +36,10 @@ import { specificationKinds } from "../domain/specifications.js";
 import { linkTaskToAdr } from "../application/adr-commands.js";
 import { createSpecification, proposeSpecificationRevision, publishSpecificationRevision, withdrawSpecificationRevision } from "../application/specification-commands.js";
 import { sprintStates } from "../domain/sprints.js";
+import { createTeamCapacityConfiguration, setTeamCapacityConfiguration } from "../application/team-capacity.js";
+import { setDefinitionOfDone } from "../application/definition-of-done.js";
+import { changeMilestoneScope, createMilestone } from "../application/milestones.js";
+import { cancelSprint, changeSprintScope, closeSprint, createSprintDraft, startSprint } from "../application/sprint-commands.js";
 import { workItemStates, workItemTypes } from "../domain/work-items.js";
 import { applyMigrations } from "../storage-sqlite/migrations.js";
 import { openSqliteDatabase, type SqliteDatabase } from "../storage-sqlite/database.js";
@@ -590,6 +594,19 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
         return;
       }
 
+      const planningMatch = /^\/api\/v1\/projects\/([^/]+)\/planning\/([a-z_]+)$/.exec(route);
+      if (request.method === "POST" && planningMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(planningMatch[1]));
+        const operation = planningMatch[2] ?? "";
+        const handler = planningOperations[operation];
+        if (handler === undefined) throw new ApplicationError("NOT_FOUND", "Unknown planning operation.");
+        assertSameOriginMutation(request, origin, session);
+        const body = await readJsonBody(request);
+        const result = handler(database, projectId, principal.id, body);
+        sendJson(response, 200, result);
+        return;
+      }
+
       const projectSprintsMatch = /^\/api\/v1\/projects\/([^/]+)\/sprints$/.exec(route);
       if (request.method === "GET" && projectSprintsMatch !== null) {
         const projectId = parseUuid(decodePathSegment(projectSprintsMatch[1]));
@@ -936,6 +953,101 @@ const withdrawSpecificationBodySchema = z.object({
   expectedVersion: z.number().int().positive(),
   reason: z.string().trim().min(1).max(1000),
 });
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const requestIdField = z.string().trim().min(1).max(128);
+const reasonField = z.string().trim().min(1).max(1_000);
+const references = z.array(z.string().trim().min(1).max(80)).max(100);
+const teamCapacityBody = z.object({
+  requestId: requestIdField,
+  teamName: z.string().trim().min(1).max(120),
+  timezone: z.string().trim().min(1).max(100),
+  hoursPerDay: z.number().positive().max(24),
+  workingDays: z.array(z.number().int().min(1).max(7)).min(1).max(7),
+  members: z.array(z.object({
+    principalId: z.string().uuid(),
+    dedicationPercent: z.number().min(0).max(100),
+    activeFrom: isoDate.optional(),
+    activeUntil: isoDate.optional(),
+  })).min(1).max(100),
+  holidays: z.array(z.object({ date: isoDate, label: z.string().trim().min(1).max(200) })).max(500).optional(),
+  absences: z.array(z.object({ principalId: z.string().uuid(), date: isoDate, hours: z.number().min(0).max(24), reason: z.string().trim().min(1).max(200) })).max(5_000).optional(),
+  reason: reasonField,
+}).strict();
+const sprintStateBody = z.object({ requestId: requestIdField, sprintIdOrKey: z.string().trim().min(1).max(80), expectedVersion: z.number().int().positive(), reason: reasonField }).strict();
+/** Drops undefined optionals so parsed bodies satisfy exactOptionalPropertyTypes inputs. */
+function compact<T extends object>(value: T): { [K in keyof T]: Exclude<T[K], undefined> } {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as { [K in keyof T]: Exclude<T[K], undefined> };
+}
+type PlanningHandler = (database: SqliteDatabase, projectId: string, principalId: string, body: unknown) => unknown;
+const receiptJson = (value: unknown, key: string, auditEventIds: readonly string[]) => ({ [key]: value, auditEventIds });
+const planningOperations: Record<string, PlanningHandler> = {
+  team_create: (database, projectId, principalId, body) => {
+    const input = teamCapacityBody.parse(body);
+    const receipt = createTeamCapacityConfiguration(database, compact({ projectId, principalId, ...input }));
+    return receiptJson(receipt.value, "configuration", receipt.auditEventIds);
+  },
+  team_capacity_set: (database, projectId, principalId, body) => {
+    const input = teamCapacityBody.extend({ expectedVersion: z.number().int().min(0), teamId: z.string().uuid().optional() }).parse(body);
+    const receipt = setTeamCapacityConfiguration(database, compact({ projectId, principalId, ...input }));
+    return receiptJson(receipt.value, "configuration", receipt.auditEventIds);
+  },
+  definition_of_done_set: (database, projectId, principalId, body) => {
+    const input = z.object({
+      requestId: requestIdField, expectedVersion: z.number().int().min(0), reason: reasonField,
+      criteria: z.array(z.object({ id: z.string().uuid().optional(), description: z.string().trim().min(1).max(500) })).min(1).max(50),
+    }).strict().parse(body);
+    const receipt = setDefinitionOfDone(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "revision", receipt.auditEventIds);
+  },
+  milestone_create: (database, projectId, principalId, body) => {
+    const input = z.object({
+      requestId: requestIdField, milestoneKey: z.string().trim().min(1).max(32), title: z.string().trim().min(1).max(120),
+      goal: z.string().trim().min(1).max(1_000), targetDate: isoDate, itemIdsOrKeys: references.min(1), reason: reasonField,
+    }).strict().parse(body);
+    const receipt = createMilestone(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "milestone", receipt.auditEventIds);
+  },
+  milestone_scope_change: (database, projectId, principalId, body) => {
+    const input = z.object({
+      requestId: requestIdField, milestoneIdOrKey: z.string().trim().min(1).max(80), expectedVersion: z.number().int().positive(),
+      addItemIdsOrKeys: references.optional(), removeItemIdsOrKeys: references.optional(), reason: reasonField,
+    }).strict().parse(body);
+    const receipt = changeMilestoneScope(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "milestone", receipt.auditEventIds);
+  },
+  sprint_draft: (database, projectId, principalId, body) => {
+    const input = z.object({
+      requestId: requestIdField, teamId: z.string().uuid().optional(), sprintKey: z.string().trim().min(1).max(32),
+      title: z.string().trim().min(1).max(120), goal: reasonField, startsOn: isoDate, endsOn: isoDate,
+      itemIdsOrKeys: references.min(1), capacityConfigVersion: z.number().int().positive().optional(),
+      definitionOfDoneRevision: z.number().int().positive().optional(), reason: reasonField,
+    }).strict().parse(body);
+    const receipt = createSprintDraft(database, compact({ projectId, principalId, ...input }));
+    return receiptJson(receipt.value, "sprint", receipt.auditEventIds);
+  },
+  sprint_scope_change: (database, projectId, principalId, body) => {
+    const input = z.object({
+      requestId: requestIdField, sprintIdOrKey: z.string().trim().min(1).max(80), expectedVersion: z.number().int().positive(),
+      addItemIdsOrKeys: references.optional(), removeItemIdsOrKeys: references.optional(), reason: reasonField,
+    }).strict().parse(body);
+    const receipt = changeSprintScope(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "sprint", receipt.auditEventIds);
+  },
+  sprint_start: (database, projectId, principalId, body) => {
+    const receipt = startSprint(database, { projectId, principalId, ...sprintStateBody.parse(body) });
+    return receiptJson(receipt.value, "sprint", receipt.auditEventIds);
+  },
+  sprint_cancel: (database, projectId, principalId, body) => {
+    const receipt = cancelSprint(database, { projectId, principalId, ...sprintStateBody.parse(body) });
+    return receiptJson(receipt.value, "sprint", receipt.auditEventIds);
+  },
+  sprint_close: (database, projectId, principalId, body) => {
+    const input = sprintStateBody.extend({ acceptedItemIds: z.array(z.string().uuid()).max(100), reviewSummary: z.string().trim().min(1).max(2_000) }).parse(body);
+    const receipt = closeSprint(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "sprint", receipt.auditEventIds);
+  },
+};
+
 const linkAdrBodySchema = z.object({
   requestId: z.string().trim().min(1).max(128),
   adrIdOrKey: z.string().trim().min(1).max(80),
