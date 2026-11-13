@@ -173,6 +173,22 @@ describe("business value, prioritized execution and project feature roadmap", ()
     assert.equal(roadmap.features.find((item) => item.key === feature.key)?.totalItems, 0);
   });
 
+  it("advances feature progress with completed tasks while keeping the delivered points measure separate", () => {
+    const epic = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "epic", title: "Epic" }).value;
+    const feature = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "feature", title: "Feature", parentId: epic.id }).value;
+    const story = createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "story", title: "Story", parentId: feature.id }).value;
+    const tasks = ["A", "B", "C", "D"].map((title) => createWorkItem(database, { projectId, principalId, requestId: randomUUID(), type: "task", title, parentId: story.id }).value);
+    database.prepare("UPDATE work_items SET state = 'done' WHERE project_id = ? AND item_id IN (?, ?)").run(projectId, tasks[0]!.id, tasks[1]!.id);
+    database.prepare("UPDATE work_items SET state = 'cancelled' WHERE project_id = ? AND item_id = ?").run(projectId, tasks[3]!.id);
+
+    const row = getProjectFeatureRoadmap(database, { projectId, principalId }).features.find((item) => item.key === feature.key);
+
+    assert.equal(row?.taskTotal, 3, "cancelled tasks leave the denominator");
+    assert.equal(row?.taskDone, 2);
+    assert.equal(row?.progressPercent, 66.7);
+    assert.equal(row?.deliveredPercent, null, "no validated PBI points yet");
+  });
+
   it("starts unplanned roadmap windows after the cutoff instead of after the last historical sprint", () => {
     const today = projectToday();
     configureTeam();

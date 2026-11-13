@@ -540,3 +540,7 @@ Erros de domínio aparecem em resultado de ferramenta com `isError: true` e enve
 ## Custo de contexto de `tools/list` (U19)
 
 Medido em 2026-11-12: o catálogo `full` tem 106 tools e ≈554 KB em `tools/list`, dos quais ≈459 KB (83%) são `outputSchema`; `dev` tem 44 tools e ≈193 KB; `tech_lead` 67 tools e ≈276 KB. As tools de sprint pesam ≈23 KB cada porque embutem o mesmo schema de sprint. Para clientes que carregam todos os schemas no contexto, `SSDD_MCP_OMIT_OUTPUT_SCHEMAS=1` remove `outputSchema` do catálogo (redução de ~80%); as respostas continuam trazendo `structuredContent`. Combine com `SSDD_PROFILE` (ex.: `dev`) e, para fechar tarefas, prefira `task_accept` a ~10 chamadas separadas. O padrão continua com schemas para não quebrar clientes que os validam.
+
+### `project_feature_roadmap_get` — progresso (2026-11-13)
+
+`progressPercent` = tarefas concluídas / tarefas não canceladas da feature (fallback: `deliveredPercent` quando não há tarefas). `deliveredPercent` = pontos de histórias/bugs Done. `taskTotal`/`taskDone` detalham a conta; `epics[]` traz o rollup por épico (`key`, `featureCount`, `taskTotal`, `taskDone`, `progressPercent`).

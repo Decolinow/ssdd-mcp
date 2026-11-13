@@ -196,6 +196,9 @@ interface RoadmapFeature {
   readonly completedItems: number;
   readonly cancelledItems: number;
   readonly progressPercent: number | null;
+  readonly deliveredPercent: number | null;
+  readonly taskTotal: number;
+  readonly taskDone: number;
   readonly externalBlockers: readonly { readonly key: string; readonly state: string }[];
   readonly forecast: {
     readonly status: "completed" | "forecast_ready" | "insufficient_data" | "incomplete_scope" | "blocked" | "zero_velocity";
@@ -223,6 +226,7 @@ export interface ProjectFeatureRoadmap {
   readonly forecastUnavailableReason: "team_required" | "insufficient_velocity_samples" | "unknown_feature_scope" | "external_dependency" | "zero_velocity" | null;
   readonly features: readonly RoadmapFeature[];
   readonly featuresTruncated: boolean;
+  readonly epics: readonly { readonly key: string; readonly featureCount: number; readonly taskTotal: number; readonly taskDone: number; readonly progressPercent: number | null }[];
   readonly sprintTimeline: readonly { readonly index: number; readonly startsOn: string; readonly endsOn: string; readonly source: "planned_sprint" | "historical_median" }[];
 }
 
@@ -231,6 +235,8 @@ interface FeatureRow {
   business_value_score: number | null; business_value_rationale: string | null;
   epic_priority: number | null; epic_key: string | null; epic_value: number | null; epic_value_rationale: string | null;
 }
+
+interface FeatureTaskRow { feature_id: string; state: string }
 
 interface FeatureChildRow {
   item_id: string; item_key: string; parent_id: string; state: string; points: number | null;
@@ -281,6 +287,15 @@ export function getProjectFeatureRoadmap(
          AND child.parent_id IN (${boundedFeatures.map(() => "?").join(", ")})
        ORDER BY child.item_key COLLATE NOCASE`,
     ).all(input.projectId, ...boundedFeatures.map((feature) => feature.item_id)) as FeatureChildRow[];
+    const taskRows = boundedFeatures.length === 0 ? [] : database.prepare(
+      `SELECT CASE WHEN parent.type = 'feature' THEN parent.item_id ELSE parent.parent_id END AS feature_id, task.state
+       FROM work_items task
+       INNER JOIN work_items parent ON parent.project_id = task.project_id AND parent.item_id = task.parent_id
+       WHERE task.project_id = ? AND task.type = 'task' AND task.state <> 'cancelled'
+         AND (parent.item_id IN (${boundedFeatures.map(() => "?").join(", ")})
+           OR parent.parent_id IN (${boundedFeatures.map(() => "?").join(", ")}))`,
+    ).all(input.projectId, ...boundedFeatures.map((feature) => feature.item_id), ...boundedFeatures.map((feature) => feature.item_id)) as FeatureTaskRow[];
+    const tasksByFeature = groupBy(taskRows, (task) => task.feature_id);
     const childrenByFeature = groupBy(children, (child) => child.parent_id);
     const preliminary = boundedFeatures.map((feature) => {
       const featureChildren = childrenByFeature.get(feature.item_id) ?? [];
@@ -292,6 +307,10 @@ export function getProjectFeatureRoadmap(
       const totalPoints = completedPoints + remainingPoints;
       const completedItems = featureChildren.filter((child) => child.state === "done").length;
       const cancelledItems = featureChildren.filter((child) => child.state === "cancelled").length;
+      const featureTasks = tasksByFeature.get(feature.item_id) ?? [];
+      const taskTotal = featureTasks.length;
+      const taskDone = featureTasks.filter((task) => task.state === "done").length;
+      const deliveredPercent = totalPoints === 0 ? null : Math.round((completedPoints / totalPoints) * 1000) / 10;
       const effectivePriority = Math.min(feature.priority, feature.epic_priority ?? 4);
       const businessValueScore = feature.business_value_score ?? feature.epic_value;
       const businessValueSource = feature.business_value_score !== null ? feature.item_key
@@ -315,7 +334,11 @@ export function getProjectFeatureRoadmap(
         totalItems: featureChildren.length,
         completedItems,
         cancelledItems,
-        progressPercent: totalPoints === 0 ? null : Math.round((completedPoints / totalPoints) * 1000) / 10,
+        // Progress follows executed work (tasks); deliveredPercent keeps the validated PBI points measure.
+        progressPercent: taskTotal > 0 ? Math.round((taskDone / taskTotal) * 1000) / 10 : deliveredPercent,
+        deliveredPercent,
+        taskTotal,
+        taskDone,
         externalBlockers: getExternalFeatureDependencies(database, input.projectId, feature.item_id),
         forecast: null as RoadmapFeature["forecast"] | null,
       };
@@ -406,9 +429,25 @@ export function getProjectFeatureRoadmap(
       forecastUnavailableReason,
       features: forecastRows,
       featuresTruncated,
+      epics: epicRollup(boundedFeatures, forecastRows),
       sprintTimeline: timeline,
     };
   }).immediate();
+}
+
+function epicRollup(rows: readonly FeatureRow[], features: readonly RoadmapFeature[]): ProjectFeatureRoadmap["epics"] {
+  const epicByFeature = new Map(rows.map((row) => [row.item_key, row.epic_key]));
+  const totals = new Map<string, { featureCount: number; taskTotal: number; taskDone: number }>();
+  for (const feature of features) {
+    const epicKey = epicByFeature.get(feature.key);
+    if (epicKey === null || epicKey === undefined) continue;
+    const entry = totals.get(epicKey) ?? { featureCount: 0, taskTotal: 0, taskDone: 0 };
+    entry.featureCount += 1; entry.taskTotal += feature.taskTotal; entry.taskDone += feature.taskDone;
+    totals.set(epicKey, entry);
+  }
+  return [...totals.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => ({
+    key, ...entry, progressPercent: entry.taskTotal === 0 ? null : Math.round((entry.taskDone / entry.taskTotal) * 1000) / 10,
+  }));
 }
 
 function getExternalFeatureDependencies(database: SqliteDatabase, projectId: string, featureId: string): Array<{ key: string; state: string }> {
