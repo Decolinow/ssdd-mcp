@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { registeredToolNames } from "./registered-tools.js";
 import { test } from "node:test";
 import {
   mcpProfileAllowsPrompt,
@@ -110,9 +109,7 @@ test("stage profiles keep authorization gates separate from visibility and avoid
 });
 
 test("every registered MCP tool is assigned to at least one curated workflow profile", () => {
-  const serverSource = readFileSync(resolve(process.cwd(), "src/mcp/server.ts"), "utf8");
-  const registered = [...serverSource.matchAll(/server\.registerTool\(\s*["']([^"']+)["']/gu)]
-    .map((match) => match[1]!);
+  const registered = registeredToolNames();
   assert.ok(registered.length > 50, "the registry scan should find the MCP tool catalog");
 
   const fullOnlyTools = new Set<string>();
@@ -129,9 +126,7 @@ test("every registered MCP tool is assigned to at least one curated workflow pro
 });
 
 test("stage profiles stay within their reviewed MCP context budgets", () => {
-  const serverSource = readFileSync(resolve(process.cwd(), "src/mcp/server.ts"), "utf8");
-  const registered = [...serverSource.matchAll(/server\.registerTool\(\s*["']([^"']+)["']/gu)]
-    .map((match) => match[1]!);
+  const registered = registeredToolNames();
   const reviewedMaximum: Record<string, number> = {
     refinement: 30, // Inclui question_list, work_item_readiness_review e question_open (SSDD-939).
     specification: 36, // Inclui question_list e work_item_readiness_review (SSDD-939).

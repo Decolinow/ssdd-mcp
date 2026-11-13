@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
+import { registeredToolNames } from "../mcp/registered-tools.js";
 import { evaluateTranscript, type SkillRole, type TranscriptStep } from "../../src/evaluation/skill-eval.js";
 
 const root = process.cwd();
@@ -32,7 +33,7 @@ describe("deterministic skill evaluation (SSDD-952)", () => {
   });
 
   it("keeps every tool named in a skill real and each skill explicit about errors and fabricated evidence", () => {
-    const registered = new Set([...readFileSync(resolve(root, "src/mcp/server.ts"), "utf8").matchAll(/server\.registerTool\(\s*["']([^"']+)["']/gu)].map((match) => match[1]!));
+    const registered = new Set(registeredToolNames(root));
     const toolLike = /^[a-z]+(?:_[a-z]+)*_(?:get|set|list|create|propose|publish|record|add|check|start|accept|transition|query|apply|submit|open|answer|certify|withdraw|assign|estimate|rank|search|index|remove|revoke|rotate|review|issue)$/u;
     const skillsRoot = resolve(root, "skills");
     for (const id of readdirSync(skillsRoot).filter((name) => name.startsWith("ssdd-"))) {

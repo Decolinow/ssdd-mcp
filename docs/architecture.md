@@ -208,6 +208,10 @@ Tabela append-only (triggers bloqueiam `UPDATE`/`DELETE`) com decisão, indicado
 
 Tabela append-only de revisões por projeto (`lite`/`standard`/`strict`, motivo, autor). A política vigente é a maior revisão; sem revisão vale `standard`. Os gates consultam `getGatePolicy` na avaliação.
 
+## Registro de tools do MCP (SSDD-953)
+
+`createMcpServer` (`src/mcp/server.ts`) monta o servidor, aplica o wrapper único de perfil, anotações, dicas, aliases e aprovação humana a `server.registerTool` e delega o registro a módulos em `src/mcp/tools/` (`project-admin`, `work-items`, `specifications`, `execution`, `reporting`, `integrations`, `teams-sprints`, `quality`, `resources`, `prompts`) que recebem um `McpToolContext`. Schemas compartilhados ficam em `schemas.ts` e os helpers de resultado/erro em `tool-support.ts`. Testes que varrem o catálogo usam `tests/mcp/registered-tools.ts`.
+
 ## Modelos de item (`item_template_revisions`, SSDD-949)
 
 Revisões imutáveis por `template_key` com checklist e etapas ponderadas; `applyItemTemplate` reutiliza `proposeWorkItemRevision` e `proposeTaskWorkflow` (Drafts), com request ids aninhados `:checklist` e `:workflow`.
