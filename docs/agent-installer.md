@@ -91,4 +91,4 @@ Não edite os arquivos gerados para manter mudanças permanentes: atualize a ski
 
 `tests/scripts/install-agent-stack.test.ts` cobre dry-run sem escrita, conflitos, preservação de JSONC/TOML, instalação num repositório temporário, nova verificação idempotente, alteração local e handshake com um cliente MCP stdio real. O teste lê ferramentas e skills do servidor instalado. A suíte não afirma ter iniciado as interfaces gráficas dos três clientes nem substitui a revisão de confiança/aprovação de cada um.
 
-O backlog está em [ROADMAP.md](../ROADMAP.md#backlog-de-instala%C3%A7%C3%A3o-para-claude-code-codex-e-opencode), com estimativas e dependências. A decisão de manter o runtime local e as regras de atualização está no [ADR 0014](adr/0014-instalador-local-de-agentes.md).
+A decisão de manter o runtime local e as regras de atualização está no [ADR 0014](adr/0014-instalador-local-de-agentes.md).

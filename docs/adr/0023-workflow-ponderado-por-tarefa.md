@@ -53,4 +53,3 @@ Uma tarefa registra o resultado e os gates, mas não descreve necessariamente as
 - [Contrato MCP](../mcp.md#workflow-ponderado-por-tarefa)
 - [Dashboard](../dashboard.md#workflow-ponderado-da-tarefa)
 - [Arquitetura](../architecture.md#fatia-implementada)
-- [SSDD-931–933](../../ROADMAP.md#implanta%C3%A7%C3%A3o-de-equipe-execu%C3%A7%C3%A3o-e-governan%C3%A7a-enterprise)

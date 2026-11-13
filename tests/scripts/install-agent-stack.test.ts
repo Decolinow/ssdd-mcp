@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/client";
+
+const packageVersion = (JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")) as { version: string }).version;
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { SkillsClient } from "@modelcontextprotocol/client/ext/skills";
 import { parse as parseJsonc } from "jsonc-parser";
@@ -248,7 +250,7 @@ it("restores the staged runtime when a target write fails after the package swap
     'if (command === "run") process.exit(0);',
     'if (command === "pack") {',
     '  const destination = args[args.indexOf("--pack-destination") + 1];',
-    '  const filename = "ssdd-mcp-0.2.0.tgz";',
+    `  const filename = "ssdd-mcp-${packageVersion}.tgz";`,
     '  writeFileSync(join(destination, filename), "fixture package");',
     '  process.stdout.write(JSON.stringify([{ filename }]));',
     '  process.exit(0);',
@@ -257,7 +259,7 @@ it("restores the staged runtime when a target write fails after the package swap
     '  const prefix = args[args.indexOf("--prefix") + 1];',
     '  const installedPackage = join(prefix, "node_modules", "ssdd-mcp");',
     '  mkdirSync(installedPackage, { recursive: true });',
-    '  writeFileSync(join(installedPackage, "package.json"), JSON.stringify({ version: "0.2.0" }));',
+    `  writeFileSync(join(installedPackage, "package.json"), JSON.stringify({ version: "${packageVersion}" }));`,
     '  mkdirSync(join(process.env.SSDD_INSTALLER_ROLLBACK_TARGET, ".agents", "skills", "ssdd-developer", "SKILL.md"), { recursive: true });',
     '  process.exit(0);',
     '}',

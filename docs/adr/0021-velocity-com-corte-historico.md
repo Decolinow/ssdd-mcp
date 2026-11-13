@@ -33,7 +33,7 @@
 
 - [Especificação funcional](../specification.md#s%C3%A9ries-e-unidades)
 - [Dashboard e projeções](../dashboard.md#s%C3%A9ries-e-unidades)
-- [Catálogo MCP](../specification-catalog.md)
+- [Contrato MCP](../mcp.md)
 - `src/application/dashboard-metrics.ts`
 - `src/application/metrics-queries.ts`
 - `src/application/forecast-queries.ts`

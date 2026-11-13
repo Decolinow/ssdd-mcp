@@ -25,4 +25,4 @@
 - Um teste compara o registro MCP à união dos perfis curados; testes stdio e Streamable HTTP exercitam descoberta de catálogo.
 - Testes da busca conferem autorização, filtro, cache, cursor, dimensão, ordenação determinística de top-K, limite anterior à rede e paginação de indexação.
 
-Regras de operação e configuração estão em [docs/mcp.md](../mcp.md#identidade-perfis-e-busca-sem%C3%A2ntica); status e roadmap detalham a execução em [docs/status.md](../status.md) e [ROADMAP.md](../../ROADMAP.md).
+Regras de operação e configuração estão em [docs/mcp.md](../mcp.md#identidade-perfis-e-busca-sem%C3%A2ntica).

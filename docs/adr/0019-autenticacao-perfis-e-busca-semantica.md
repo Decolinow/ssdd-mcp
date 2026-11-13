@@ -28,4 +28,4 @@
 
 ## Validação
 
-Migração v28, testes de bootstrap/rotação/revogação, autenticação HTTP e stdio, superfície por perfil, atribuição `assignedToMe`, paginação/cursor, cache e contrato de embeddings são cobertos pela suíte `npm run check`. Evidência final e status de sincronização do roadmap ficam em [docs/status.md](../status.md).
+Migração v28, testes de bootstrap/rotação/revogação, autenticação HTTP e stdio, superfície por perfil, atribuição `assignedToMe`, paginação/cursor, cache e contrato de embeddings são cobertos pela suíte `npm run check`.

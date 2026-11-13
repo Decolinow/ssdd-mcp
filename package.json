@@ -1,6 +1,6 @@
 {
   "name": "ssdd-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0-beta.1",
   "private": true,
   "description": "Servidor MCP para desenvolvimento guiado por especificações.",
   "type": "module",
@@ -13,7 +13,8 @@
     "skills/",
     "scripts/install-agent-stack.mjs",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": "^24.0.0 || ^26.0.0",
@@ -66,5 +67,22 @@
   },
   "allowScripts": {
     "better-sqlite3@12.11.1": true
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Decolinow/ssdd-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Decolinow/ssdd-mcp/issues"
+  },
+  "homepage": "https://github.com/Decolinow/ssdd-mcp#readme",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "spec-driven-development",
+    "backlog",
+    "qa",
+    "agents"
+  ]
 }

@@ -98,4 +98,4 @@ Recomendações: backup diário e antes de cada atualização; guarde o arquivo 
 
 ## 8. Limites conhecidos desta versão
 
-Servidor de nó único (sem alta disponibilidade), sem telemetria completa, sem macOS validado, origem `ci` exercitada só com eventos de teste, importação de resultados apenas em JUnit (não Cucumber) e sem tela de importação no dashboard. O estado detalhado está em [status.md](status.md).
+Servidor de nó único (sem alta disponibilidade), sem telemetria completa, sem macOS validado, origem `ci` exercitada só com eventos de teste, importação de resultados apenas em JUnit (não Cucumber) e sem tela de importação no dashboard.

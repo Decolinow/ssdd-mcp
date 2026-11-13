@@ -40,4 +40,3 @@
 - [Contrato MCP](../mcp.md#workflow-evid%C3%AAncias-e-certifica%C3%A7%C3%A3o)
 - [Dashboard](../dashboard.md#in%C3%ADcio-seguro-de-tarefa)
 - [Arquitetura](../architecture.md#componentes)
-- [SSDD-926–930](../../ROADMAP.md#implanta%C3%A7%C3%A3o-de-equipe-execu%C3%A7%C3%A3o-e-governan%C3%A7a-enterprise)

@@ -1,131 +1,122 @@
 # SSDD MCP
 
-Servidor Model Context Protocol para desenvolvimento guiado por especificações, com backlog, sprints e rastreabilidade entre regras de negócio, código e testes. Pensado para equipes que trabalham com agentes de IA no editor, no terminal ou em automações.
+> **Versão `0.3.0-beta.1` (beta-01).** Pronta para avaliação e uso por equipes pequenas. Contratos MCP e esquema do banco podem mudar entre betas; leia as [limitações conhecidas](#limitações-conhecidas-do-beta-01) antes de adotar.
 
-Um agente de Product Owner registra uma história com critérios de aceite. Um agente de Dev consulta as regras e decisões técnicas vigentes antes de implementar uma tarefa. Um agente de QA registra evidência para os cenários vinculados. O time acompanha o trabalho no board, percorre QA e auditoria e consulta retrospectivas versionadas com ações atribuídas a pessoas responsáveis.
+Servidor [Model Context Protocol](https://modelcontextprotocol.io) para **desenvolvimento guiado por especificações**: backlog, sprints e rastreabilidade entre regras de negócio, código e testes, pensado para equipes que trabalham com agentes de IA no editor, no terminal ou em automações.
 
-## Começar no repositório
+Um agente de Product Owner registra uma história com critérios de aceite. Um agente de Dev consulta as regras e decisões técnicas vigentes antes de implementar uma tarefa. Um agente de QA registra execuções de cenários publicados, e **uma pessoa certifica**. O time acompanha tudo em um dashboard local, com auditoria de cada mudança.
 
-Requer Node.js 24 ou 26 e npm 10 ou superior.
+![Dashboard do SSDD MCP](docs/images/tela-board.png)
 
-### Preparar um workspace
+## O que você ganha
+
+- **Backlog com hierarquia** Épico → Feature → História/Bug → Tarefa, revisões versionadas e critérios de aceite estruturados.
+- **Especificações versionadas** (regras, glossários, contratos, ADRs) ligadas a itens por vínculos rastreáveis.
+- **QA rastreável:** cenários com revisões publicadas, execuções por build, evidência e **certificação humana** como gate de Done.
+- **Gates configuráveis** por projeto (`lite`, `standard`, `strict`) e **aprovações humanas de uso único** para ações de agentes.
+- **Planejamento:** times, capacidade, Definition of Done, marcos, sprints, retrospectivas, velocidade e previsão Monte Carlo (P25/P50/P75).
+- **Dashboard local** em dez abas, com formulários guiados e acesso por papel ([manual do usuário](docs/manual-usuario.md)).
+- **Skills e agentes nativos** para Claude Code, Codex e OpenCode, instalados por um comando.
+- **Auditoria, backup/restore e exportação** do workspace sem credenciais.
+
+## Requisitos
+
+Node.js 24 ou 26 e npm 10+. Desenvolvido e validado manualmente no Windows; a CI executa Linux, macOS e Windows.
+
+## Começo rápido
 
 ```sh
+git clone https://github.com/Decolinow/ssdd-mcp.git
+cd ssdd-mcp
 npm ci
-npm run check
+npm run check          # lint, tipos e testes
 npm run build
 node dist/src/cli.js init --workspace . --key PAY --name "Pagamentos" --goal "Pagamentos confiáveis" --timezone America/Sao_Paulo
 ```
 
-`init` cria o banco, aplica as migrações, registra o projeto e prepara a identidade local. Execute uma vez por workspace. Se o workspace já foi inicializado, pule esse comando.
+`init` cria o banco SQLite em `.ssdd/`, aplica as migrações, registra o projeto e a identidade local. Na primeira execução do servidor, o usuário do sistema vira **administrador** e a `authKey` aparece **uma única vez** em stderr: guarde-a.
 
-### Iniciar o dashboard local
-
-Em um terminal, rode:
+### Dashboard
 
 ```sh
 node dist/src/cli.js dashboard --workspace . --port 4318
 ```
 
-Abra no mesmo computador a URL de uso único impressa no terminal, incluindo o token. Mantenha o processo em execução enquanto usa o dashboard; `Ctrl+C` encerra o servidor. O dashboard é um processo HTTP local separado do servidor MCP e usa o banco do workspace informado. Se a porta estiver ocupada ou o bind falhar, o comando encerra com código diferente de zero.
+Abra a URL de uso único impressa no terminal (ou entre com a sua `authKey`). O dashboard escuta apenas em loopback. Guia completo: [manual do usuário](docs/manual-usuario.md).
 
-Hoje a interface oferece dez abas (guia ilustrado no [manual do usuário](docs/manual-usuario.md)), começando por **Início**, uma visão de acesso rápido com próximos passos do papel de trabalho selecionado entre os papéis concedidos ao usuário no projeto. A home mostra filas de desenvolvimento, revisão, validação e refinamento, impedimentos e atalhos; assumir uma tarefa só atribui trabalho elegível e não inicia sessão. Roadmap ordena Features por prioridade e valor, mostra progresso por pontos confirmados e apresenta timeline por sprint; datas P25/P50/P75 só aparecem com ao menos três sprints comparáveis e escopo estimado. Histórico permite escolher data no fuso do projeto e reconstruir estados/versionamento de itens, QA, sessões/releases, sprints, marcos e atividade auditada, com limites visíveis. É possível cadastrar histórias e bugs, propor/publicar revisões de PBI, cadastrar/publicar cenários e registrar execuções ligadas a revisão publicada e build. Métricas comparam sprint selecionada à mediana de sprints anteriores da mesma geração, oferecem janelas de velocidade de 4/8/12 sprints e filtram esforço por pessoa e período local do projeto. A tela diferencia séries históricas de WIP/cobertura atuais; a calibração usa somente tarefas concluídas com estimativa confirmada. O detalhe de tarefas mostra datas e histórico de sessões e releases de homologação/produção. As mutações de sessão e deployment ficam no MCP nesta versão; consulte o [guia do dashboard](docs/dashboard.md) para fluxos, papéis, filtros e rotas.
-
-### Iniciar o servidor MCP
-
-`npm start` inicia o transporte MCP stdio no diretório atual; clientes MCP normalmente iniciam esse processo por configuração. Para usar Streamable HTTP local, rode em outro terminal:
+### Servidor MCP
 
 ```sh
-node dist/src/cli.js serve --workspace . --port 4319
+npm start                                              # stdio, no diretório atual
+node dist/src/cli.js serve --workspace . --port 4319   # Streamable HTTP em http://127.0.0.1:4319/mcp
 ```
 
-O endpoint local fica em `http://127.0.0.1:4319/mcp`. Para acesso compartilhado, mantenha o servidor em loopback atrás de um proxy TLS e configure `--oidc-issuer` e `--resource-url`. O servidor valida tokens JWT por descoberta OIDC/JWKS e exige o escopo `ssdd:mcp`. Cada identidade `iss+sub` precisa receber acesso aos projetos necessários por administrador local com `ssdd-mcp access grant`; `ssdd-mcp access revoke` remove papéis e registra auditoria. Os papéis vêm das associações do projeto, nunca dos valores de papel declarados no token. Após conectar, o cliente chama `project_list`, deixa a pessoa escolher quando houver vários projetos e envia o UUID escolhido em `projectId` em cada operação. Veja o [runbook de servidor para equipe](docs/team-server.md) para proxy, configuração, probes e limites do SQLite.
+Clientes MCP normalmente iniciam o processo stdio por configuração. Para equipes, mantenha o `serve` em loopback atrás de proxy TLS com OIDC ([runbook de equipe](docs/team-server.md)).
 
-Na primeira inicialização do host MCP, o principal local do sistema operacional se torna o único administrador da instância. O servidor gera uma `authKey` aleatória e a mostra **uma única vez em stderr**; armazene-a em um cofre de segredos. Com ela, o admin usa `user_create` para cadastrar identidades, conceder papéis por projeto e emitir a chave de cada pessoa/automação. `user_list`, `user_auth_key_rotate` e `user_auth_key_revoke` administram acessos e chaves. Clientes HTTP enviam `Authorization: Bearer <authKey>`; com OIDC configurado, tokens OIDC provisionados continuam aceitos. No stdio, passe `SSDD_AUTH_KEY` e opcionalmente `SSDD_PROFILE` no ambiente do processo. O dashboard aceita a mesma `authKey` em uma tela de login no browser; recebe a credencial somente no POST de autenticação, emite uma sessão web efêmera e aplica os projetos/papéis do principal. O token local de bootstrap continua disponível para o operador do host. Veja [autenticação no dashboard](docs/dashboard.md#autenticacao-e-sessao-web).
+### Agentes e skills em outro repositório
 
-O perfil reduz o contexto exposto e pode ser definido por conexão: no Streamable HTTP, use `X-SSDD-Profile`; no stdio, `SSDD_PROFILE`. Há perfis de fluxo `refinement`, `specification`, `dev`, `test_design`, `qa`, `security_review`, `devops`, `release`, `po`, `tech_lead`, `facilitator`, `admin` e `full`. Cada perfil seleciona tools, prompts e skills adequados à etapa. `full` é o padrão. O perfil organiza a interface e não concede autorização; papéis do projeto e gates humanos continuam sendo verificados em cada operação. Para encontrar itens atribuídos à identidade autenticada, use `work_item_list` com `assignedToMe: true`. Busca semântica requer um provedor de embeddings configurado; veja [autenticação, perfis e busca semântica](docs/mcp.md#identidade-perfis-e-busca-sem%C3%A2ntica) e [configuração de equipe](docs/team-server.md#bootstrap-admin-e-authkey).
-
-Mutações delegadas a agentes e serviços exigem aprovação humana de uso único, vinculada à ferramenta, projeto, argumentos, versão e executor; `approval_issue` e `approval_revoke` são restritas a admins humanos. O MCP oferece ferramentas e resources para backlog, prioridade/valor de negócio, fila de execução, roadmap por Feature, especificações versionadas, rastreabilidade, QA, contexto de tarefa, workflows ponderados, evidências, times, capacidade, marcos, métricas, Definition of Done, sprints, retrospectivas, sessões de desenvolvimento e eventos de deployment. `task_execution_queue_get` recomenda tarefas liberadas por gates na ordem P1–P4 e score herdado; `project_feature_roadmap_get` e o dashboard compartilham a ordenação e a timeline. `task_workflow_get/propose/publish/step_transition` consulta histórico, propõe e publica revisões e atualiza etapas com auditoria; somente etapas Concluídas somam para o progresso, e a conclusão continua sujeita aos gates de evidência/QA existentes. `development_session_start/transition/list` registra autoria e duração ativa; `developer_execution_metrics_get` calcula esforço/calibração em horas sem misturar pontos de história. `deployment_event_record/list` separa homologação e produção de `Done` e exige o mesmo build homologado para uma produção aprovada. `roadmap_id_bind/resolve/list` mantém os IDs estáveis sem conflitar com chaves geradas. Consulte o [contrato MCP](docs/mcp.md), a [especificação](docs/specification.md), o [runbook de equipe](docs/team-server.md) e a [arquitetura](docs/architecture.md).
-
-O início de uma tarefa usa `task_start_check` para explicar dependências/gates e `task_start` para revalidar sob transação e abrir a sessão junto com a transição Ready → `in_progress`; o dashboard usa a mesma operação atômica. Não existe início forçado com dependências pendentes. ADRs podem ser criados como Draft, pesquisados e ligados a tarefas com `adr_create`, `adr_search` e `adr_link_task`; uma ligação `implements` exige ADR publicado para iniciar, enquanto `relates_to` é contextual. Workflows ponderados são opcionais por tarefa: passos ordenados somam 100%, a sessão fixa a revisão publicada e o percentual é calculado pelas etapas concluídas. Para agentes paralelos, atribua tarefas e mantenha sessões distintas em worktrees Git isolados; o MCP ainda não reserva arquivos e não impede colisões de edição. Consulte [coordenação e limitações de sessões](docs/architecture.md#fatia-implementada).
-
-Para receber PRs e workflows assinados do GitHub, configure `SSDD_WEBHOOK_SECRET_GITHUB__PAY` e `SSDD_GITHUB_REPOSITORY_PAY=acme/payments` para o endpoint `POST /webhooks/github/PAY`. O receptor valida o repositório e a assinatura e registra recibos, auditoria e snapshots sem armazenar o segredo ou o corpo bruto. `github_reference_list` consulta PRs, SHAs e runs ligados aos itens sem alterar estado ou certificar QA.
-
-Os projetos podem ter vários times. Use `team_list` para obter IDs e `team_create` para adicionar um time com calendário e composição próprios. Capacidade, sprints e previsão aceitam `teamId`; sem seleção, o fluxo só assume o time quando o projeto tem exatamente um. O dashboard oferece o seletor global de time para sprints, retrospectivas, velocidade e previsão.
-
-Para importar issues GitHub, configure também `SSDD_GITHUB_ISSUES_TOKEN_PAY` com acesso read-only. `github_issue_import_preview` consulta sem gravar; revise `planHash` e aplique com `github_issue_import_apply`. O apply exige PO humano e cria itens em Draft sob a Feature escolhida; veja a [configuração detalhada](docs/mcp.md#importação-unidirecional-de-issues-github).
-
-O Azure Boards também pode ser importado por `azure_work_item_import_preview/apply`, usando `SSDD_AZURE_DEVOPS_ORGANIZATION_PAY`, `SSDD_AZURE_DEVOPS_PROJECT_PAY` e um PAT organizacional read-only em `SSDD_AZURE_DEVOPS_TOKEN_PAY`. O fluxo mapeia `User Story` para `story` e `Bug` para `bug`, exige PO humano para aplicar e só executa consultas read-only; veja a [configuração detalhada](docs/mcp.md#importação-unidirecional-do-azure-boards).
-
-O MCP publica oito prompts e dez skills/agentes para análise de negócio, refinamento técnico, desenvolvimento, desenho e execução de testes, segurança, facilitação, release e administração. A conexão filtra também prompts e skills pelo perfil escolhido, evitando catálogo irrelevante no contexto. Os prompts orientam o agente sem executar mutações ao serem carregados; clientes compatíveis podem listar e validar os arquivos da extensão MCP Skills. Consulte [prompts, skills e matriz de perfis](docs/mcp.md#prompts-e-skills-para-agentes), o [guia do servidor de equipe](docs/team-server.md) e o [backlog de habilitação de agentes](ROADMAP.md#backlog-de-habilitação-de-agentes).
-
-Para preparar outro repositório Git com runtime local, skills e agentes para Claude Code, Codex e OpenCode, rode o instalador deste projeto. O padrão mostra apenas o plano; `--apply` instala e `--check` valida depois:
-
-```powershell
-npm run agents:install -- --target ..\meu-projeto
-npm run agents:install -- --target ..\meu-projeto --apply
-npm run agents:install -- --target ..\meu-projeto --check
+```sh
+npm run agents:install -- --target ../meu-projeto            # mostra o plano
+npm run agents:install -- --target ../meu-projeto --apply    # instala
+npm run agents:install -- --target ../meu-projeto --check    # valida
 ```
 
-O pacote privado é instalado por tarball local em `.ssdd/agent-runtime`; configurações existentes são preservadas e conflitos com arquivos não gerenciados interrompem a aplicação. Consulte o [guia do instalador](docs/agent-installer.md) e os [itens SSDD-67–84](ROADMAP.md#backlog-de-instala%C3%A7%C3%A3o-para-claude-code-codex-e-opencode).
+Instala o runtime local em `.ssdd/agent-runtime` e as skills/agentes para Claude Code, Codex e OpenCode, preservando configurações existentes ([guia do instalador](docs/agent-installer.md)).
 
-Comandos de operação: `ssdd-mcp doctor [--workspace <diretório>]` verifica a saúde do banco sem alterá-lo; `ssdd-mcp backup [--workspace <diretório>] [--output <arquivo.sqlite>]` cria um backup online e manifesto `.manifest.json`; `ssdd-mcp restore --backup <arquivo.sqlite> [--workspace <workspace limpo>]` valida e restaura em um diretório com `.ssdd` ausente ou vazio; e `ssdd-mcp export [--workspace <diretório>] --format json|markdown|gherkin [--output <arquivo>]` exporta dados do projeto ou revisões publicadas de cenários sem credenciais. O formato Gherkin pode ser salvo como `.feature`; exportação não substitui backup. Cada subcomando aceita `--help` (ou `-h`) para mostrar uso e opções sem executar a operação. O fluxo, os limites e a recuperação estão em [ADR 0005](docs/adr/0005-workspace-backup-restore-export.md).
-
-## Distribuição local e container
-
-`npm pack` gera um tarball instalável para validar ou distribuir uma versão local. O pacote continua privado e não é publicado no registry. `Dockerfile` constrói runtime Node 24 com dependências de produção e usuário sem privilégios; `compose.yaml` monta o volume nomeado `ssdd-data` em `/data` e mantém o processo MCP em stdio, sem publicar uma porta.
+### Container
 
 ```sh
 docker compose build
 docker compose run --rm ssdd-mcp init --workspace /data --key PAY --name "Pagamentos" --goal "Pagamentos confiáveis" --timezone America/Sao_Paulo
-docker compose run --rm -i ssdd-mcp
+docker compose run --rm -i ssdd-mcp     # MCP por stdio; o volume ssdd-data mantém o banco
 ```
 
-Configure o cliente MCP para executar `docker compose run --rm -i ssdd-mcp`. Cada sessão cria um container novo, mas usa o volume persistente. Para deployment compartilhado, mantenha o fluxo atrás de proxy TLS com OIDC; não publique diretamente uma porta do container. A tarefa SSDD-604 adiciona smoke test de pacote e recriação do container ao workflow de CI.
+## Comandos da CLI
 
-`npm run check` executa lint, verificação de tipos e os testes unitários e de integração. A CI repete a verificação em Linux, macOS e Windows com Node 24 e 26.
+| Comando | Função |
+|---|---|
+| `init` | Cria o workspace e o projeto |
+| `stdio` / `serve` | Servidor MCP por stdio ou Streamable HTTP (loopback) |
+| `dashboard` | Dashboard e API local |
+| `access grant` / `access revoke` | Papéis por projeto para identidades OIDC |
+| `doctor` | Diagnóstico read-only do banco |
+| `backup` / `restore` | Backup online com manifesto e restauração validada |
+| `export` | Exporta JSON, Markdown ou Gherkin, sem credenciais |
 
-`npm run demo:release` roda o fluxo integrado com PO, Developer e QA em clientes OIDC MCP separados e confirma o resultado no dashboard local, usando um issuer de teste em loopback.
+Cada subcomando aceita `--help`. Detalhes operacionais no [manual do administrador](docs/manual-administrador.md).
+
+## Segurança em resumo
+
+Dashboard e MCP HTTP só escutam em loopback; sessão web efêmera com verificação de origem e CSRF; RBAC por projeto aplicado nos serviços; auditoria imutável; mutações de agentes exigem aprovação humana de uso único; webhooks com assinatura HMAC; importações externas somente leitura. Para reportar uma vulnerabilidade veja [SECURITY.md](SECURITY.md).
+
+## Limitações conhecidas do beta-01
+
+- **Nó único:** SQLite local, sem alta disponibilidade nem telemetria completa.
+- **Certificação de QA** é humana por desenho; os registros deste repositório foram feitos por delegação, em builds locais.
+- **Origem `ci`** (execuções confiáveis vindas do pipeline) só foi exercitada com eventos de teste, não com webhook real do GitHub. Importação de resultados apenas em **JUnit** (não Cucumber) e sem tela no dashboard.
+- **Sem revisão independente humana** de segurança e dos ADRs 0029 e 0030.
+- **macOS** roda na CI mas não teve validação manual.
+- **Dashboard:** seleção de time/sprint/marco em formulários ainda é por chave ou UUID digitados; revisão de acessibilidade feita sem leitor de tela.
+- O pacote é **privado** (não publicado no npm); instale a partir do repositório ou de `npm pack`.
 
 ## Documentação
 
 | Documento | Conteúdo |
 |---|---|
-| [Especificação funcional](docs/specification.md) | Domínio, rastreabilidade, papéis, fluxos de trabalho e critérios de aceite |
-| [Catálogo de especificações MCP](docs/specification-catalog.md) | Revisões publicadas, rastreabilidade, estado do cenário QA e leitura pelo MCP |
-| [Arquitetura e operação](docs/architecture.md) | Runtime, módulos, persistência, auditoria, concorrência e segurança |
-| [Contrato MCP](docs/mcp.md) | Ferramentas, filtros, contexto por tarefa, formatos e erros |
-| [Prompts e skills de agente](docs/mcp.md#prompts-e-skills-para-agentes) | Fluxos por papel, ferramentas recomendadas e gates humanos |
-| [Instalador de agentes](docs/agent-installer.md) | Runtime local, skills e perfis nativos para Claude Code, Codex e OpenCode |
-| [Manual do usuário](docs/manual-usuario.md) | Tela por tela do dashboard, com imagens, fluxos por papel e mensagens comuns |
-| [Manual do administrador](docs/manual-administrador.md) | Instalação, identidades e papéis, backup/restore, atualização, segurança e solução de problemas |
-| [Dashboard e projeções](docs/dashboard.md) | Início local, dez abas, acesso rápido por papel, roadmap gráfico, cadastro de PBIs, cenários, execuções, retrato histórico, limites e projeções |
-| [Roadmap](ROADMAP.md) | Épicos, sprints, tarefas estimadas, dependências e entregas verificáveis |
-| [Simulação de projeto solo](docs/solo-simulation.md) | Definition of Done, capacidade, fluxo MCP completo e próximos passos |
-| [Demo local](docs/demo.md) | Trilha PO → Dev → QA, configuração de cliente stdio e validação do pacote |
-| [Notas de release v0.2.0 (rascunho)](docs/release-v0.2.md) | Compatibilidade, upgrade, instalação e gate de publicação |
-| [Análise de qualidade e melhorias](docs/analise-qualidade-e-melhorias.md) | Lacunas de fidelidade de entrega, propostas SSDD-938–955 e ordem recomendada |
-| [Status](docs/status.md) | Estado atual resumido, evidência por tarefa e próximo passo |
-| [Changelog de status](docs/changelog.md) | Histórico datado de entregas, verificações e auditorias |
-| [Refinamentos das sprints](docs/roadmap-refinements.md) | Decisões detalhadas das Sprints 1–8, em consulta histórica |
-| [Sessões e releases por tarefa (ADR 0017)](docs/adr/0017-sessoes-de-desenvolvimento-e-releases.md) | Datas, autoria, calibração em horas, gates de promoção e limites de recuperação |
-| [Desenvolvimento](docs/development.md) | Instalação, comandos, fluxo de contribuição e atualização da documentação |
-| [Decisão inicial de stack](docs/adr/0001-stack-inicial.md) | Versões escolhidas e premissas ainda abertas |
-| [Decisão de Streamable HTTP local](docs/adr/0002-streamable-http-local.md) | Transporte e limites de rede do adaptador MCP HTTP |
-| [Decisão de OAuth/OIDC](docs/adr/0003-oauth-oidc-resource-server.md) | Autenticação de equipe, provisionamento e papéis |
-| [Decisão de aprovações delegadas](docs/adr/0004-single-use-tool-approvals.md) | Vínculo, validade, consumo atômico e auditoria de execução por agente |
-| [Decisão de webhooks](docs/adr/0007-receptor-de-webhooks.md) | Assinatura HMAC, segredo por projeto, recibo idempotente e auditoria |
-| [Decisão de referências GitHub](docs/adr/0008-referencias-github.md) | Mapeamento de repositório, allowlist, snapshots e consulta autorizada |
-| [Decisão de importação GitHub](docs/adr/0009-importacao-github.md) | Preview hash-bound, leitura unidirecional e vínculo idempotente de issues |
-| [Decisão de importação Azure Boards](docs/adr/0010-importacao-azure-boards.md) | WIQL/batch read-only, tipos mapeados e aplicação humana idempotente |
-| [Decisão de isolamento de times](docs/adr/0012-isolamento-de-times-por-projeto.md) | Seleção explícita, composição independente, reservas de PBI e snapshots por time |
-| [Decisão de recuperação do workspace](docs/adr/0005-workspace-backup-restore-export.md) | Backup online, manifesto, restauração atômica, diagnóstico e exportação |
-| [Decisão do instalador local](docs/adr/0014-instalador-local-de-agentes.md) | Runtime ignorado pelo Git, merge seguro de configuração e atualização por manifesto |
-| [Autenticação, perfis e busca semântica (ADR 0019)](docs/adr/0019-autenticacao-perfis-e-busca-semantica.md) | Bootstrap admin, authKeys, superfície de tools e embeddings opcionais |
-
-## Status
-
-O projeto já tem fluxos locais executáveis para backlog, especificações, rastreabilidade, QA, entrega, capacidade, marcos e ciclo de sprint: cenários versionados, baselines com impactos, transições auditadas, evidência por item, certificação humana de QA, planejamento com snapshots, fechamento de itens aceitos/incompletos e retrospectivas imutáveis com ações acompanháveis. A camada de aplicação reconstrói burndown, burnup, velocidade, WIP e cobertura com watermark e corte temporal, e calcula previsões Monte Carlo P25/P50/P75 e probabilidade até a meta com seed e histórico imutáveis, capacidade futura explícita e bloqueios sem data estimada. Velocidade é pontos por sprint; consultas históricas respeitam o corte local e a geração do time, e pontos/hora é referência descritiva. O dashboard e a ferramenta MCP `metrics_get` usam a mesma projeção e autorização; filtros e watermark ficam alinhados. A cobertura entrega até 20 linhas de detalhe e mantém totais do projeto; um cache por watermark reduz leituras repetidas. O benchmark local verifica reconstrução fria, cinco clientes MCP, leituras concorrentes e gravações em fixture com 10 mil itens e 50 mil eventos. No dashboard, tarefas têm workflows opcionais com revisão publicada, histórico, etapas ordenadas, progresso ponderado e gate de conclusão; o detalhe de PBI também resume o avanço das tarefas filhas. Product Backlog e board permitem consultar e transicionar itens; a interface oferece detalhe de PBI, cadastro/revisão de PBIs e cenários, registro e histórico de execuções, gráfico dos resultados recentes, timeline e retrospectiva. Certificações existentes são exibidas no detalhe; a certificação de execuções continua no MCP. A sessão de loopback protege as ações com origem e CSRF. Consulte o [status detalhado](docs/status.md) antes de iniciar uma tarefa.
+| [Manual do usuário](docs/manual-usuario.md) | Tela por tela do dashboard, com imagens e fluxos por papel |
+| [Manual do administrador](docs/manual-administrador.md) | Instalação, identidades, backup/restore, atualização e solução de problemas |
+| [Dashboard e projeções](docs/dashboard.md) | Abas, rotas, filtros, projeções e regras de interface |
+| [Contrato MCP](docs/mcp.md) | Ferramentas, filtros, formatos e erros; veja também a [matriz de paridade MCP](docs/mcp-parity-matrix.md) e a [do dashboard](docs/dashboard-parity-matrix.md) |
+| [Especificação funcional](docs/specification.md) | Domínio, papéis, fluxos e critérios de aceite |
+| [Arquitetura](docs/architecture.md) | Módulos, persistência, auditoria, concorrência e segurança |
+| [Servidor de equipe](docs/team-server.md) | OIDC, proxy TLS, probes e limites do SQLite |
+| [Instalador de agentes](docs/agent-installer.md) | Runtime local, skills e agentes para Claude Code, Codex e OpenCode |
+| [Demo local](docs/demo.md) | Trilha PO → Dev → QA com cliente stdio |
+| [Desenvolvimento](docs/development.md) | Ambiente, testes, migrações, empacotamento e contribuição |
+| [Benchmark de busca semântica](docs/semantic-search-benchmark.md) | Metodologia e resultados |
+| [ADRs](docs/adr/) | 30 decisões de arquitetura (stack, transportes, OIDC, aprovações, webhooks, importações, métricas, gates, CI) |
+| [CHANGELOG](CHANGELOG.md) | Notas de versão |
+| [CONTRIBUTING](CONTRIBUTING.md) | Como contribuir |
 
 ## Licença
 

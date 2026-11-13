@@ -38,14 +38,7 @@ node dist/src/cli.js init --workspace . --key SSDD --name "SSDD MCP" --goal "Ent
 node dist/src/cli.js doctor --workspace .
 ```
 
-O banco fica em `.ssdd/ssdd.sqlite`, que é ignorado pelo Git. Para importar as tarefas descritas em `ROADMAP.md` ao projeto `SSDD`, execute o sincronizador com a versão compilada do servidor:
-
-```sh
-npm run build
-node scripts/sync-roadmap-to-mcp.mjs --apply
-```
-
-`--help` mostra o uso sem iniciar o MCP; a execução exige `--apply` para evitar escrita implícita. O script usa um cliente MCP stdio real, cria épicos/features/histórias de meta/tarefas, adiciona as dependências `depends_on` e confere o grafo importado. `SSDD_WORKSPACE` e `SSDD_PROJECT_KEY` permitem selecionar outro workspace/chave. IDs de requisição e chaves de roadmap evitam duplicação; a suíte repete a importação após mudar o status no Markdown. A reimportação não altera automaticamente títulos, critérios, descrições, estado de workflow ou dependências de itens existentes; mudanças de conteúdo devem seguir o fluxo versionado de revisão e aprovação no MCP. `docs/status.md` é o registro factual local da implementação; ele não publica a tarefa nem muda seu estado de workflow. A importação inicial deixa os itens em Draft: texto de roadmap/status não representa aprovação, baseline, evidência nem aceite dos gates. Mantenha o estado local junto das alterações em [ROADMAP.md](../ROADMAP.md).
+O banco fica em `.ssdd/ssdd.sqlite`, que é ignorado pelo Git. Não versione o diretório `.ssdd`.
 
 Para receber GitHub webhooks no mesmo processo `serve`, configure o segredo HMAC e o repositório permitido por projeto:
 
@@ -121,7 +114,6 @@ O pacote é validado como tarball local; `private: true` impede publicação aci
 
 - Testes usam `node:test` e ficam em `tests/`, próximos ao módulo que cobrem.
 - Testes de SQLite devem usar diretórios temporários e fechar conexões ao terminar.
-- `tests/scripts/sync-roadmap-to-mcp.test.ts` exercita o importador com workspace temporário e cliente MCP real, incluindo reexecução após mudança do status descritivo sem criar itens duplicados.
 - `tests/scripts/install-agent-stack.test.ts` cobre preview read-only, conflitos, instalação/atualização por manifesto, preservação de JSONC/TOML e handshake do runtime instalado com cliente MCP stdio real.
 - `npm run demo:release` compila e executa a trilha integrada OIDC PO/Developer/QA → MCP Streamable HTTP → dashboard; usa fixture local sem tenant externo.
 - Backup/restore usa bancos temporários com WAL e manifesto; cubra corrupção/hash inválido, alvo não vazio, histórico após restauração e consultas read-only de projeções. Exportações devem ter fixture com credenciais em colunas e JSON aninhado e provar que nenhum segredo aparece.
@@ -133,13 +125,13 @@ O pacote é validado como tarball local; `private: true` impede publicação aci
 
 `docs/images/` é gerado por `scripts/capture-dashboard-screenshots.mjs <url-com-token> docs/images`, que abre cada aba e diálogo do dashboard em Chrome (`SSDD_BROWSER_CHANNEL` troca o canal). Rode-o depois de mudar a interface e revise as imagens antes de commitar; use uma cópia do workspace para não expor dados reais. Os textos estão em [manual-usuario.md](manual-usuario.md) e [manual-administrador.md](manual-administrador.md).
 
-## Fluxo por tarefa
+## Fluxo de contribuição
 
-1. Selecione uma tarefa pronta em [ROADMAP.md](../ROADMAP.md), respeitando pré-requisitos. IDs como `SSDD-103` são referências estáveis.
-2. Mantenha o escopo da mudança ligado ao aceite da tarefa e registre decisões que afetam mais de uma implementação em `docs/adr/`.
-3. Atualize, na mesma alteração, a documentação de domínio, contrato MCP, arquitetura, dashboard ou operação que tenha sido afetada.
-4. Execute `npm run check`. Não marque a tarefa concluída sem evidência do aceite e da verificação aplicável.
-5. Atualize [docs/status.md](status.md) (resumo e linha da tarefa), registre a narrativa datada em [docs/changelog.md](changelog.md) e atualize o status do roadmap junto com a entrega.
+1. Abra uma issue descrevendo o problema ou a proposta, ou escolha uma existente. Veja [CONTRIBUTING.md](../CONTRIBUTING.md).
+2. Mantenha a mudança focada e registre decisões que afetam mais de uma implementação em `docs/adr/`.
+3. Atualize, na mesma alteração, a documentação de domínio, contrato MCP, arquitetura, dashboard ou operação que tenha sido afetada, e o [CHANGELOG](../CHANGELOG.md) quando houver mudança visível.
+4. Execute `npm run check` (e `npm run test:browser` se mexeu no dashboard). Inclua o resultado no PR.
+5. Se a interface mudou, regenere as imagens (seção acima).
 
 ## Definição de pronto
 

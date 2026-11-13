@@ -194,4 +194,4 @@ node dist/src/cli.js backup --workspace /srv/ssdd --output /srv/backup/ssdd.sqli
 | Data de homologação e produção separadas de Done | Sim; derivadas de eventos imutáveis e vinculados a build/tarefa; a UI lê o histórico e a gravação é feita pelo MCP |
 | Recuperação automática de sessão ativa após queda abrupta | Não; sessão precisa de revisão e pausa/conclusão explícita quando o serviço voltar |
 
-As lacunas e critérios de evolução estão em [ROADMAP.md](../ROADMAP.md#auditoria-e-pr%C3%B3ximas-melhorias-do-mcp). A decisão de topologia e seleção explícita de projeto está no [ADR 0016](adr/0016-implantacao-compartilhada-http.md). Para detalhe de protocolo e catálogo, consulte [docs/mcp.md](mcp.md); para banco e segurança, [docs/architecture.md](architecture.md).
+A decisão de topologia e seleção explícita de projeto está no [ADR 0016](adr/0016-implantacao-compartilhada-http.md). Para detalhe de protocolo e catálogo, consulte [docs/mcp.md](mcp.md); para banco e segurança, [docs/architecture.md](architecture.md).
