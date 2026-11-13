@@ -31,6 +31,10 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `development_session_transition` | escrita (aprovável) | — | dev, tech_lead | ssdd-developer |
 | `evidence_add` | escrita (aprovável) | — | dev, qa, tech_lead | chamada direta (sem skill dedicada) |
 | `evidence_list` | leitura | cursor | specification, dev, test_design, qa, tech_lead, security_review, po, release, admin | chamada direta (sem skill dedicada) |
+| `file_claim_acquire` | escrita | — | dev, tech_lead | chamada direta (sem skill dedicada) |
+| `file_claim_list` | leitura | — | dev, tech_lead | chamada direta (sem skill dedicada) |
+| `file_claim_release` | escrita | — | dev, tech_lead | chamada direta (sem skill dedicada) |
+| `file_claim_renew` | escrita | — | dev, tech_lead | chamada direta (sem skill dedicada) |
 | `github_issue_import_apply` | escrita | — | po | chamada direta (sem skill dedicada) |
 | `github_issue_import_preview` | leitura | — | po | chamada direta (sem skill dedicada) |
 | `github_reference_list` | leitura | — | dev, qa, tech_lead, release, devops | ssdd-release-manager |

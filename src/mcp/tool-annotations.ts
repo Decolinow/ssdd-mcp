@@ -25,7 +25,7 @@ const readOnlyTools = [
   "team_list", "team_capacity_get", "definition_of_done_get",
   "sprint_get", "sprint_list", "sprint_retrospective_get",
   "milestone_get", "milestone_list", "milestone_forecast_history", "milestone_forecast_recalculate",
-  "development_session_list", "development_session_stale_list", "developer_execution_metrics_get", "deployment_event_list", "audit_event_list",
+  "development_session_list", "development_session_stale_list", "file_claim_list", "developer_execution_metrics_get", "deployment_event_list", "audit_event_list",
   "user_list",
 ] as const;
 
@@ -45,7 +45,7 @@ const externalImportApplyTools = ["github_issue_import_apply", "azure_work_item_
 /** Mutações que encerram, retiram, revogam ou substituem estado vigente. */
 const destructiveTools = [
   "trace_link_remove", "approval_revoke", "user_auth_key_revoke", "user_auth_key_rotate",
-  "spec_revision_withdraw", "sprint_cancel", "sprint_close", "work_item_transition",
+  "spec_revision_withdraw", "file_claim_release", "sprint_cancel", "sprint_close", "work_item_transition",
 ] as const;
 
 /** Mutações aditivas de domínio (histórico append-only ou nova revisão). */
@@ -60,6 +60,7 @@ const additiveMutationTools = [
   "test_run_record", "test_run_certify",
   "task_workflow_propose", "task_workflow_publish", "task_workflow_step_transition",
   "task_start", "task_accept", "development_session_start", "development_session_transition", "development_session_recover",
+  "file_claim_acquire", "file_claim_renew",
   "deployment_event_record",
   "milestone_create", "milestone_scope_change",
   "team_create", "team_capacity_set", "definition_of_done_set",

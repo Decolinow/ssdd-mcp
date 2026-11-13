@@ -2583,6 +2583,33 @@ export const initialMigrations: readonly SqliteMigration[] = [
     `,
     afterApply: verifyMigrationForeignKeys,
   },
+  {
+    version: 33,
+    name: "file-claims-for-parallel-agents",
+    sql: `
+      CREATE TABLE file_claims (
+        claim_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        item_id TEXT,
+        principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        path TEXT NOT NULL CHECK (length(path) BETWEEN 1 AND 500),
+        kind TEXT NOT NULL CHECK (kind IN ('file', 'directory')),
+        branch TEXT CHECK (branch IS NULL OR length(branch) BETWEEN 1 AND 200),
+        worktree TEXT CHECK (worktree IS NULL OR length(worktree) BETWEEN 1 AND 500),
+        created_at TEXT NOT NULL,
+        last_heartbeat_at TEXT NOT NULL,
+        lease_expires_at TEXT NOT NULL,
+        released_at TEXT,
+        release_reason TEXT CHECK (release_reason IS NULL OR length(release_reason) <= 500),
+        released_by_principal_id TEXT REFERENCES principals(principal_id),
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id),
+        CHECK ((released_at IS NULL AND released_by_principal_id IS NULL) OR (released_at IS NOT NULL AND released_by_principal_id IS NOT NULL))
+      ) STRICT;
+      CREATE INDEX file_claims_active_by_project ON file_claims (project_id, released_at, lease_expires_at);
+      CREATE INDEX file_claims_by_principal ON file_claims (project_id, principal_id, released_at);
+    `,
+  },
 ];
 
 export function applyMigrations(

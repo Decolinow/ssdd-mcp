@@ -101,7 +101,7 @@ const securityReviewReadTools = [
 
 const developerTools = [
   "work_item_create", "work_item_assign", "comment_add", "work_item_estimate", "work_item_estimate_confirm",
-  "development_session_start", "development_session_transition", "task_start_check", "task_start", "task_accept", "task_workflow_propose",
+  "development_session_start", "development_session_transition", "task_start_check", "task_start", "task_accept", "file_claim_acquire", "file_claim_renew", "file_claim_release", "file_claim_list", "task_workflow_propose",
   "task_workflow_step_transition", "work_item_transition", "evidence_add",
 ] as const;
 
@@ -120,6 +120,7 @@ const technicalLeadTools = [
   "spec_revision_propose", "spec_revision_publish", "spec_revision_withdraw", "trace_link_add", "trace_link_remove", "work_item_semantic_index",
   "task_workflow_propose", "task_workflow_publish", "task_workflow_step_transition",
   "development_session_stale_list", "development_session_recover",
+  "file_claim_acquire", "file_claim_renew", "file_claim_release", "file_claim_list",
 ] as const;
 
 const productOwnerTools = [

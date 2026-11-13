@@ -187,3 +187,7 @@ O histórico tem sequência monotônica, timestamp UTC do servidor, tipo de even
 - `GET /healthz` confirma liveness e `GET /readyz` executa `SELECT 1` antes de declarar o banco pronto; respostas são mínimas e esses endpoints devem ficar fora do proxy público. Ainda não há logs estruturados com duração, métricas Prometheus ou tracing distribuído; telemetria externa permanece desativada.
 - Meta inicial de validação em fixture com 10 mil itens, 50 mil eventos e cinco clientes concorrentes: leitura filtrada p95 até 300 ms e escrita simples p95 até 500 ms em máquina de referência documentada, excluindo rede. Medir `SQLITE_BUSY` e tempo de reconstrução de métricas.
 - Validação mínima com testes de domínio, migrações de bases antigas, concorrência e isolamento, contratos MCP por transporte, E2E do dashboard e recuperação de backup. Testar no Linux, Windows e macOS antes de publicar o pacote local.
+
+## Reservas de arquivos (`file_claims`, SSDD-929)
+
+Tabela mutável (lease por reserva) com `claim_id`, projeto, tarefa opcional, dono, caminho normalizado, tipo (`file`/`directory`), branch/worktree opcionais e horários de criação, heartbeat, expiração e liberação. "Ativa" é derivado (`released_at IS NULL` e lease futuro), sem job de expiração. Os conflitos são calculados na camada de aplicação sobre as reservas ativas do projeto. Toda mutação é um comando idempotente com evento de auditoria.

@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Reservas de arquivos entre agentes paralelos (2026-11-12, SSDD-929 / MCP SSDD-132)
+
+Migração 33 (`file_claims`), `src/application/file-claims.ts` e as tools `file_claim_acquire`, `file_claim_renew`, `file_claim_release` e `file_claim_list`. Lease de 60 s a 4 h, detecção de sobreposição arquivo/diretório entre pessoas diferentes (atômica por chamada), conflito explícito `CLAIM_CONFLICT`, renovação restrita ao dono e liberação alheia só por Tech Lead/Admin com motivo. Coordenação apenas; o Git continua sendo a fonte de verdade. Schema 32→33.
+
 ## Recuperação de sessões abandonadas (2026-11-12, SSDD-928 / MCP SSDD-131)
 
 Novo `src/application/session-recovery.ts` e tools `development_session_stale_list` / `development_session_recover`. Sem heartbeat de cliente, a inatividade vem do último evento imutável da sessão (padrão 24 h, configurável de 1 h a 90 dias). A recuperação exige papel `admin` ou `tech_lead`, motivo de 10–500 caracteres, versão esperada e `requestId` idempotente; encerra como `cancelled` ou `completed` sem alterar a autoria do desenvolvedor, mantém o tempo registrado, descarta (e informa) o tempo desde a última retomada e grava o recuperador no evento (`[recovery]`) e na auditoria. Sem migração: reutiliza os tipos de evento existentes.

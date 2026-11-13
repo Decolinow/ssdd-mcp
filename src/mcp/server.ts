@@ -130,6 +130,7 @@ import { listProjectTeams } from "../application/team-directory.js";
 import { changeMilestoneScope, createMilestone, getMilestone, listMilestones } from "../application/milestones.js";
 import { evidenceKinds } from "../domain/workflow.js";
 import { acceptTask } from "../application/task-accept.js";
+import { acquireFileClaims, listFileClaims, releaseFileClaims, renewFileClaims } from "../application/file-claims.js";
 import { listStaleDevelopmentSessions, recoverDevelopmentSession } from "../application/session-recovery.js";
 import { getDefinitionOfDone, setDefinitionOfDone } from "../application/definition-of-done.js";
 import { cancelSprint, changeSprintScope, closeSprint, createSprintDraft, startSprint } from "../application/sprint-commands.js";
@@ -2982,6 +2983,100 @@ export function createMcpServer(
       try {
         const receipt = transitionDevelopmentSession(database, { projectId, principalId, requestId, sessionId, action, expectedVersion, reason });
         const result = { session: receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  const fileClaimSchema = z.object({
+    claimId: z.string().uuid(), path: z.string(), kind: z.enum(["file", "directory"]), principalId: z.string().uuid(),
+    principalName: z.string(), itemKey: z.string().nullable(), branch: z.string().nullable(), worktree: z.string().nullable(),
+    createdAt: z.string(), lastHeartbeatAt: z.string(), leaseExpiresAt: z.string(), status: z.enum(["active", "expired", "released"]),
+    version: z.number().int().positive(),
+  });
+  const fileClaimsOutput = z.object({ claims: z.array(fileClaimSchema), auditEventIds: z.array(z.string().uuid()) });
+  const claimResult = (receipt: { value: { claims: unknown[] }; auditEventIds: readonly string[] }) => {
+    const result = { claims: receipt.value.claims, auditEventIds: receipt.auditEventIds };
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
+  };
+
+  server.registerTool(
+    "file_claim_acquire",
+    {
+      title: "Reservar caminhos do repositório",
+      description: "Reserva arquivos ou diretórios (caminhos relativos ao repositório) por lease. Sobreposição com reserva ativa de outra pessoa falha com CLAIM_CONFLICT e lista os donos; é coordenação, não enforcement do Git: confira branch/worktree/diff antes de editar.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128),
+        paths: z.array(z.object({ path: z.string().trim().min(1).max(500), kind: z.enum(["file", "directory"]) })).min(1).max(50),
+        itemIdOrKey: z.string().trim().min(1).max(120).optional(), branch: z.string().trim().min(1).max(200).optional(),
+        worktree: z.string().trim().min(1).max(500).optional(), leaseSeconds: z.number().int().min(60).max(14_400).optional(),
+      }),
+      outputSchema: fileClaimsOutput,
+    },
+    ({ projectId, requestId, paths, itemIdOrKey, branch, worktree, leaseSeconds }) => {
+      try {
+        return claimResult(acquireFileClaims(database, {
+          projectId, principalId, requestId, paths,
+          ...(itemIdOrKey === undefined ? {} : { itemIdOrKey }), ...(branch === undefined ? {} : { branch }),
+          ...(worktree === undefined ? {} : { worktree }), ...(leaseSeconds === undefined ? {} : { leaseSeconds }),
+        }));
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "file_claim_renew",
+    {
+      title: "Renovar reservas",
+      description: "Renova o lease (heartbeat) das reservas do próprio chamador; falha se outra pessoa assumiu caminho sobreposto depois da expiração.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128),
+        claimIds: z.array(z.string().uuid()).min(1).max(50), leaseSeconds: z.number().int().min(60).max(14_400).optional(),
+      }),
+      outputSchema: fileClaimsOutput,
+    },
+    ({ projectId, requestId, claimIds, leaseSeconds }) => {
+      try {
+        return claimResult(renewFileClaims(database, { projectId, principalId, requestId, claimIds, ...(leaseSeconds === undefined ? {} : { leaseSeconds }) }));
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "file_claim_release",
+    {
+      title: "Liberar reservas",
+      description: "Libera reservas (idempotente). O dono libera as suas; Tech Lead/Admin arbitra a liberação de reserva alheia com motivo de pelo menos 10 caracteres.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128),
+        claimIds: z.array(z.string().uuid()).min(1).max(50), reason: z.string().trim().min(1).max(500).optional(),
+      }),
+      outputSchema: fileClaimsOutput,
+    },
+    ({ projectId, requestId, claimIds, reason }) => {
+      try {
+        return claimResult(releaseFileClaims(database, { projectId, principalId, requestId, claimIds, ...(reason === undefined ? {} : { reason }) }));
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "file_claim_list",
+    {
+      title: "Consultar reservas",
+      description: "Lista reservas ativas do projeto (ou também expiradas/liberadas com includeInactive), filtrando por prefixo de caminho ou só as minhas.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), pathPrefix: z.string().trim().min(1).max(500).optional(),
+        mine: z.boolean().optional(), includeInactive: z.boolean().optional(), limit: z.number().int().min(1).max(200).optional(),
+      }),
+      outputSchema: z.object({ claims: z.array(fileClaimSchema) }),
+    },
+    ({ projectId, pathPrefix, mine, includeInactive, limit }) => {
+      try {
+        const result = listFileClaims(database, {
+          projectId, principalId, ...(pathPrefix === undefined ? {} : { pathPrefix }), ...(mine === undefined ? {} : { mine }),
+          ...(includeInactive === undefined ? {} : { includeInactive }), ...(limit === undefined ? {} : { limit }),
+        });
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) { return toToolError(error); }
     },
