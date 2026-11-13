@@ -47,6 +47,22 @@ Somando os itens 1, 2, 4, 5, 6 e 9 (sem mexer em fluxos de gate humano): de 124 
 - **Perfil `tech_lead` com 85 tools** ainda acumula leitura de todos os perfis; reavaliar se precisa do `refinement` e `test_design` completos.
 - **Paridade com o dashboard**: 57 das 124 tools não têm UI (ver [dashboard-parity-matrix.md](dashboard-parity-matrix.md)); consolidar antes de construir UI evita trabalho duplicado.
 
+## Achados de uso real (2026-11-13, fechamento das histórias com agente único)
+
+Origem: executar o backlog inteiro pelo MCP, em vez de ler o catálogo. Cada item cita o sintoma observado.
+
+| # | Achado | Estado |
+| --- | --- | --- |
+| 1 | **Beco sem saída em baselines.** `baseline_fix` recusa se já existe baseline e `baseline_revalidate` exigia impacto aberto; critério que virou obrigatório ou cenário publicado depois deixava o gate `qa-coverage` impossível de fechar. A mensagem do gate mandava "revalidar", o que também falhava. | Corrigido (SSDD-162): `baseline_revalidate` aceita deriva, descrição e dica da tool atualizadas, teste novo. |
+| 2 | **Transição irreversível sem aviso.** `ready → in_progress` ocorre mesmo com baseline desatualizada, e não há volta a `ready`; na SSDD-6 isso travou o caminho até a correção do item 1. | Aberto: `work_item_gate_check` poderia avisar `baseline-drift` antes da transição. |
+| 3 | **`scenario_create.workItemIdOrKeys` aceita só tarefas** mas o schema não diz; o erro era `is not a task`. | Corrigido: o erro agora orienta a cobrir história/bug pelo critério. Falta a descrição do campo no schema. |
+| 4 | **Alias de roadmap colide com chave gerada.** `SSDD-101` a `SSDD-105` existem como alias de tarefas do roadmap e como chaves geradas de outros itens; `work_item_get("SSDD-102")` devolve a tarefa do roadmap, não a história SSDD-102, e tools de baseline usam outra regra de resolução. O comportamento é o documentado e testado (alias vence), então não foi alterado. | Aberto: erro de ambiguidade ou prefixo explícito (`key:`/`roadmap:`) reduziria o risco; exige decisão de contrato. |
+| 5 | **Chamadas repetitivas por história.** Fechar uma história exige ~11 chamadas (revisão propor/publicar, cenário criar/publicar, revalidar, 3 transições, evidência, run, certificar, Done). | Aberto: composto `story_validate` ou `scenario_create` com publicação opcional. |
+| 6 | **Falha de commit sem rastro** (já registrado): o dashboard escondia recusas atrás do modal. | Corrigido no dashboard (87b51ff). |
+| 7 | **Servidor MCP em uso roda do runtime instalado** (`.ssdd/agent-runtime`), não de `dist/`; corrigir o código não muda o servidor até `npm run agents:install -- --apply --target .` e reinício do processo. Nada na saída das tools mostra a versão/build em execução. | Aberto: expor build/versão em `project_get` ou `doctor`. |
+
+Custo de contexto medido hoje (`node scripts/mcp-context-cost.mjs`): `tech_lead` ~89,5 mil tokens (83 tools), `po` ~76 mil (68), `facilitator` ~39 mil, `qa` ~35,7 mil (30). A maior tool segue `work_item_quality_get` (13,3 KB). O perfil `tech_lead` continua o mais pesado e acumula leitura dos outros perfis.
+
 ## Como medir de novo
 
 ```bash

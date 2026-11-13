@@ -8,6 +8,12 @@ Histórico datado das entregas, verificações e auditorias do projeto, movido d
 - Limites registrados nas notas dos runs: evidência automatizada local (`npm run check` 261/261, `test:browser`, instalador no WSL 5/5), sem CI remota, sem macOS, auditoria axe-core não substitui leitor de tela. Certificação por delegação não equivale a revisão humana independente.
 - Pendentes: SSDD-127 e 139 (curadoria de escopo por link, PO) e SSDD-144 (evidência de CI remota). Histórias sem critérios obrigatórios (metas de sprint, SSDD-62, SSDD-102) seguem em Ready por não terem cenários publicados.
 
+## Metas de sprint e demais histórias em Done (2026-11-13)
+
+- Com a SSDD-162 entregue (aceita pelo fluxo de `task_accept`), SSDD-6, 13, 21, 28, 36, 43, 50 e 62 ganharam critério obrigatório, cenário publicado, baseline revalidada e runs certificados por delegação em `git-6440b3f` (npm run check 262/262, sem CI remota). Limites estão nas notas dos runs.
+- O runtime instalado (`.ssdd/agent-runtime`) foi reinstalado e o servidor reiniciado para carregar a correção.
+- SSDD-102 segue em Ready: é a história guarda-chuva das melhorias e ainda tem tarefas abertas (SSDD-127, 139 e 144). Achados de uso das tools em [analise-catalogo-tools.md](analise-catalogo-tools.md).
+
 ## Revalidação de baseline por deriva (2026-11-13, SSDD-162)
 
 - `baseline_revalidate` passa a aceitar baseline que derivou do conteúdo publicado (revisão do PBI, specs ligadas ou cenários publicados cobrindo seus critérios), além do caso de impacto aberto; sem nenhum dos dois falha com "Nothing to revalidate". Continua exigindo PO/Tech Lead humano e preserva as baselines anteriores. Teste novo em `tests/application/baselines.test.ts`; teste do dashboard ajustado (fixture com baseline sem referências deriva). `npm run check` 262/262.
