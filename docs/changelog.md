@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Skills em formato de checklist (2026-11-13, SSDD-950 / MCP SSDD-153)
+
+- As 10 skills passam a ter instruções de uma linha sob `Always`, `Never` e `When blocked` (equivalentes a sempre, nunca e quando bloqueado); teste de formato novo.
+
 ## Modelos de item e de workflow (2026-11-13, SSDD-949 / MCP SSDD-152)
 
 - Migração 42 `item_template_revisions` (imutável) e tools `template_set`, `template_apply`, `template_list`. Aplicar um modelo gera Drafts do checklist e do workflow da tarefa, sem publicar.

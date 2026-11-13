@@ -56,9 +56,9 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `project_list` | leitura | — | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, release, devops, admin | chamada direta (sem skill dedicada) |
 | `question_answer` | escrita (aprovável) | — | tech_lead, po | chamada direta (sem skill dedicada) |
 | `question_list` | leitura | — | refinement, specification, dev, test_design, tech_lead, security_review, po | chamada direta (sem skill dedicada) |
-| `question_open` | escrita (aprovável) | — | refinement, dev, tech_lead, po | chamada direta (sem skill dedicada) |
+| `question_open` | escrita (aprovável) | — | refinement, dev, tech_lead, po | ssdd-business-analyst |
 | `review_list` | leitura | — | dev, qa, tech_lead | chamada direta (sem skill dedicada) |
-| `review_record` | escrita (aprovável) | — | dev, qa, tech_lead | chamada direta (sem skill dedicada) |
+| `review_record` | escrita (aprovável) | — | dev, qa, tech_lead | ssdd-quality-assurance |
 | `roadmap_id_bind` | escrita (aprovável) | — | po | chamada direta (sem skill dedicada) |
 | `roadmap_id_list` | leitura | — | refinement, specification, test_design, tech_lead, security_review, po | chamada direta (sem skill dedicada) |
 | `roadmap_id_resolve` | leitura | — | refinement, specification, test_design, tech_lead, security_review, po | ssdd-developer |
@@ -87,12 +87,12 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `task_briefing_get` | leitura | cursor | dev, tech_lead | ssdd-developer |
 | `task_context_get` | leitura | cursor | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, admin | ssdd-developer, ssdd-quality-assurance, ssdd-technical-lead, ssdd-test-designer |
 | `task_delivery_report_get` | leitura | — | dev, tech_lead | chamada direta (sem skill dedicada) |
-| `task_delivery_report_submit` | escrita (aprovável) | — | dev, tech_lead | chamada direta (sem skill dedicada) |
+| `task_delivery_report_submit` | escrita (aprovável) | — | dev, tech_lead | ssdd-developer |
 | `task_execution_queue_get` | leitura | — | dev, tech_lead, po | ssdd-developer, ssdd-product-owner |
-| `task_scope_set` | escrita (aprovável) | — | dev, tech_lead | chamada direta (sem skill dedicada) |
+| `task_scope_set` | escrita (aprovável) | — | dev, tech_lead | ssdd-developer |
 | `task_start` | escrita (aprovável) | — | dev, tech_lead | ssdd-developer |
 | `task_start_check` | leitura | — | dev, tech_lead | ssdd-developer |
-| `task_workflow_get` | leitura | — | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, release | ssdd-developer, ssdd-quality-assurance, ssdd-technical-lead, ssdd-test-designer |
+| `task_workflow_get` | leitura | — | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, release | ssdd-developer, ssdd-quality-assurance, ssdd-test-designer |
 | `task_workflow_propose` | escrita (aprovável) | — | dev, tech_lead | chamada direta (sem skill dedicada) |
 | `task_workflow_publish` | escrita (aprovável) | — | tech_lead | chamada direta (sem skill dedicada) |
 | `task_workflow_step_transition` | escrita (aprovável) | — | dev, tech_lead | ssdd-developer |
@@ -100,10 +100,10 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `team_capacity_set` | escrita (aprovável) | — | facilitator | chamada direta (sem skill dedicada) |
 | `team_create` | escrita (aprovável) | — | facilitator | chamada direta (sem skill dedicada) |
 | `team_list` | leitura | — | security_review, po, facilitator, devops | chamada direta (sem skill dedicada) |
-| `template_apply` | escrita (aprovável) | — | dev, tech_lead, po | chamada direta (sem skill dedicada) |
+| `template_apply` | escrita (aprovável) | — | dev, tech_lead, po | ssdd-product-owner, ssdd-technical-lead |
 | `template_list` | leitura | — | dev, tech_lead, po | chamada direta (sem skill dedicada) |
-| `template_set` | escrita (aprovável) | — | tech_lead, po | chamada direta (sem skill dedicada) |
-| `test_run_certify` | escrita (aprovável) | — | qa | ssdd-quality-assurance |
+| `template_set` | escrita (aprovável) | — | tech_lead, po | ssdd-technical-lead |
+| `test_run_certify` | escrita (aprovável) | — | qa | chamada direta (sem skill dedicada) |
 | `test_run_list` | leitura | cursor | specification, dev, test_design, qa, tech_lead, security_review, po, release, devops, admin | ssdd-quality-assurance, ssdd-test-designer |
 | `test_run_record` | escrita (aprovável) | — | qa | ssdd-quality-assurance |
 | `trace_link_add` | escrita (aprovável) | — | specification, tech_lead | ssdd-technical-lead |
@@ -119,13 +119,13 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `work_item_estimate_confirm` | escrita (aprovável) | — | dev, tech_lead | chamada direta (sem skill dedicada) |
 | `work_item_gate_check` | leitura | — | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, release, devops, admin | ssdd-developer, ssdd-technical-lead |
 | `work_item_get` | leitura | — | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, release, devops, admin | ssdd-developer, ssdd-technical-lead |
-| `work_item_list` | leitura | cursor | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, release, devops, admin | ssdd-developer, ssdd-product-owner |
+| `work_item_list` | leitura | cursor | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, release, devops, admin | ssdd-product-owner |
 | `work_item_quality_get` | leitura | cursor | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, release, devops, admin | ssdd-quality-assurance, ssdd-test-designer |
 | `work_item_rank` | escrita (aprovável) | — | tech_lead, po | chamada direta (sem skill dedicada) |
-| `work_item_readiness_review` | leitura | — | refinement, specification, dev, test_design, tech_lead, security_review, po | chamada direta (sem skill dedicada) |
+| `work_item_readiness_review` | leitura | — | refinement, specification, dev, test_design, tech_lead, security_review, po | ssdd-business-analyst |
 | `work_item_revision_list` | leitura | — | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, release, devops, admin | chamada direta (sem skill dedicada) |
 | `work_item_revision_propose` | escrita (aprovável) | — | refinement, specification, tech_lead, po | chamada direta (sem skill dedicada) |
 | `work_item_revision_publish` | escrita (aprovável) | — | tech_lead, po | chamada direta (sem skill dedicada) |
 | `work_item_semantic_index` | escrita | cursor | refinement, specification, tech_lead, po | chamada direta (sem skill dedicada) |
 | `work_item_semantic_search` | escrita | — | refinement, specification, dev, test_design, tech_lead, po | chamada direta (sem skill dedicada) |
-| `work_item_transition` | escrita (aprovável) | — | dev, tech_lead, po | ssdd-developer |
+| `work_item_transition` | escrita (aprovável) | — | dev, tech_lead, po | chamada direta (sem skill dedicada) |
