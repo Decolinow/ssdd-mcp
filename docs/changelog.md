@@ -8,6 +8,11 @@ Histórico datado das entregas, verificações e auditorias do projeto, movido d
 - Limites registrados nas notas dos runs: evidência automatizada local (`npm run check` 261/261, `test:browser`, instalador no WSL 5/5), sem CI remota, sem macOS, auditoria axe-core não substitui leitor de tela. Certificação por delegação não equivale a revisão humana independente.
 - Pendentes: SSDD-127 e 139 (curadoria de escopo por link, PO) e SSDD-144 (evidência de CI remota). Histórias sem critérios obrigatórios (metas de sprint, SSDD-62, SSDD-102) seguem em Ready por não terem cenários publicados.
 
+## Lacuna registrada: refixar baseline (2026-11-13, SSDD-162)
+
+- Tentativa de dar critérios obrigatórios e cenários às histórias retroativas (SSDD-6, 13 e demais metas de sprint) revelou que o MCP não permite refixar a baseline: `baseline_fix` recusa se já existe baseline, `baseline_revalidate` exige impacto aberto e publicar revisão de critério/cenário não gera impacto. Registrado como SSDD-162 (sob SSDD-102).
+- Estado deixado: SSDD-13 com AC-1 obrigatório e SCN-13-AC1 publicado, ainda em Ready; SSDD-6 igual, mas movida a `in_progress` por erro do agente (sem volta a Ready). Nenhuma baseline foi alterada fora do MCP.
+
 ## Certificação QA pelo dashboard (2026-11-13, SSDD-93)
 
 - Botão Certificar (QA) nas execuções aprovadas do detalhe do PBI, via `backlog/test_run_certify` sobre `certifyTestRun`; execuções não certificáveis explicam o motivo. Teste HTTP cobre CSRF, validação e recusa com código; o caminho positivo continua coberto por `tests/application/work-item-workflow.test.ts`.
