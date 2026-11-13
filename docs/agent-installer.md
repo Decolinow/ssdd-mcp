@@ -2,6 +2,13 @@
 
 O instalador conecta um repositório Git existente ao runtime local do SSDD MCP e prepara dez skills e dez agentes para Claude Code, Codex e OpenCode. Ele vem neste repositório SSDD e instala um tarball local; o pacote permanece privado e não precisa ser publicado no npm. As skills canônicas de Tech Lead, Developer, desenho de testes e QA descrevem a proposta, publicação, execução ordenada e limites do workflow ponderado por tarefa. O instalador copia essas instruções para os três clientes e atualiza seus agentes gerados sem uma etapa específica ou artefato manual por produto.
 
+## Pré-requisitos
+
+- Node.js 24 ou 26 (`engines`: `^24.0.0 || ^26.0.0`) e npm 10 ou superior, no computador que executa o instalador.
+- Este repositório SSDD com dependências instaladas (`npm install`).
+- Um repositório Git existente como alvo; o instalador não cria o repositório.
+- Acesso de escrita ao alvo. A instalação das dependências de produção do runtime é local, a partir do tarball gerado aqui.
+
 ## Uso
 
 Execute os comandos na raiz deste repositório SSDD. O alvo deve ser um diretório dentro de um repositório Git. Sem opção de modo, o comando executa `--dry-run` e não grava arquivos nem instala dependências.
@@ -24,6 +31,13 @@ Se o alvo ainda não tiver workspace SSDD, inicialize-o com os dados escolhidos 
 ```powershell
 node .ssdd/agent-runtime/node_modules/ssdd-mcp/dist/src/cli.js init --workspace . --key PAY --name "Pagamentos" --goal "Pagamentos confiáveis" --timezone America/Sao_Paulo
 ```
+
+## Recuperação
+
+- **`--check` retorna 1:** rode `--dry-run` para ver o que falta, diverge ou está em conflito. Divergência por edição local: reverta a edição ou atualize a skill/template canônico e aplique de novo. Conflito com o nome `ssdd_mcp`: renomeie ou remova a entrada que não é do SSDD e repita `--apply`.
+- **`--apply` falhou:** o instalador restaura os arquivos e o runtime anteriores; rode `--check` para confirmar o estado e repita `--apply` depois de corrigir a causa (rede, permissão, versão do Node).
+- **Cliente não enxerga o servidor:** reinicie o cliente e aprove o servidor MCP/confie no repositório (veja "Formatos nativos e confiança").
+- **Banco do workspace suspeito:** `node .ssdd/agent-runtime/node_modules/ssdd-mcp/dist/src/cli.js doctor --workspace .` valida schema, integridade e chaves estrangeiras; `backup` grava uma cópia e `restore --backup <arquivo.sqlite>` a restaura com as instâncias do workspace paradas, exigindo `.ssdd` ausente ou vazio e o manifesto do backup ao lado do arquivo.
 
 ## Arquivos criados ou atualizados
 

@@ -429,3 +429,7 @@ Por decisão do usuário, as 13 tarefas históricas das Sprints 1 a 3 que bloque
 
 - `tests/dashboard/api.test.ts` compara dashboard e MCP com os mesmos filtros: `feature-roadmap` × `project_feature_roadmap_get` (equipe + data de corte), `audit` × `audit_event_list` (entidade + limite), `sprints` × `sprint_list` (equipe + estado) e `work-items` × `work_item_list` (tipo + limite); métricas/forecast (marco, sprint, data) já eram comparados.
 - A comparação encontrou um defeito real: `project_feature_roadmap_get` rejeitava qualquer `asOfDate` válido (regex com barras duplicadas em `src/mcp/tools/reporting.ts`). Corrigido.
+
+## 2026-11-13 — SCN-81-AC3: guia do instalador
+
+- Revisão manual de `docs/agent-installer.md` contra o critério: run `failed` em `git-cbb9a79` (faltavam pré-requisitos e recuperação). O guia ganhou as seções "Pré-requisitos" e "Recuperação" (check com falha, apply com falha, cliente sem servidor, `doctor`/`backup`/`restore`). Revisão repetida e registrada em novo build.
