@@ -133,6 +133,7 @@ import { evidenceKinds } from "../domain/workflow.js";
 import { acceptTask } from "../application/task-accept.js";
 import { describeWithHint } from "./tool-hints.js";
 import { getFlowMetrics } from "../application/flow-metrics.js";
+import { getDeliveryQualityMetrics } from "../application/delivery-quality-metrics.js";
 import { applyItemTemplate, listItemTemplates, setItemTemplate } from "../application/item-templates.js";
 import { readProjectGuidance, setProjectGuidance } from "../application/project-guidance.js";
 import { readGatePolicy, setGatePolicy } from "../application/gate-policy.js";
@@ -3655,6 +3656,40 @@ export function createMcpServer(
           projectId, principalId, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }),
           ...(developerPrincipalId === undefined ? {} : { developerPrincipalId }),
         });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "delivery_quality_metrics_get",
+    {
+      title: "Consultar qualidade de entrega",
+      description: "Aceite na primeira passagem, devoluções por etapa e motivo, critérios partial/not_met do último relatório de entrega e bugs ligados a histórias Done no período (padrão 30 dias), segmentados por tipo de principal. Agregado; sem ranking individual; taxas null abaixo de 5 amostras.",
+      inputSchema: z.object({ projectId: z.string().uuid(), from: z.string().datetime().optional(), to: z.string().datetime().optional() }),
+      outputSchema: z.object({
+        projectId: z.string().uuid(), period: z.object({ from: z.string(), to: z.string() }), minimumSample: z.number().int(),
+        acceptance: z.object({
+          doneTasks: z.number().int(), firstPassTasks: z.number().int(), firstPassRate: z.number().nullable(),
+          bySegment: z.array(z.object({ principalType: z.string(), doneTasks: z.number().int(), firstPassTasks: z.number().int(), firstPassRate: z.number().nullable() })),
+        }),
+        returns: z.object({
+          total: z.number().int(), byStage: z.array(z.object({ fromState: z.string(), count: z.number().int() })),
+          topReasons: z.array(z.object({ reason: z.string(), count: z.number().int() })),
+          bySegment: z.array(z.object({ principalType: z.string(), count: z.number().int() })),
+        }),
+        criteria: z.object({
+          reportedTasks: z.number().int(),
+          byStatus: z.object({ met: z.number().int(), partial: z.number().int(), not_met: z.number().int(), not_applicable: z.number().int() }),
+          unresolvedShare: z.number().nullable(),
+        }),
+        bugs: z.object({ doneStories: z.number().int(), bugsOnDoneStories: z.number().int(), bugsPerDoneStory: z.number().nullable() }),
+        limitations: z.array(z.string()),
+      }),
+    },
+    ({ projectId, from, to }) => {
+      try {
+        const result = getDeliveryQualityMetrics(database, { projectId, principalId, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) });
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) { return toToolError(error); }
     },

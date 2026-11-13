@@ -59,6 +59,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "comment_list",
       "definition_of_done_get",
       "definition_of_done_set",
+      "delivery_quality_metrics_get",
       "deployment_event_list",
       "deployment_event_record",
       "developer_execution_metrics_get",

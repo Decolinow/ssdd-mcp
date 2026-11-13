@@ -57,7 +57,7 @@ const qaReadTools = [
 const technicalLeadReadTools = [
   ...new Set([
     ...refinementReadTools, ...specificationReadTools, ...testDesignReadTools, ...developerReadTools,
-    "developer_execution_metrics_get", "flow_metrics_get",
+    "developer_execution_metrics_get", "flow_metrics_get", "delivery_quality_metrics_get",
     "project_feature_roadmap_get", "audit_event_list",
   ]),
 ] as const;
@@ -75,7 +75,7 @@ const productOwnerReadTools = [
 const facilitatorReadTools = [
   ...projectReadTools,
   "task_context_get", "work_item_get", "work_item_list", "work_item_gate_check", "work_item_quality_get",
-  "milestone_get", "milestone_list", "milestone_forecast_history", "metrics_get",
+  "milestone_get", "milestone_list", "milestone_forecast_history", "metrics_get", "delivery_quality_metrics_get",
   "project_feature_roadmap_get",
   "team_list", "team_capacity_get", "definition_of_done_get", "sprint_get", "sprint_list",
   "sprint_retrospective_get",

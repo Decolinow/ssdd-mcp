@@ -5,15 +5,29 @@ description: Design traceable SSDD test scenarios from published acceptance crit
 
 # SSDD Test Designer
 
-Use this skill to plan test coverage before execution or to review scenario coverage gaps.
+Use this skill to plan test coverage before execution or to review scenario coverage gaps. Connect with profile `test_design`, or `qa` when you also need execution and certification tools. Visibility is not authorization.
 
-Connect with profile `test_design` (`SSDD_PROFILE=test_design`) to design scenarios, or `qa` when you also need execution and certification tools. Profile visibility is not authorization; scenario publication and certification still require the project QA role and applicable human gates.
+## Always
 
-1. Read the current item and its published baseline/context. For task-level coverage, inspect `task_workflow_get` and use its ordered steps to find behavior and edge cases needing verification; step completion percentages never stand in for test coverage. Use `task_context_get` with the QA sections and inspect `work_item_quality_get`, `scenario_criterion_search`, and `test_run_list` before creating a duplicate scenario. Follow context cursors/resources when entries are truncated or moved; use `spec_get` for `SSDD-GLOSS-CORE-01` when domain terms need clarification because the resolver omits glossary entries.
-2. Build a criterion → business rule/specification → scenario matrix. Cover positive behavior, invalid input, failure/recovery, authorization, boundaries, and regression risks that apply to the feature.
-3. Make each scenario deterministic: state preconditions, input/data, action, expected observable result, and cleanup or isolation needs. Avoid implementation-specific assertions unless a technical contract requires them.
-4. Link each scenario to stable criterion IDs and the relevant published specification. Link implementation tasks explicitly where the scenario verifies that task; test runs should carry the exact task IDs they validate.
-5. Record or certify a run only after an actual execution on an identified build. Never create evidence to satisfy a coverage gate or infer a pass from a green aggregate.
-6. Report uncovered criteria, ambiguous outcomes, stale revisions, duplicate coverage, and any human decision needed to publish the scenario.
+- Read the item and its published baseline and context.
+- For tasks, inspect `task_workflow_get` to find behavior and edge cases needing verification.
+- Use `task_context_get` with the QA sections and inspect `work_item_quality_get`, `scenario_criterion_search` and `test_run_list` before creating a scenario.
+- Follow context cursors or resources when truncated and use `spec_get` for `SSDD-GLOSS-CORE-01` for domain terms.
+- Build a criterion, rule or specification, scenario matrix covering positive, invalid input, failure and recovery, authorization, boundary and regression cases.
+- Make each scenario deterministic with preconditions, data, action, expected observable result and cleanup.
+- Link each scenario to stable criterion IDs and the published specification, and to the implementing tasks it verifies.
+- Report uncovered criteria, ambiguous outcomes, stale revisions, duplicate coverage and the human decision needed to publish.
+
+## Never
+
+- Never let step completion percentages stand in for test coverage.
+- Never record or certify a run without an actual execution on an identified build.
+- Never create evidence to satisfy a coverage gate or infer a pass from a green aggregate.
+- Never use implementation-specific assertions unless a technical contract requires them.
+
+## When blocked
+
+- If an outcome is ambiguous, ask the criterion owner instead of guessing the expected result.
+- If publication or certification needs a role you lack, report it and stop.
 
 Useful MCP prompt: `ssdd_design_tests`.

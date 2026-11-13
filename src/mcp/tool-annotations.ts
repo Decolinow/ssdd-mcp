@@ -25,7 +25,7 @@ const readOnlyTools = [
   "team_list", "team_capacity_get", "definition_of_done_get",
   "sprint_get", "sprint_list", "sprint_retrospective_get",
   "milestone_get", "milestone_list", "milestone_forecast_history", "milestone_forecast_recalculate",
-  "development_session_list", "development_session_stale_list", "file_claim_list", "question_list", "work_item_readiness_review", "task_delivery_report_get", "review_list", "task_briefing_get", "gate_policy_get", "project_guidance_get", "template_list", "developer_execution_metrics_get", "flow_metrics_get", "deployment_event_list", "audit_event_list",
+  "development_session_list", "development_session_stale_list", "file_claim_list", "question_list", "work_item_readiness_review", "task_delivery_report_get", "review_list", "task_briefing_get", "gate_policy_get", "project_guidance_get", "template_list", "developer_execution_metrics_get", "flow_metrics_get", "delivery_quality_metrics_get", "deployment_event_list", "audit_event_list",
   "user_list",
 ] as const;
 

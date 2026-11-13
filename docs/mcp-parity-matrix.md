@@ -21,6 +21,7 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `comment_list` | leitura | cursor | refinement, specification, dev, test_design, qa, tech_lead, security_review, po | chamada direta (sem skill dedicada) |
 | `definition_of_done_get` | leitura | — | po, facilitator | chamada direta (sem skill dedicada) |
 | `definition_of_done_set` | escrita (aprovável) | — | facilitator | chamada direta (sem skill dedicada) |
+| `delivery_quality_metrics_get` | leitura | — | tech_lead, facilitator | chamada direta (sem skill dedicada) |
 | `deployment_event_list` | leitura | — | dev, tech_lead, security_review, release, devops | ssdd-release-manager |
 | `deployment_event_record` | escrita (aprovável) | — | release, devops | ssdd-release-manager |
 | `developer_execution_metrics_get` | leitura | — | tech_lead | chamada direta (sem skill dedicada) |

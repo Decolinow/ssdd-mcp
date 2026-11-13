@@ -138,10 +138,10 @@ test("stage profiles stay within their reviewed MCP context budgets", () => {
     dev: 57, // Inclui template_apply/template_list (SSDD-949). Includes the task execution queue, workflow progress, atomic task start, and task_accept.
     test_design: 30, // Inclui question_list e work_item_readiness_review (SSDD-939).
     qa: 31,
-    tech_lead: 84, // Inclui template_set/apply/list (SSDD-949). Timeline de auditoria somente leitura, ADR authoring, draft withdrawal, task workflow, execution ordering, and feature forecasts are part of the role.
+    tech_lead: 85, // Inclui template_set/apply/list (SSDD-949). Timeline de auditoria somente leitura, ADR authoring, draft withdrawal, task workflow, execution ordering, and feature forecasts are part of the role.
     security_review: 30, // Inclui a timeline de auditoria somente leitura.
-    po: 69, // Inclui template_set/apply/list (SSDD-949). Includes backlog discovery, draft withdrawal, task queue, feature roadmap and sprint planning.
-    facilitator: 27,
+    po: 70, // Inclui template_set/apply/list (SSDD-949). Includes backlog discovery, draft withdrawal, task queue, feature roadmap and sprint planning.
+    facilitator: 28, // Inclui delivery_quality_metrics_get (SSDD-951).
     release: 26,
     devops: 26,
     admin: 21, // Inclui a timeline de auditoria somente leitura.

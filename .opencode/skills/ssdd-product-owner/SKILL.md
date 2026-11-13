@@ -5,16 +5,36 @@ description: Refine SSDD backlog, acceptance criteria, sprint goals, priorities,
 
 # SSDD Product Owner
 
-Use this skill when refining a backlog, preparing a sprint, clarifying a requirement, or evaluating scope.
+Use this skill when refining a backlog, preparing a sprint, clarifying a requirement or evaluating scope. Connect with profile `po`; it filters tools only and grants no PO authorization.
 
-Configure the MCP connection with profile `po` (`SSDD_PROFILE=po` for stdio or `X-SSDD-Profile: po` for HTTP). The connection profile filters tools only; it does not grant PO authorization or approve publication and workflow gates.
+## Always
 
-1. Read the project and current items with `project_get` and `work_item_list`. Follow relevant links with `trace_query`; inspect task context when criteria, published revisions, baselines, or dependencies affect the decision. Use `spec_list`/`spec_get` for published business rules and the glossary when terms affect product policy; the task-context resolver omits glossary entries. Use `project_feature_roadmap_get` to compare Feature priority, business value, progress, dependencies, and forecast limits; use `task_execution_queue_get` only when checking the execution sequence. Confirm each mandatory acceptance criterion has a published scenario, and identify implementation tasks that should be linked to the scenario and its test runs.
-2. Keep user outcomes, acceptance criteria, and implementation tasks distinct. Criteria should be observable and independently verifiable. Task workflows are technical plans owned by the Tech Lead: their step weights total 100.00% of relative task effort, remain separate from story points/hours, and do not certify acceptance or QA. Preserve stable `SSDD-###` identifiers and existing history.
-3. Before proposing a sprint, check team selection, capacity, Definition of Done, Ready state, current baseline, confirmed estimates, and dependencies. State any missing information instead of assuming it.
-   Coordinate with the delivery facilitator for team calendars, capacity and Definition of Done administration, sprint lifecycle operations, and retrospectives. The PO profile can shape sprint goal and scope but does not expose those operational writes.
-4. Treat priority and business value as separate decisions: priority is P1–P4 (P1 highest); business value is 0–100 from five PO dimensions (impact, risk reduction, strategic fit, enabling/reuse, and cost-of-delay urgency; each 0–20). Put the dimension breakdown and evidence/assessment in the rationale. The score is ordinal, not money or a delivery forecast. Assess epic/Feature values before task overrides so tasks inherit a meaningful score. Leave unsupported values null; never backfill by inference. Publish an accepted rule only as a human PO. Use `spec_revision_withdraw` with a reason when a Draft business rule is obsolete or abandoned; do not publish it just to clear the Draft state.
-5. Present options, tradeoffs, dependencies, and a recommended next step. Ask for a human decision when priority, scope, publication, or approval belongs to the PO.
-6. Use write tools only for actions the user explicitly requested. Never mark work Done or treat a dashboard percentage as acceptance evidence.
+- Read the project and items with `project_get` and `work_item_list`, and follow links with `trace_query`.
+- Inspect task context when criteria, revisions, baselines or dependencies affect the decision.
+- Use `spec_list` and `spec_get` for published rules and the glossary.
+- Use `project_feature_roadmap_get` to compare priority, value, progress, dependencies and forecast limits, and `task_execution_queue_get` only for execution order.
+- Confirm each mandatory criterion has a published scenario and that implementing tasks link to it.
+- Keep outcomes, criteria and tasks distinct; criteria stay observable and independently verifiable.
+- Treat task workflows as Tech Lead technical plans whose weights total 100.00% and that never certify acceptance.
+- Check team, capacity, Definition of Done, Ready state, baseline, estimates and dependencies before proposing a sprint.
+- Decide priority (P1-P4) and business value (0-100 from impact, risk reduction, strategic fit, enabling/reuse and cost-of-delay, each 0-20) separately, with the breakdown in the rationale.
+- Assess epic and Feature values before task overrides.
+- Present options, tradeoffs, dependencies and a recommended next step, and ask for a human decision on priority, scope, publication or approval.
+- Use `spec_revision_withdraw` with a reason for obsolete Draft rules.
+- Use `template_apply` to start items from project templates.
 
-Useful MCP prompts: `ssdd_refine_backlog` for backlog refinement and `ssdd_plan_sprint` for sprint selection.
+## Never
+
+- Never backfill unsupported business values by inference; leave them null.
+- Never publish a rule unless you are the human PO, and never publish just to clear a Draft.
+- Never use write tools without an explicit request.
+- Never mark work Done or treat a dashboard percentage as acceptance evidence.
+- Never perform facilitator operations (capacity, Definition of Done administration, sprint lifecycle, retrospectives); coordinate with the facilitator.
+
+## When blocked
+
+- If information is missing, state what is missing instead of assuming.
+- If a blocking question is open, route it to its owner and pause the item.
+- If a tool returns `isError`, report the code and message.
+
+Useful MCP prompts: `ssdd_refine_backlog` and `ssdd_plan_sprint`.

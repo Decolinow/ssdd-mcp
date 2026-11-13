@@ -5,18 +5,40 @@ description: Implement an SSDD task from its pinned context and acceptance crite
 
 # SSDD Developer
 
-Use this skill when implementing or repairing a task in an SSDD-managed project.
+Use this skill when implementing or repairing a task in an SSDD-managed project. Connect with `SSDD_PROFILE=dev` (stdio) or `X-SSDD-Profile: dev` (HTTP); the profile only filters tools, and `task_context_get.profile=dev` separately selects context sections.
 
-Configure the MCP connection with `SSDD_PROFILE=dev` for stdio or `X-SSDD-Profile: dev` for HTTP. The authenticated principal is the actor for assignment, sessions, changes, and audit; use `work_item_list` with `assignedToMe: true` to find that principal's work. The connection profile filters tools, while `task_context_get.profile=dev` separately selects the task-context sections.
+## Always
 
-1. Select work with `task_execution_queue_get` (assigned to the authenticated principal by default). Use the first startable task in order: effective priority P1→P4, highest available business-value score, Feature rank, task rank, key. Unknown value stays unknown and sorts after scored work at the same priority; ask the PO to assess it, do not assign a score yourself. The queue applies the actual start gates but is only a recommendation; check `task_start_check` again before starting. Resolve the selected item with `work_item_get`, then make `task_briefing_get` (`profile=dev`) your first context call: one response with the task context (same budget/cursor as `task_context_get`), start gates, workflow progress, open questions, cited glossary terms and the recommended next action. Use `task_context_get` only to page through a truncated context or to request other sections; request only the sections needed, starting with hierarchy, acceptance criteria, business rules, technical decisions, scenarios, test runs, and baseline. For a task, also call `task_workflow_get` and inspect its current published revision and Draft. Read pinned revisions and warnings once; if the response is truncated or an entry points to a resource, follow only that cursor/resource before concluding that context is missing. The resolver omits glossary entries; use `spec_get` for `SSDD-GLOSS-CORE-01` when domain terms need clarification. Treat `implements` as an implementation claim and `relates_to` as context only. If an `SSDD-###` alias collides with a generated key, use the UUID returned by `roadmap_id_resolve`/the item result to address the generated-key item. Check `git status` and existing diffs first; preserve changes that predate this task.
-2. Keep changes inside the accepted scope. If the baseline is missing, stale, or ambiguous, explain the gap and ask for the smallest clarification needed before relying on a guess.
-3. When the person explicitly asks to start, call `task_start_check` and verify assignment, Developer role, state, active parent PBI and baseline, dependencies, published implementing ADRs, and open sessions. If `canStart` is false, explain the blockers and stop; never transition Draft directly to `in_progress` or bypass a prerequisite gate. A paused session owned by you may be resumed; a paused session from a prior Developer blocks handoff until that person completes or cancels it. Only a published ADR linked as `implements` is pinned as an accepted decision; change a draft link to `relates_to` only when the task does not implement that decision. If the check passes, call `task_start` with its current version, a reason, a new request ID, and the session reference. This operation transitions `Ready` to `in_progress` and opens the development session in one transaction; direct `work_item_transition` cannot replace it for this transition. A failure leaves both unchanged. Keep the returned task version and domain session ID. The session pins the published technical specification, scenario, and task workflow revisions used at start.
-4. Follow the published workflow revision in order. Start only the next pending step after its predecessors are Done; update each step through `task_workflow_step_transition` while your assigned Developer session is active and pinned to that revision. The task percentage is the exact sum of weights of Done steps; an in-progress step adds no percentage. If no workflow is configured, report that progress is unknown and do not invent steps or percentages. If the session pins an older revision or a new revision is proposed, stop workflow updates and ask the Tech Lead to resolve the handoff.
-5. Use `development_session_transition` with a reason when pausing, resuming, completing, or cancelling the effort. Session timestamps come from the server in UTC and active duration excludes paused time. Complete the development session when implementation ends, even if QA/review keeps the work item open. Do not invent dates or time spent.
-6. A 100% task workflow is not QA acceptance. Check `work_item_gate_check` and preserve separate evidence, scenario execution, baseline, and human certification gates. A task can move to Done only when all published workflow steps are Done and every other applicable gate passes.
-7. Add or update regression tests for behavior changed. Run the repository's documented checks and report exactly what passed or failed.
-8. Update the affected docs, status, and roadmap with implementation changes. Keep stable `SSDD-###` identifiers and distinguish local implementation from workflow acceptance.
-9. Do not invent test evidence, certify QA, publish content, or force a workflow state. Use transition tools only when explicitly requested and when the server's gates allow them.
+- Pick work with `task_execution_queue_get` (assigned to you by default) and take the first startable task; it is a recommendation, so re-check with `task_start_check`.
+- Resolve the item with `work_item_get`, then call `task_briefing_get` (`profile=dev`) first: context, start gates, workflow, open questions and next action in one response.
+- Use `task_context_get` only to page a truncated context or to request other sections; follow `nextCursor` or the referenced resource before concluding context is missing.
+- Call `task_workflow_get` for tasks and read the published revision and the Draft.
+- Read `spec_get` for `SSDD-GLOSS-CORE-01` when a domain term is unclear; the resolver omits glossary entries.
+- Treat `implements` links as implementation claims and `relates_to` as context only; use the UUID from `roadmap_id_resolve` when an `SSDD-###` alias collides.
+- Check `git status` and existing diffs first and preserve changes that predate the task.
+- Keep changes inside the accepted scope and declare expected paths with `task_scope_set` when known.
+- Start only on explicit request: `task_start_check`, then `task_start` with current version, reason, new request ID and session reference; keep the returned version and session ID.
+- Follow the published workflow in order and update steps with `task_workflow_step_transition` while your session is active and pinned to that revision.
+- Pause, resume, complete or cancel with `development_session_transition` and a reason; complete the session when implementation ends.
+- Check `work_item_gate_check` and keep evidence, scenario execution, baseline and human certification as separate gates.
+- Add regression tests for changed behavior, run the documented checks and report exactly what passed or failed.
+- Update docs, status and roadmap in the same change, keeping `SSDD-###` stable and local implementation distinct from workflow acceptance.
+- Submit the delivery report (`task_delivery_report_submit`) with real evidence before asking for review.
+
+## Never
+
+- Never move Draft directly to `in_progress` or bypass a start gate; `task_start` is the only path from Ready.
+- Never invent dates, time spent, workflow steps, percentages, test evidence or certification.
+- Never treat a 100% workflow as QA acceptance.
+- Never assign business-value scores yourself; ask the PO.
+- Never publish content or force a workflow state; use transition tools only when asked and when the gates allow.
+
+## When blocked
+
+- If `canStart` is false, list the blockers from `task_start_check` and stop.
+- If the baseline is missing, stale or ambiguous, state the gap and ask for the smallest clarification.
+- If the session pins an older workflow revision or a new one is proposed, stop updating steps and ask the Tech Lead.
+- If a paused session belongs to a prior Developer, ask that person to complete or cancel it.
+- If a tool returns `isError`, report the code and message and do not retry with changed intent.
 
 Useful MCP prompt: `ssdd_start_task`.
