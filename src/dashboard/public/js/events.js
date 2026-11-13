@@ -10,7 +10,7 @@ import { projectLocalDate, isHistoryDateSelectable, historyDateBoundsMessage, lo
 import { renderSpecifications, renderSpecificationDetail, openSpecification, runSpecificationAction, openSpecificationForm, submitSpecificationForm } from "./specifications.js";
 import { renderMetrics } from "./metrics.js";
 import { renderQuality, renderScenarioManager } from "./views.js";
-import { applyPlanningTemplate, openPlanningDialog, submitPlanning } from "./planning.js";
+import { applyPlanningTemplate, openBacklogOperations, openPlanningDialog, submitPlanning } from "./planning.js";
 import { loadSelectedRetrospective, loadMoreTaskContext, loadMoreEvidence, loadMoreActivity, applyActivityFilters, openItem } from "./details.js";
 import { workflowEditorRow, updateWorkflowEditorOrder, updateWorkflowEditorState, openTaskWorkflowEditor, submitTaskWorkflowForm, publishTaskWorkflowDraft, changeTaskWorkflowStep, loadTaskWorkflowRevision } from "./task-workflow.js";
 import { openWorkItemEditor, updateWorkItemParentOptions, updateWorkItemValueFields, submitWorkItemForm, openScenarioEditor, submitScenarioForm, publishScenario, submitTestRun, publishWorkItemRevision } from "./editors.js";
@@ -402,6 +402,7 @@ document.querySelectorAll(".close-dialog").forEach((button) => {
 });
 elements.createSpecification.addEventListener("click", () => openSpecificationForm("create"));
 elements.openPlanning.addEventListener("click", openPlanningDialog);
+elements.detailOperations.addEventListener("click", () => { if (model.currentItem) openBacklogOperations(model.currentItem); });
 elements.planningOperation.addEventListener("change", applyPlanningTemplate);
 elements.planningForm.addEventListener("submit", (event) => { void submitPlanning(event); });
 elements.specificationForm.addEventListener("submit", (event) => { void submitSpecificationForm(event); });

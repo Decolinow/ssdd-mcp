@@ -6,6 +6,7 @@ import { elements } from "./elements.js";
 import { model } from "./model.js";
 import { api, toast } from "./ui.js";
 import { loadProjectData } from "./data.js";
+import { openItem } from "./details.js";
 
 const capacityTemplate = {
   teamName: "", timezone: "America/Sao_Paulo", hoursPerDay: 6, workingDays: [1, 2, 3, 4, 5],
@@ -25,19 +26,41 @@ export const planningOperations = {
   sprint_cancel: { label: "Cancelar sprint", hint: "Exige motivo; o histórico é preservado.", template: { sprintIdOrKey: "", expectedVersion: 1, reason: "" } },
 };
 
+const itemOps = {
+  work_item_assign: { label: "Atribuir item", hint: "assigneeId é o UUID do responsável (null remove).", template: (item) => ({ itemIdOrKey: item.key, assigneeId: null, expectedVersion: item.version }) },
+  work_item_rank: { label: "Reordenar item", hint: "Informe exatamente um de beforeIdOrKey/afterIdOrKey (irmão).", template: (item) => ({ itemIdOrKey: item.key, afterIdOrKey: "", expectedVersion: item.version }) },
+  comment_add: { label: "Comentar item", hint: "Comentário imutável no histórico do item.", template: (item) => ({ itemIdOrKey: item.key, body: "" }) },
+  work_item_estimate: { label: "Propor estimativa", hint: "points para PBI, hours para tarefa; a confirmação é uma operação separada.", template: (item) => ({ itemIdOrKey: item.key, unit: item.type === "task" ? "hours" : "points", value: 1, rationale: "", expectedVersion: item.version }) },
+  work_item_estimate_confirm: { label: "Confirmar estimativa", hint: "proposalId vem da proposta registrada.", template: (item) => ({ itemIdOrKey: item.key, proposalId: "", expectedVersion: item.version }) },
+  trace_link_add: { label: "Criar vínculo", hint: "type: depends_on, relates_to ou implements.", template: (item) => ({ sourceIdOrKey: item.key, targetIdOrKey: "", type: "relates_to" }) },
+  trace_link_remove: { label: "Remover vínculo", hint: "linkId do vínculo ativo (consulte o rastro do item).", template: () => ({ linkId: "" }) },
+};
+let backlogItem = null;
+
+export function openBacklogOperations(item) {
+  backlogItem = item;
+  elements.planningOperation.innerHTML = Object.entries(itemOps).map(([key, value]) => `<option value="${key}">${value.label}</option>`).join("");
+  elements.planningTitle.textContent = `Operações de ${item.key}`;
+  applyPlanningTemplate();
+  elements.planningDialog.showModal();
+}
+
 export function renderPlanningOperationOptions() {
   elements.planningOperation.innerHTML = Object.entries(planningOperations).map(([key, value]) => `<option value="${key}">${value.label}</option>`).join("");
   applyPlanningTemplate();
 }
 
 export function applyPlanningTemplate() {
-  const operation = planningOperations[elements.planningOperation.value];
+  const key = elements.planningOperation.value;
+  const operation = backlogItem !== null && key in itemOps ? itemOps[key] : planningOperations[key];
   elements.planningHint.textContent = operation.hint;
-  elements.planningPayload.value = JSON.stringify(operation.template, null, 2);
+  elements.planningPayload.value = JSON.stringify(typeof operation.template === "function" ? operation.template(backlogItem) : operation.template, null, 2);
 }
 
 export function openPlanningDialog() {
-  if (elements.planningOperation.options.length === 0) renderPlanningOperationOptions();
+  backlogItem = null;
+  elements.planningTitle.textContent = "Operação de planejamento";
+  renderPlanningOperationOptions();
   elements.planningDialog.showModal();
 }
 
@@ -50,14 +73,17 @@ export async function submitPlanning(event) {
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw Object.assign(new Error("O payload precisa ser um objeto JSON."), { code: "VALIDATION_FAILED" });
     for (const key of Object.keys(payload)) if (payload[key] === "" || (Array.isArray(payload[key]) && payload[key].length === 0 && key.startsWith("remove"))) delete payload[key];
     const operation = elements.planningOperation.value;
-    const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/planning/${operation}`, {
+    const isBacklog = backlogItem !== null && operation in itemOps;
+    const label = isBacklog ? itemOps[operation].label : planningOperations[operation].label;
+    const result = await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/${isBacklog ? "backlog" : "planning"}/${operation}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken },
       body: JSON.stringify({ requestId: crypto.randomUUID(), ...payload }),
     });
-    toast(`${planningOperations[operation].label}: concluído (${result.auditEventIds?.length ?? 0} evento(s) de auditoria).`);
+    toast(`${label}: concluído (${result.auditEventIds?.length ?? 0} evento(s) de auditoria).`);
     elements.planningDialog.close();
     await loadProjectData();
+    if (isBacklog && model.currentItem) await openItem(model.currentItem.id);
   } catch (error) {
     const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
     toast(`${error.code ?? "ERRO"}: ${error.message}${details}`, true);

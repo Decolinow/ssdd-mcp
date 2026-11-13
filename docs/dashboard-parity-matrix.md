@@ -2,7 +2,7 @@
 
 Gerado de `src/dashboard/tool-ui-matrix.ts` (`UPDATE_UI_MATRIX=1 npm test` regenera). Cada ferramenta do MCP tem uma operação de UI, cobertura parcial ou uma lacuna futura explícita; `tests/dashboard/tool-ui-matrix.test.ts` falha se uma ferramenta nova ficar sem classificação.
 
-Resumo: 55 com UI, 10 parciais, 57 lacunas futuras (122 ferramentas).
+Resumo: 64 com UI, 8 parciais, 50 lacunas futuras (122 ferramentas).
 
 | Tool | Cobertura | Operação da UI ou motivo da lacuna |
 | --- | --- | --- |
@@ -15,8 +15,8 @@ Resumo: 55 com UI, 10 parciais, 57 lacunas futuras (122 ferramentas).
 | `baseline_fix` | Lacuna futura | A baseline é fixada pela transição para Ready (aba Backlog → mover); não há ação isolada. |
 | `baseline_get` | Parcial | Detalhe do PBI mostra a baseline fixada via `GET …/work-items/:key/quality`; sem consulta de baselines históricas. |
 | `baseline_revalidate` | Lacuna futura | Revalidação de baseline sem UI; lacuna do AC-1 do SSDD-97. |
-| `comment_add` | Lacuna futura | Comentários de itens sem UI. |
-| `comment_list` | Lacuna futura | Comentários de itens sem UI. |
+| `comment_add` | UI | diálogo Operações do item (`POST …/backlog/:operation`): comment_add |
+| `comment_list` | UI | detalhe do item; `GET …/work-items/:key/comments` |
 | `definition_of_done_get` | Parcial | Capacidade/DoD exibidas nos resumos de sprint; sem tela dedicada da DoD. |
 | `definition_of_done_set` | UI | diálogo Planejamento (`POST …/planning/:operation`): definition_of_done_set |
 | `delivery_quality_metrics_get` | Lacuna futura | Métrica nova (SSDD-951) ainda sem aba. |
@@ -105,22 +105,22 @@ Resumo: 55 com UI, 10 parciais, 57 lacunas futuras (122 ferramentas).
 | `test_run_certify` | Lacuna futura | Certificação QA pela UI planejada em SSDD-96. |
 | `test_run_list` | UI | aba Qualidade; `GET …/test-runs` |
 | `test_run_record` | UI | aba Qualidade → Registrar execução; `POST …/scenarios/:key/test-runs` |
-| `trace_link_add` | Lacuna futura | Rastreabilidade editável sem UI; lacuna do AC-1 do SSDD-97. |
-| `trace_link_remove` | Lacuna futura | Rastreabilidade editável sem UI; lacuna do AC-1 do SSDD-97. |
-| `trace_query` | Parcial | Vínculos aparecem na atividade e no contexto da tarefa; sem consulta dedicada. |
+| `trace_link_add` | UI | diálogo Operações do item (`POST …/backlog/:operation`): trace_link_add |
+| `trace_link_remove` | UI | diálogo Operações do item (`POST …/backlog/:operation`): trace_link_remove |
+| `trace_query` | UI | rastro do item; `GET …/work-items/:key/trace` |
 | `user_auth_key_revoke` | Lacuna futura | Operação administrativa de host: fica no CLI/MCP humano; sem rota no dashboard. |
 | `user_auth_key_rotate` | Lacuna futura | Operação administrativa de host: fica no CLI/MCP humano; sem rota no dashboard. |
 | `user_create` | Lacuna futura | Operação administrativa de host: fica no CLI/MCP humano; sem rota no dashboard. |
 | `user_list` | Lacuna futura | Operação administrativa de host: fica no CLI/MCP humano; sem rota no dashboard. |
-| `work_item_assign` | Parcial | Reivindicar tarefa (`POST …/work-items/:key/claim`); atribuição a terceiros sem UI. |
+| `work_item_assign` | UI | diálogo Operações do item (`POST …/backlog/:operation`): work_item_assign |
 | `work_item_create` | UI | Novo PBI; `POST …/work-items` |
-| `work_item_estimate` | Lacuna futura | Estimativas sem UI. |
-| `work_item_estimate_confirm` | Lacuna futura | Estimativas sem UI. |
+| `work_item_estimate` | UI | diálogo Operações do item (`POST …/backlog/:operation`): work_item_estimate |
+| `work_item_estimate_confirm` | UI | diálogo Operações do item (`POST …/backlog/:operation`): work_item_estimate_confirm |
 | `work_item_gate_check` | UI | transição e Início seguro exibem os gates; `…/start-readiness` e erros de `…/transition` |
 | `work_item_get` | UI | detalhe do item; `GET …/work-items/:key` |
 | `work_item_list` | UI | Backlog e Board; `GET …/work-items` |
 | `work_item_quality_get` | UI | aba Qualidade e detalhe do PBI; `GET …/work-items/:key/quality` |
-| `work_item_rank` | Lacuna futura | Reordenação por arrastar só altera estado, não a ordem (`work_item_rank`). |
+| `work_item_rank` | UI | diálogo Operações do item (`POST …/backlog/:operation`): work_item_rank |
 | `work_item_readiness_review` | Lacuna futura | Revisão de prontidão sem UI. |
 | `work_item_revision_list` | UI | detalhe do item; `GET …/work-items/:key/revisions` |
 | `work_item_revision_propose` | UI | editor do PBI; `POST …/work-items/:key/revisions` |

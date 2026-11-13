@@ -155,6 +155,10 @@ Para executar o fluxo de QA, crie um cenário na aba Qualidade, associe-o ao PBI
 
 [dashboard-parity-matrix.md](dashboard-parity-matrix.md) mapeia cada ferramenta do MCP para a operação do dashboard, cobertura parcial ou lacuna futura explícita. É gerada de `src/dashboard/tool-ui-matrix.ts` e um teste falha se uma ferramenta nova ficar sem classificação. As lacunas mais relevantes: comentários, estimativas, ordenação (`work_item_rank`), rastreabilidade editável, impactos, revalidação de baseline, certificação QA e política de gates.
 
+## Operações do item de backlog (SSDD-89)
+
+No detalhe do item, o botão **Operações** abre o mesmo diálogo com sete operações: `work_item_assign`, `work_item_rank`, `comment_add`, `work_item_estimate`, `work_item_estimate_confirm`, `trace_link_add` e `trace_link_remove`, via `POST /api/v1/projects/:id/backlog/:operation` (CSRF, origem e idempotência por `requestId`). O corpo é validado e executa o comando de aplicação homônimo do MCP, então papel, versão esperada (409) e auditoria vêm de lá. `GET …/work-items/:key/comments` e `…/trace` leem comentários e o rastro. Como no planejamento, o formulário usa payload JSON pré-preenchido com a chave e a versão do item.
+
 ## Operações de planejamento (SSDD-99)
 
 O botão **Planejamento** abre um diálogo com as dez operações de times e sprint: `team_create`, `team_capacity_set`, `definition_of_done_set`, `milestone_create`, `milestone_scope_change`, `sprint_draft`, `sprint_scope_change`, `sprint_start`, `sprint_close` e `sprint_cancel`. Cada uma chama `POST /api/v1/projects/:id/planning/:operation` (CSRF e origem obrigatórios), que valida o corpo e executa o mesmo comando de aplicação da tool MCP homônima: versão esperada (409), gates, snapshots de capacidade/DoD e auditoria vêm da camada de aplicação, não do formulário. O diálogo usa um payload JSON pré-preenchido por operação (mesmos campos da tool, `requestId` gerado pelo cliente); formulários campo a campo, seleção de times e confirmação explícita antes de iniciar/encerrar sprint continuam como evolução.

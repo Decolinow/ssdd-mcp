@@ -97,6 +97,18 @@ test("dashboard smoke: login, backlog and board, gate-refused transition and PBI
   await page.fill("#qa-filter-build", "build-inexistente");
   await page.locator("#qa-run-chart .empty-state").waitFor({ state: "visible" });
 
+  await page.click("#backlog-tab");
+  await page.locator("#backlog-list .backlog-row").filter({ hasText: "História sem critérios" }).locator(".row-open").click();
+  await page.locator("#item-dialog[open]").waitFor();
+  await page.click("#detail-operations-button");
+  await page.locator("#planning-dialog[open]").waitFor();
+  await page.selectOption("#planning-operation", "comment_add");
+  await page.fill("#planning-payload", '{"itemIdOrKey": "SMK-3", "body": "Comentário pelo smoke"}');
+  await page.click("#submit-planning");
+  await page.locator("#toast:not([hidden])").filter({ hasText: "concluído" }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator("#item-dialog[open]").waitFor({ state: "detached" }).catch(() => undefined);
+  if (await page.locator("#item-dialog[open]").count() > 0) await page.keyboard.press("Escape");
   await page.click("#open-planning");
   await page.locator("#planning-dialog[open]").waitFor();
   await page.selectOption("#planning-operation", "definition_of_done_set");

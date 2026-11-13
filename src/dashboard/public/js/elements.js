@@ -124,6 +124,8 @@ export const elements = {
   taskWorkflowReason: document.querySelector("#task-workflow-reason"),
   submitTaskWorkflow: document.querySelector("#submit-task-workflow"),
   publishTaskWorkflow: document.querySelector("#publish-task-workflow"),
+  detailOperations: document.querySelector("#detail-operations-button"),
+  planningTitle: document.querySelector("#planning-title"),
   detailMove: document.querySelector("#detail-move-button"),
   transitionDialog: document.querySelector("#transition-dialog"),
   transitionForm: document.querySelector("#transition-form"),

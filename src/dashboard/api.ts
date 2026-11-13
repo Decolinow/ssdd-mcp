@@ -36,6 +36,10 @@ import { specificationKinds } from "../domain/specifications.js";
 import { linkTaskToAdr } from "../application/adr-commands.js";
 import { createSpecification, proposeSpecificationRevision, publishSpecificationRevision, withdrawSpecificationRevision } from "../application/specification-commands.js";
 import { sprintStates } from "../domain/sprints.js";
+import { addWorkItemComment, assignWorkItem, confirmWorkItemEstimate, listWorkItemComments, proposeWorkItemEstimate, rankWorkItem } from "../application/work-item-commands.js";
+import { addTraceLink, removeTraceLink } from "../application/trace-commands.js";
+import { queryTraceGraph } from "../application/trace-queries.js";
+import { traceLinkTypes } from "../domain/trace.js";
 import { createTeamCapacityConfiguration, setTeamCapacityConfiguration } from "../application/team-capacity.js";
 import { setDefinitionOfDone } from "../application/definition-of-done.js";
 import { changeMilestoneScope, createMilestone } from "../application/milestones.js";
@@ -594,6 +598,31 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
         return;
       }
 
+      const backlogOperationMatch = /^\/api\/v1\/projects\/([^/]+)\/backlog\/([a-z_]+)$/.exec(route);
+      if (request.method === "POST" && backlogOperationMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(backlogOperationMatch[1]));
+        const handler = backlogOperations[backlogOperationMatch[2] ?? ""];
+        if (handler === undefined) throw new ApplicationError("NOT_FOUND", "Unknown backlog operation.");
+        assertSameOriginMutation(request, origin, session);
+        sendJson(response, 200, handler(database, projectId, principal.id, await readJsonBody(request)));
+        return;
+      }
+
+      const commentsMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/comments$/.exec(route);
+      if (request.method === "GET" && commentsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(commentsMatch[1]));
+        const page = parseListPageFilters(requestUrl.searchParams);
+        sendJson(response, 200, listWorkItemComments(database, { projectId, principalId: principal.id, itemIdOrKey: decodePathSegment(commentsMatch[2]), ...page }));
+        return;
+      }
+
+      const traceMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/trace$/.exec(route);
+      if (request.method === "GET" && traceMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(traceMatch[1]));
+        sendJson(response, 200, queryTraceGraph(database, { projectId, principalId: principal.id, nodeIdOrKey: decodePathSegment(traceMatch[2]) }));
+        return;
+      }
+
       const planningMatch = /^\/api\/v1\/projects\/([^/]+)\/planning\/([a-z_]+)$/.exec(route);
       if (request.method === "POST" && planningMatch !== null) {
         const projectId = parseUuid(decodePathSegment(planningMatch[1]));
@@ -1045,6 +1074,49 @@ const planningOperations: Record<string, PlanningHandler> = {
     const input = sprintStateBody.extend({ acceptedItemIds: z.array(z.string().uuid()).max(100), reviewSummary: z.string().trim().min(1).max(2_000) }).parse(body);
     const receipt = closeSprint(database, { projectId, principalId, ...input });
     return receiptJson(receipt.value, "sprint", receipt.auditEventIds);
+  },
+};
+
+const itemRef = z.string().trim().min(1).max(80);
+const backlogOperations: Record<string, PlanningHandler> = {
+  work_item_assign: (database, projectId, principalId, body) => {
+    const input = z.object({ requestId: requestIdField, itemIdOrKey: itemRef, assigneeId: z.string().uuid().nullable(), expectedVersion: z.number().int().positive() }).strict().parse(body);
+    const receipt = assignWorkItem(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "assignment", receipt.auditEventIds);
+  },
+  work_item_rank: (database, projectId, principalId, body) => {
+    const input = z.object({ requestId: requestIdField, itemIdOrKey: itemRef, beforeIdOrKey: itemRef.optional(), afterIdOrKey: itemRef.optional(), expectedVersion: z.number().int().positive() }).strict()
+      .refine((value) => (value.beforeIdOrKey === undefined) !== (value.afterIdOrKey === undefined), { message: "Specify exactly one beforeIdOrKey or afterIdOrKey." }).parse(body);
+    const receipt = rankWorkItem(database, compact({ projectId, principalId, ...input }));
+    return receiptJson(receipt.value, "rank", receipt.auditEventIds);
+  },
+  comment_add: (database, projectId, principalId, body) => {
+    const input = z.object({ requestId: requestIdField, itemIdOrKey: itemRef, body: z.string().trim().min(1).max(5_000) }).strict().parse(body);
+    const receipt = addWorkItemComment(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "comment", receipt.auditEventIds);
+  },
+  work_item_estimate: (database, projectId, principalId, body) => {
+    const input = z.object({
+      requestId: requestIdField, itemIdOrKey: itemRef, unit: z.enum(["points", "hours"]), value: z.number().int().min(1).max(10_000),
+      rationale: reasonField, expectedVersion: z.number().int().positive(),
+    }).strict().parse(body);
+    const receipt = proposeWorkItemEstimate(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "proposal", receipt.auditEventIds);
+  },
+  work_item_estimate_confirm: (database, projectId, principalId, body) => {
+    const input = z.object({ requestId: requestIdField, itemIdOrKey: itemRef, proposalId: z.string().uuid(), expectedVersion: z.number().int().positive() }).strict().parse(body);
+    const receipt = confirmWorkItemEstimate(database, { projectId, principalId, ...input });
+    return { ...receipt.value, auditEventIds: receipt.auditEventIds };
+  },
+  trace_link_add: (database, projectId, principalId, body) => {
+    const input = z.object({ requestId: requestIdField, sourceIdOrKey: itemRef, targetIdOrKey: itemRef, type: z.enum(traceLinkTypes) }).strict().parse(body);
+    const receipt = addTraceLink(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "link", receipt.auditEventIds);
+  },
+  trace_link_remove: (database, projectId, principalId, body) => {
+    const input = z.object({ requestId: requestIdField, linkId: z.string().uuid() }).strict().parse(body);
+    const receipt = removeTraceLink(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "link", receipt.auditEventIds);
   },
 };
 
