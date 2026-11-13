@@ -11,7 +11,7 @@
 | Histórias com critério obrigatório e cenário publicado | 18 de 19 | 18 de 19 |
 | Critérios obrigatórios certificados | 43/43 | 43/43 |
 
-Cada vínculo foi escolhido pelo escopo do título da tarefa; não houve associação em lote com um documento genérico. Todos são `relates_to`: nenhuma tarefa foi marcada como `implements` porque as especificações descrevem o domínio, não uma única tarefa.
+32 vínculos novos. Cada vínculo foi escolhido pelo escopo do título da tarefa; não houve associação em lote com um documento genérico. Todos são `relates_to`: nenhuma tarefa foi marcada como `implements` porque as especificações descrevem o domínio, não uma única tarefa.
 
 ## Vínculos criados em 2026-11-13
 

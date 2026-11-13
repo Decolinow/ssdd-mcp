@@ -3,7 +3,7 @@ import { projectRoles } from "../application/local-identity.js";
 import { specificationKinds, specificationRevisionStatuses } from "../domain/specifications.js";
 import { traceLinkTypes } from "../domain/trace.js";
 import { workItemStates, workItemTypes } from "../domain/work-items.js";
-import { scenarioKinds, testRunResults } from "../domain/scenarios.js";
+import { scenarioKinds, testRunOrigins, testRunResults } from "../domain/scenarios.js";
 import { taskWorkflowRevisionStatuses, taskWorkflowStepStatuses } from "../domain/task-workflow.js";
 import { taskContextProfiles, taskContextSections } from "../application/task-context.js";
 import { evidenceKinds } from "../domain/workflow.js";
@@ -200,6 +200,8 @@ export const testRunSchema = z.object({
   result: z.enum(testRunResults),
   notes: z.string().nullable(),
   evidenceUri: z.string().nullable(),
+  origin: z.enum(testRunOrigins),
+  evidenceSha256: z.string().nullable(),
   executedByPrincipalId: z.string().uuid(),
   executedAt: z.string().datetime(),
 });

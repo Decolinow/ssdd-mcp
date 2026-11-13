@@ -6,6 +6,7 @@ import type {
   ScenarioSnapshot,
   ScenarioStep,
   TestRun,
+  TestRunOrigin,
   TestRunResult,
 } from "../domain/scenarios.js";
 import type { SqliteDatabase } from "../storage-sqlite/database.js";
@@ -58,6 +59,8 @@ export interface RecordTestRunInput {
   readonly result: TestRunResult;
   readonly notes?: string;
   readonly evidenceUri?: string;
+  readonly origin?: TestRunOrigin;
+  readonly evidenceSha256?: string;
   readonly workItemIdOrKeys?: readonly string[];
 }
 
@@ -357,6 +360,11 @@ export function recordTestRun(
   const notes = input.notes?.trim() || null;
   const evidenceUri = input.evidenceUri?.trim() || null;
   const workItemReferences = normalizeWorkItemReferences(input.workItemIdOrKeys ?? []);
+  const origin: TestRunOrigin = input.origin ?? "agent";
+  const evidenceSha256 = input.evidenceSha256?.trim().toLowerCase() ?? null;
+  if (evidenceSha256 !== null && !/^[0-9a-f]{64}$/u.test(evidenceSha256)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Evidence SHA-256 must be 64 hexadecimal characters.");
+  }
   if (buildId.length === 0 || buildId.length > 128) {
     throw new ApplicationError("VALIDATION_FAILED", "Build ID must contain between 1 and 128 characters.");
   }
@@ -376,6 +384,8 @@ export function recordTestRun(
       result: input.result,
       notes,
       evidenceUri,
+      origin,
+      evidenceSha256,
       workItemIdOrKeys: [...workItemReferences],
     },
     requiredRoles: ["developer", "qa"],
@@ -391,10 +401,12 @@ export function recordTestRun(
         revisionNumber: run.revisionNumber,
         buildId: run.buildId,
         result: run.result,
+        origin: run.origin,
         workItemIdOrKeys: [...workItemReferences],
       },
     }),
     execute: () => {
+      if (origin === "ci") requireVerifiedWorkflowRun(database, input.projectId, buildId);
       const scenario = findScenario(database, input.projectId, scenarioReference);
       if (scenario === undefined) {
         throw new ApplicationError("NOT_FOUND", "Scenario was not found.");
@@ -422,14 +434,16 @@ export function recordTestRun(
         result: input.result,
         notes,
         evidenceUri,
+        origin,
+        evidenceSha256,
         executedByPrincipalId: input.principalId,
         executedAt: new Date().toISOString(),
       };
       database.prepare(
         `INSERT INTO test_runs
           (run_id, project_id, scenario_id, revision_number, build_id, result, notes, evidence_uri,
-           executed_by_principal_id, executed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           origin, evidence_sha256, executed_by_principal_id, executed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         run.id,
         run.projectId,
@@ -439,6 +453,8 @@ export function recordTestRun(
         run.result,
         run.notes,
         run.evidenceUri,
+        run.origin,
+        run.evidenceSha256,
         run.executedByPrincipalId,
         run.executedAt,
       );
@@ -451,6 +467,34 @@ export function recordTestRun(
       return run;
     },
   });
+}
+
+/**
+ * A ci run is trusted only when a received GitHub workflow_run for this project concluded
+ * with success on a head SHA that the build id (git-<sha>) identifies.
+ */
+function requireVerifiedWorkflowRun(database: SqliteDatabase, projectId: string, buildId: string): void {
+  const sha = /^git-([0-9a-f]{7,40})$/iu.exec(buildId)?.[1]?.toLowerCase();
+  if (sha === undefined) {
+    throw new ApplicationError("VALIDATION_FAILED", "A ci run requires a build id of the form git-<sha> (7-40 hex characters).");
+  }
+  const match = database.prepare(
+    `WITH latest AS (
+       SELECT MAX(sequence) AS sequence FROM github_workflow_run_events
+       WHERE project_id = ? GROUP BY repository_full_name, workflow_run_id
+     )
+     SELECT event.workflow_run_id FROM latest
+     INNER JOIN github_workflow_run_events AS event ON event.sequence = latest.sequence
+     WHERE event.status = 'completed' AND event.conclusion = 'success'
+       AND substr(lower(event.head_sha), 1, ?) = ?
+     LIMIT 1`,
+  ).get(projectId, sha.length, sha) as { workflow_run_id: string } | undefined;
+  if (match === undefined) {
+    throw new ApplicationError(
+      "VALIDATION_FAILED",
+      `No successful GitHub workflow run was received for commit ${sha}; record the run as origin "agent" or "human", or wait for the webhook.`,
+    );
+  }
 }
 
 function normalizeContent(input: ScenarioContentInput): Omit<ScenarioSnapshot, "coverage"> {

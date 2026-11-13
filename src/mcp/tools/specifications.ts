@@ -3,7 +3,7 @@ import { linkTaskToAdr } from "../../application/adr-commands.js";
 import { createSpecification, proposeSpecificationRevision, publishSpecificationRevision, withdrawSpecificationRevision } from "../../application/specification-commands.js";
 import { getSpecification, listSpecifications } from "../../application/specification-queries.js";
 import { specificationKinds } from "../../domain/specifications.js";
-import { scenarioKinds, testRunResults } from "../../domain/scenarios.js";
+import { scenarioKinds, testRunOrigins, testRunResults } from "../../domain/scenarios.js";
 import { createScenario, proposeScenarioRevision, publishScenarioRevision, recordTestRun } from "../../application/scenario-commands.js";
 import { getScenario, listScenarios, searchScenariosByCriterion } from "../../application/scenario-queries.js";
 import { scenarioRevisionSchema, scenarioSummarySchema, scenarioSchema, testRunSchema, scenarioCoverageMatchSchema, scenarioContentInputSchema, specificationContentSchema, specificationRevisionSchema, specificationSchema, traceLinkReceiptSchema } from "../schemas.js";
@@ -426,11 +426,13 @@ export function registerSpecificationTools(context: McpToolContext): void {
         result: z.enum(testRunResults),
         notes: z.string().max(2_000).optional(),
         evidenceUri: z.string().trim().min(1).max(2_048).optional(),
+        origin: z.enum(testRunOrigins).optional().describe("agent (default) and human are observations; ci requires a successful GitHub workflow_run whose head SHA matches buildId (git-<sha>)."),
+        evidenceSha256: z.string().trim().regex(/^[0-9a-fA-F]{64}$/u).optional().describe("SHA-256 of the attached evidence file, for later integrity checks."),
         workItemIdOrKeys: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
       }),
       outputSchema: z.object({ run: testRunSchema, auditEventIds: z.array(z.string().uuid()) }),
     },
-    ({ projectId, requestId, scenarioIdOrKey, revisionNumber, buildId, result, notes, evidenceUri, workItemIdOrKeys }) => {
+    ({ projectId, requestId, scenarioIdOrKey, revisionNumber, buildId, result, notes, evidenceUri, origin, evidenceSha256, workItemIdOrKeys }) => {
       try {
         const receipt = recordTestRun(database, {
           projectId,
@@ -442,6 +444,8 @@ export function registerSpecificationTools(context: McpToolContext): void {
           result,
           ...(notes === undefined ? {} : { notes }),
           ...(evidenceUri === undefined ? {} : { evidenceUri }),
+          ...(origin === undefined ? {} : { origin }),
+          ...(evidenceSha256 === undefined ? {} : { evidenceSha256 }),
           ...(workItemIdOrKeys === undefined ? {} : { workItemIdOrKeys }),
         });
         const payload = { run: receipt.value, auditEventIds: receipt.auditEventIds };

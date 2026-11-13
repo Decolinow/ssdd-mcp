@@ -2782,6 +2782,14 @@ export const initialMigrations: readonly SqliteMigration[] = [
       BEGIN SELECT RAISE(ABORT, 'item template revisions are immutable'); END;
     `,
   },
+  {
+    version: 43,
+    name: "test-run-origin",
+    sql: `
+      ALTER TABLE test_runs ADD COLUMN origin TEXT NOT NULL DEFAULT 'agent' CHECK (origin IN ('agent', 'human', 'ci'));
+      ALTER TABLE test_runs ADD COLUMN evidence_sha256 TEXT CHECK (evidence_sha256 IS NULL OR length(evidence_sha256) = 64);
+    `,
+  },
 ];
 
 export function applyMigrations(

@@ -73,9 +73,15 @@ export interface TestRun {
   readonly result: TestRunResult;
   readonly notes: string | null;
   readonly evidenceUri: string | null;
+  /** agent and human are observations; ci is accepted only with a matching successful workflow run. */
+  readonly origin: TestRunOrigin;
+  readonly evidenceSha256: string | null;
   readonly executedByPrincipalId: string;
   readonly executedAt: string;
 }
+
+export const testRunOrigins = ["agent", "human", "ci"] as const;
+export type TestRunOrigin = (typeof testRunOrigins)[number];
 
 export interface ScenarioCoverageMatch {
   readonly scenario: {

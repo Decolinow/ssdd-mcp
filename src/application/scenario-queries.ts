@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { testRunResults } from "../domain/scenarios.js";
+import { testRunResults, type TestRunOrigin } from "../domain/scenarios.js";
 import type {
   Scenario,
   ScenarioCoverageMatch,
@@ -286,7 +286,8 @@ export function listTestRunPage(
   }
   const rows = database.prepare(
     `SELECT tr.sequence, tr.run_id, tr.project_id, tr.scenario_id, s.scenario_key, tr.revision_number,
-            tr.build_id, tr.result, tr.notes, tr.evidence_uri, tr.executed_by_principal_id, tr.executed_at
+            tr.build_id, tr.result, tr.notes, tr.evidence_uri, tr.origin, tr.evidence_sha256,
+            tr.executed_by_principal_id, tr.executed_at
      FROM test_runs tr INNER JOIN scenarios s
        ON s.project_id = tr.project_id AND s.scenario_id = tr.scenario_id
      WHERE ${pageWhere.join(" AND ")}
@@ -302,6 +303,8 @@ export function listTestRunPage(
     result: TestRunResult;
     notes: string | null;
     evidence_uri: string | null;
+    origin: TestRunOrigin;
+    evidence_sha256: string | null;
     executed_by_principal_id: string;
     executed_at: string;
   }>;
@@ -317,6 +320,8 @@ export function listTestRunPage(
     result: row.result,
     notes: row.notes,
     evidenceUri: row.evidence_uri,
+    origin: row.origin,
+    evidenceSha256: row.evidence_sha256,
     executedByPrincipalId: row.executed_by_principal_id,
     executedAt: row.executed_at,
   }));
@@ -393,7 +398,7 @@ export function searchScenariosByCriterion(
        SELECT m.scenario_id, m.scenario_key, m.kind, m.title, m.revision_id, m.revision_number,
               m.status, m.snapshot_json, m.created_by_principal_id, m.created_at,
               m.published_by_principal_id, m.published_at,
-              lr.run_id, lr.build_id, lr.result, lr.notes, lr.evidence_uri,
+              lr.run_id, lr.build_id, lr.result, lr.notes, lr.evidence_uri, lr.origin, lr.evidence_sha256,
               lr.executed_by_principal_id, lr.executed_at
        FROM matching m LEFT JOIN latest_runs lr
          ON lr.project_id = ? AND lr.scenario_id = m.scenario_id
@@ -445,7 +450,7 @@ export function searchScenariosByCriteria(
        SELECT m.criterion_id, m.scenario_id, m.scenario_key, m.kind, m.title, m.revision_id, m.revision_number,
               m.status, m.snapshot_json, m.created_by_principal_id, m.created_at,
               m.published_by_principal_id, m.published_at,
-              lr.run_id, lr.build_id, lr.result, lr.notes, lr.evidence_uri,
+              lr.run_id, lr.build_id, lr.result, lr.notes, lr.evidence_uri, lr.origin, lr.evidence_sha256,
               lr.executed_by_principal_id, lr.executed_at
        FROM matching m LEFT JOIN latest_runs lr
          ON lr.project_id = ? AND lr.scenario_id = m.scenario_id
@@ -483,6 +488,8 @@ interface CoverageRow {
   result: TestRunResult | null;
   notes: string | null;
   evidence_uri: string | null;
+  origin: TestRunOrigin | null;
+  evidence_sha256: string | null;
   executed_by_principal_id: string | null;
   executed_at: string | null;
 }
@@ -534,6 +541,8 @@ function collectCoverageMatches(rows: readonly CoverageRow[], projectId: string)
         result: row.result,
         notes: row.notes,
         evidenceUri: row.evidence_uri,
+        origin: row.origin ?? 'agent',
+        evidenceSha256: row.evidence_sha256,
         executedByPrincipalId: row.executed_by_principal_id,
         executedAt: row.executed_at,
       });

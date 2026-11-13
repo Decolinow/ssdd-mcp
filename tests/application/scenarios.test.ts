@@ -301,6 +301,66 @@ describe("versioned scenarios, coverage and test runs", () => {
     );
   });
 
+  it("records run origin and evidence hash, and trusts ci only with a matching successful workflow run", () => {
+    createScenario(database, scenarioInput("PAY-TC-01", "Pedido confirmado"));
+    publishScenarioRevision(database, {
+      projectId, principalId, requestId: "origin-publish", scenarioIdOrKey: "PAY-TC-01", revisionNumber: 1, expectedVersion: 1,
+    });
+    const sha = "ab12cd34ef567890ab12cd34ef567890ab12cd34";
+    const digest = "a".repeat(64);
+
+    const observed = recordTestRun(database, { ...runInput("origin-default", "git-ab12cd3", "passed", 1), evidenceSha256: digest.toUpperCase() }).value;
+    assert.equal(observed.origin, "agent");
+    assert.equal(observed.evidenceSha256, digest);
+    const human = recordTestRun(database, { ...runInput("origin-human", "git-ab12cd3", "passed", 1), origin: "human" }).value;
+    assert.equal(human.origin, "human");
+    assert.equal(human.evidenceSha256, null);
+
+    assert.throws(
+      () => recordTestRun(database, { ...runInput("origin-bad-hash", "build-1", "passed", 1), evidenceSha256: "xyz" }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED",
+    );
+    for (const buildId of ["build-1", "git-ab12cd3"]) {
+      assert.throws(
+        () => recordTestRun(database, { ...runInput(`origin-ci-${buildId}`, buildId, "passed", 1), origin: "ci" }),
+        (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED" &&
+          /build id|workflow run/u.test(error.message),
+      );
+    }
+
+    const insertWorkflowRun = (workflowRunId: string, status: string, conclusion: string | null, headSha: string): void => {
+      const receiptId = randomUUID();
+      database.prepare(
+        `INSERT INTO webhook_receipts (receipt_id, provider, delivery_id, project_id, principal_id, event_type, payload_sha256, receipt_json, received_at)
+         VALUES (?, 'github', ?, ?, ?, 'workflow_run', ?, '{}', ?)`,
+      ).run(receiptId, `delivery-${receiptId}`, projectId, principalId, "b".repeat(64), new Date().toISOString());
+      database.prepare(
+        `INSERT INTO github_workflow_run_events
+          (event_id, receipt_id, project_id, repository_id, repository_full_name, workflow_run_id, run_number, name, status,
+           conclusion, html_url, head_branch, head_sha, pull_request_numbers_json, work_item_id, work_item_key, received_at)
+         VALUES (?, ?, ?, '1', 'org/repo', ?, 1, 'ci', ?, ?, 'https://github.com/org/repo/actions/runs/1', 'main', ?, '[]', NULL, NULL, ?)`,
+      ).run(randomUUID(), receiptId, projectId, workflowRunId, status, conclusion, headSha, new Date().toISOString());
+    };
+    insertWorkflowRun("900", "completed", "failure", sha);
+    assert.throws(
+      () => recordTestRun(database, { ...runInput("origin-ci-failed", "git-ab12cd3", "passed", 1), origin: "ci" }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED",
+    );
+    insertWorkflowRun("901", "completed", "success", sha);
+    const verified = recordTestRun(database, { ...runInput("origin-ci-ok", "git-ab12cd3", "passed", 1), origin: "ci" }).value;
+    assert.equal(verified.origin, "ci");
+    assert.throws(
+      () => recordTestRun(database, { ...runInput("origin-ci-other", "git-ffffff0", "passed", 1), origin: "ci" }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED",
+    );
+
+    const page = listTestRunPage(database, projectId, principalId, {});
+    assert.deepEqual(
+      page.runs.map((run) => run.origin).sort(),
+      ["agent", "ci", "human"],
+    );
+  });
+
   function scenarioInput(key: string, title: string) {
     return {
       projectId,
