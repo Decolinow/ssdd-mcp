@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Benchmark da busca semântica (2026-11-12, SSDD-923 / MCP SSDD-125)
+
+Novo teste de benchmark com provedor determinístico offline (384 dimensões) em 1.000, 5.000 e 10.000 itens: indexação ~0,2 ms/item, busca aquecida p95 de 24 / 127 / 319 ms, 7 consultas SQL por busca, banco de 79 MB aos 10.000 itens e heap extra < 7 MB. SLOs folgados (≈10×) e a rejeição acima de 10.000 itens sem chamada ao provedor estão cobertos em `docs/semantic-search-benchmark.md`. `task_accept` foi reinstalada no runtime do agente; SSDD-119, 121 e 123 receberam aceite formal.
+
 ## Tool composta `task_accept` (2026-11-12, findings U11/U17/U18)
 
 Novo `src/application/task-accept.ts` e a tool `task_accept`: fecha uma tarefa Draft/Ready pelos mesmos serviços e gates (atribuir, estimar em horas, Ready, `task_start`, evidência, concluir sessão, `in_review`, `in_validation`, `done`) numa única transação, com `requestId` derivado por etapa (retry idempotente; tarefa já Done devolve `alreadyDone`) e saída resumida. Aprovável como unidade, perfil `dev`. Testes em `tests/application/task-accept.test.ts`; `npm run check` com 214 testes verdes.
