@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createWorkItem } from "../../src/application/create-work-item.js";
+import { createSpecification, proposeSpecificationRevision, publishSpecificationRevision } from "../../src/application/specification-commands.js";
+import { addTraceLink } from "../../src/application/trace-commands.js";
 import { initializeProject } from "../../src/application/initialize-project.js";
 import { createDashboardApiServer, listenDashboardApiServer } from "../../src/dashboard/api.js";
 import { openSqliteDatabase } from "../../src/storage-sqlite/database.js";
@@ -22,6 +24,11 @@ test("dashboard backlog operations reuse MCP commands: assign, comment, estimate
   const feature = create("feature", "Feature", epic.id);
   const story = create("story", "História A", feature.id);
   const other = create("story", "História B", feature.id);
+  const baselined = create("story", "História com baseline", feature.id);
+  const spec = createSpecification(database, { projectId, principalId, requestId: randomUUID(), key: "BR-UI-1", kind: "business_rule", title: "Regra", content: { text: "Primeira versão" } }).value;
+  publishSpecificationRevision(database, { projectId, principalId, requestId: randomUUID(), specIdOrKey: spec.specId, revisionNumber: 1, expectedVersion: 1 });
+  addTraceLink(database, { projectId, principalId, requestId: randomUUID(), sourceIdOrKey: baselined.id, targetIdOrKey: spec.specId, type: "implements" });
+  database.prepare("UPDATE work_items SET state = 'ready' WHERE project_id = ? AND item_id = ?").run(projectId, baselined.id);
   database.close();
   const dashboard = createDashboardApiServer(workspace);
   const address = await listenDashboardApiServer(dashboard, 0);
@@ -79,4 +86,23 @@ test("dashboard backlog operations reuse MCP commands: assign, comment, estimate
   const revalidateWithoutBaseline = await call("baseline_revalidate", { requestId: "b1", itemIdOrKey: story.key, expectedVersion: (await getItem(story.key)).version, reason: "Sem baseline" });
   assert.ok(revalidateWithoutBaseline.status >= 400 && revalidateWithoutBaseline.status < 500, "revalidation needs an existing baseline");
   assert.equal((await call("baseline_revalidate", { requestId: "b-stale", itemIdOrKey: story.key, expectedVersion: 1, reason: "Versão antiga" })).status >= 400, true);
-});
+
+  // Positive flow: fix a baseline, republish the rule, see the open impact and revalidate it from the dashboard.
+  const baselinedUrl = `${address.origin}/api/v1/projects/${projectId}/work-items/${baselined.key}`;
+  const fixed = await call("baseline_fix", { requestId: "bf1", itemIdOrKey: baselined.key, expectedVersion: (await getItem(baselined.key)).version, reason: "PO aceitou o escopo" });
+  assert.equal(fixed.status, 200, await fixed.clone().text());
+  const pinned = await (await fetch(`${baselinedUrl}/baseline`, { headers })).json() as { baseline: { sequence: number; references: Array<{ key: string; revisionNumber: number; snapshot?: unknown }> } };
+  assert.equal(pinned.baseline.sequence, 1);
+  assert.ok(pinned.baseline.references.some((reference) => reference.key === "BR-UI-1" && reference.revisionNumber === 1));
+  assert.ok(pinned.baseline.references.every((reference) => reference.snapshot === undefined));
+  const republishDatabase = openSqliteDatabase(initialized.databasePath);
+  proposeSpecificationRevision(republishDatabase, { projectId, principalId, requestId: randomUUID(), specIdOrKey: spec.specId, expectedVersion: 2, content: { text: "Segunda versão" } });
+  publishSpecificationRevision(republishDatabase, { projectId, principalId, requestId: randomUUID(), specIdOrKey: spec.specId, revisionNumber: 2, expectedVersion: 3 });
+  republishDatabase.close();
+  const open = await (await fetch(`${baselinedUrl}/impacts?status=open`, { headers })).json() as { impacts: Array<{ specificationKey: string; baselineRevision: number; publishedRevision: number }> };
+  assert.deepEqual(open.impacts.map(({ specificationKey, baselineRevision, publishedRevision }) => ({ specificationKey, baselineRevision, publishedRevision })), [{ specificationKey: "BR-UI-1", baselineRevision: 1, publishedRevision: 2 }]);
+  const revalidated = await call("baseline_revalidate", { requestId: "br1", itemIdOrKey: baselined.key, expectedVersion: (await getItem(baselined.key)).version, reason: "PO revisou a regra" });
+  assert.equal(revalidated.status, 200, await revalidated.clone().text());
+  assert.equal(((await (await fetch(`${baselinedUrl}/baseline`, { headers })).json()) as { baseline: { sequence: number } }).baseline.sequence, 2);
+  assert.equal(((await (await fetch(`${baselinedUrl}/impacts?status=open`, { headers })).json()) as { impacts: unknown[] }).impacts.length, 0);
+  assert.equal(((await (await fetch(`${baselinedUrl}/impacts?status=revalidated`, { headers })).json()) as { impacts: unknown[] }).impacts.length, 1);});

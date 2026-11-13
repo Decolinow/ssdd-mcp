@@ -1226,7 +1226,17 @@ test("dashboard API sessions and project authorization match MCP access", async 
   });
   assert.equal(impactsResponse.status, 200);
   assert.ok(Array.isArray(((await impactsResponse.json()) as { impacts: unknown[] }).impacts));
-
+  // SSDD-97 AC-1: revalidation is refused without PO/Tech Lead (positive flow: backlog-operations.test.ts).
+  const currentStory = await (await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${story.key}`, { headers: { Cookie: cookie, Origin: address.origin } })).json() as { workItem: { version: number } };
+  const revalidateBody = { requestId: "dashboard-revalidate", itemIdOrKey: story.key, expectedVersion: currentStory.workItem.version, reason: "Revalidação pelo dashboard" };
+  const developerRevalidate = await postAsTaskDeveloper(`/api/v1/projects/${projectId}/backlog/baseline_revalidate`, { ...revalidateBody, requestId: "dashboard-revalidate-dev" });
+  assert.equal(developerRevalidate.status, 403);
+  assert.equal(((await developerRevalidate.json()) as { code: string }).code, "FORBIDDEN");
+  const unchangedBaseline = await (await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${story.key}/baseline`, { headers: { Cookie: cookie, Origin: address.origin } })).json() as { baseline: { sequence: number } };
+  assert.equal(unchangedBaseline.baseline.sequence, baselineBody.baseline.sequence, "a refused revalidation has no effect");
+  const revalidateWithoutImpact = await postMutation(`/api/v1/projects/${projectId}/backlog/baseline_revalidate`, revalidateBody);
+  assert.equal(revalidateWithoutImpact.status, 400, "revalidation needs an open impact");
+  assert.equal(((await revalidateWithoutImpact.json()) as { code: string }).code, "VALIDATION_FAILED");
   const itemTimeline = await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${story.key}/timeline`, {
     headers: { Cookie: cookie, Origin: address.origin },
   });

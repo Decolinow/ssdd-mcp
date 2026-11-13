@@ -8,7 +8,7 @@ Histórico datado das entregas, verificações e auditorias do projeto, movido d
 
 ## Baseline e impactos no dashboard (2026-11-13, SSDD-97)
 
-- Rotas `GET …/baseline` e `…/impacts`, operações `baseline_revalidate` e `baseline_fix` em `backlog/:operation` e painel Baseline e impactos no detalhe do PBI. Motivo: SCN-97-AC1 foi registrado como reprovado por falta dessa UI. Testes em `tests/dashboard/backlog-operations.test.ts` (CSRF, motivo obrigatório, 404 sem baseline, 409/4xx) e `tests/dashboard/api.test.ts` (baseline sem snapshots e impactos). O fluxo positivo de revalidação com impacto aberto roda só no nível de aplicação, não pelo navegador.
+- Rotas `GET …/baseline` e `…/impacts`, operações `baseline_revalidate` e `baseline_fix` em `backlog/:operation` e painel Baseline e impactos no detalhe do PBI. Motivo: SCN-97-AC1 foi registrado como reprovado por falta dessa UI. Testes em `tests/dashboard/backlog-operations.test.ts` (CSRF, motivo obrigatório, 404 sem baseline, 409/4xx) e `tests/dashboard/api.test.ts` (baseline sem snapshots e impactos). Fluxo positivo (fixar, republicar a regra, ver o impacto aberto e revalidar) e a recusa de um desenvolvedor (403) estão testados pela API; o navegador não executa a revalidação.
 
 ## Validade e baseline desatualizada na cobertura (2026-11-13, SSDD-94)
 
