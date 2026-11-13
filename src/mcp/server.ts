@@ -1037,6 +1037,8 @@ export function createMcpServer(
   }
   const principal = database.prepare("SELECT principal_type FROM principals WHERE principal_id = ?")
     .get(principalId) as { principal_type: string } | undefined;
+  // Output schemas are ~80% of the tools/list payload; SSDD_MCP_OMIT_OUTPUT_SCHEMAS=1 drops them (structuredContent is still returned).
+  const omitOutputSchemas = process.env.SSDD_MCP_OMIT_OUTPUT_SCHEMAS === "1";
   const requiresHumanApproval = principal?.principal_type === "agent" || principal?.principal_type === "service";
   const originalRegisterPrompt = server.registerPrompt.bind(server) as unknown as (
     name: string,
@@ -1055,6 +1057,11 @@ export function createMcpServer(
   server.registerTool = ((name: string, config: unknown, callback: (args: unknown, context: unknown) => unknown) => {
     if (!mcpProfileAllowsTool(profile, name, isHostAdministrator)) return undefined as never;
     config = withToolAnnotations(name, config);
+    if (omitOutputSchemas && typeof config === "object" && config !== null && "outputSchema" in config) {
+      const withoutOutputSchema = { ...(config as Record<string, unknown>) };
+      delete withoutOutputSchema.outputSchema;
+      config = withoutOutputSchema;
+    }
     const aliasing = withItemParameterAlias(config);
     config = aliasing.config;
     if (aliasing.aliased) {

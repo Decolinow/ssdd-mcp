@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Custo de contexto do catálogo (2026-11-12, U19)
+
+Medição de `tools/list`: 554 KB (`full`), 193 KB (`dev`), 276 KB (`tech_lead`), 83% em `outputSchema`. Nova variável `SSDD_MCP_OMIT_OUTPUT_SCHEMAS=1` remove os schemas de saída mantendo `structuredContent`; coberta por `tests/mcp/output-schema-opt-out.test.ts`.
+
 ## Análise de fluxo e caminho crítico (2026-11-12, SSDD-930 / MCP SSDD-133)
 
 Nova tool `flow_metrics_get` (`src/application/flow-metrics.ts`): distribuições de lead, ciclo, espera, trabalho e espera por dependência derivadas das transições imutáveis, WIP aberto como amostra censurada e caminho crítico apenas para DAG com estimativas em horas. Agregada, sem ranking individual, com `limitations` explícitas. Sem migração.
