@@ -135,7 +135,7 @@ Escolha uma data (no fuso do projeto) para reconstruir itens, revisões publicad
 
 ![Diálogo Planejamento](images/dialogo-planejamento.png)
 
-Reúne as operações de sprint, capacidade e marcos disponíveis para o seu papel. Cada operação é idempotente, versionada e auditada.
+Reúne as operações de sprint, capacidade e marcos disponíveis para o seu papel. Cada operação é idempotente, versionada e auditada. **Atenção:** nesta versão o formulário pede os parâmetros como um objeto JSON com os mesmos campos da tool MCP correspondente (um modelo é preenchido ao escolher a operação); formulários guiados por campo ainda não existem.
 
 ## 14. Mensagens e erros comuns
 

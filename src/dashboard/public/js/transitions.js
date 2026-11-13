@@ -130,7 +130,7 @@ export function setView(view) {
   }
   const activeTab = views[view]?.[0];
   if (activeTab) document.title = `${activeTab.firstChild?.textContent?.trim() || activeTab.textContent.trim()} · SSDD`;
-  elements.filters.hidden = view === "home" || view === "metrics" || view === "history" || view === "roadmap" || view === "specifications";
+  elements.filters.hidden = ["home", "metrics", "history", "roadmap", "specifications", "activity", "retrospective"].includes(view);
   if (view === "home") renderQuickAccess();
   if (view === "metrics") void loadDashboardMetrics();
   if (view === "roadmap") void loadProjectRoadmap();

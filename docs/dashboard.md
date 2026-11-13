@@ -68,6 +68,7 @@ Auditoria da interface inteira com capturas reais (ver [manual do usuário](manu
 - **Roadmap:** o resumo por épico ganhou cartões com barra de progresso.
 - **Rótulos:** "Backlog do produto" substitui "Itens fora da sprint ativa"; as marcas H/B/F/E/T têm nome acessível e tooltip; o título da janela acompanha a aba; a seção "Qualidade por PBI" ganhou título e explicação; prioridades do formulário descrevem P1–P4.
 - **Detalhe do item:** o item pai mostra chave e título (não o UUID) e responsáveis aparecem como o seu nome ("você") ou um identificador curto.
+- **Alinhamento:** linhas de Atividade, Qualidade por PBI e histórico de execuções usam colunas fixas (antes o botão ›, o ator e o resultado deslocavam de linha para linha); o painel de impedimentos da home ocupa a largura toda quando está sozinho; as abas Atividade e Retrospectiva não exibem mais a busca e o filtro de tipo, que não se aplicam a elas.
 - **Acessibilidade:** foco visível padronizado e respeito a `prefers-reduced-motion`.
 - `scripts/capture-dashboard-screenshots.mjs` regenera as imagens de `docs/images/`.
 

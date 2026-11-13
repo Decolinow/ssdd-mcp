@@ -772,3 +772,12 @@ footer { display: flex; justify-content: space-between; padding: 15px 4.5vw 20px
 .roadmap-epic-title { display: block; color: #34435b; font-weight: 650; }
 .qa-run-form { align-items: start; }
 .qa-run-form .form-field input, .qa-run-form .form-field select, .qa-run-form .form-field textarea { width: 100%; }
+.quality-row { grid-template-columns: minmax(120px, .7fr) minmax(190px, 2fr) minmax(125px, 1fr) minmax(150px, 1.1fr) 56px 30px; }
+.quality-row .row-open { justify-self: end; }
+.activity-event, .timeline-event { grid-template-columns: 150px 190px 110px minmax(0, 1fr) 280px; }
+.timeline-event { grid-template-columns: 150px 190px 110px minmax(0, 1fr); }
+.event-actor { overflow-wrap: anywhere; }
+.run-history-row { display: grid; grid-template-columns: 110px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) auto; justify-content: stretch; text-align: left; }
+.quick-access-actions > .quick-panel:last-child:nth-child(odd) { grid-column: 1 / -1; }
+@media (max-width: 900px) { .activity-event, .timeline-event, .run-history-row, .quality-row { grid-template-columns: 1fr; } }
+.activity-event > button { justify-self: stretch; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
