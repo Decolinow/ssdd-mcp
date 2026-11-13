@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Matriz ferramenta MCP → UI (2026-11-13, SSDD-97 AC-4)
+
+- `docs/dashboard-parity-matrix.md` classifica as ferramentas do MCP em UI, parcial ou lacuna futura, gerada de `src/dashboard/tool-ui-matrix.ts` com teste de completude contra a matriz do catálogo. Mostra que a paridade ainda tem lacunas reais, listadas por ferramenta.
+
 ## Operações de planejamento no dashboard (2026-11-13, SSDD-99)
 
 - Rota `planning/:operation` e diálogo Planejamento cobrem times, capacidade, DoD, marcos e ciclo de sprint pelos mesmos comandos do MCP. `tests/dashboard/planning-operations.test.ts` cobre CSRF, validação, operação desconhecida e conflito de versão; o smoke de navegador cria uma DoD. `npm run check` 256/256.

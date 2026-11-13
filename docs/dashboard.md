@@ -151,6 +151,10 @@ A aba **Roadmap** lê `GET /api/v1/projects/{projectId}/feature-roadmap`, que ch
 
 Para executar o fluxo de QA, crie um cenário na aba Qualidade, associe-o ao PBI/critério pela cobertura e às tarefas verificadas pelo campo **Tarefas associadas**, proponha sua revisão e publique-a como QA humano. Registre uma execução escolhendo essa revisão publicada e informando build, resultado, notas, URI de evidência e tarefas verificadas. Uma revisão em rascunho não aceita execução. A execução é imutável e conserva as tarefas exatas que validou, a revisão e a build. Para certificar um resultado compatível com a baseline, use `test_run_certify` pelo MCP; certificação não é feita pela interface nesta versão.
 
+## Paridade ferramenta MCP → UI
+
+[dashboard-parity-matrix.md](dashboard-parity-matrix.md) mapeia cada ferramenta do MCP para a operação do dashboard, cobertura parcial ou lacuna futura explícita. É gerada de `src/dashboard/tool-ui-matrix.ts` e um teste falha se uma ferramenta nova ficar sem classificação. As lacunas mais relevantes: comentários, estimativas, ordenação (`work_item_rank`), rastreabilidade editável, impactos, revalidação de baseline, certificação QA e política de gates.
+
 ## Operações de planejamento (SSDD-99)
 
 O botão **Planejamento** abre um diálogo com as dez operações de times e sprint: `team_create`, `team_capacity_set`, `definition_of_done_set`, `milestone_create`, `milestone_scope_change`, `sprint_draft`, `sprint_scope_change`, `sprint_start`, `sprint_close` e `sprint_cancel`. Cada uma chama `POST /api/v1/projects/:id/planning/:operation` (CSRF e origem obrigatórios), que valida o corpo e executa o mesmo comando de aplicação da tool MCP homônima: versão esperada (409), gates, snapshots de capacidade/DoD e auditoria vêm da camada de aplicação, não do formulário. O diálogo usa um payload JSON pré-preenchido por operação (mesmos campos da tool, `requestId` gerado pelo cliente); formulários campo a campo, seleção de times e confirmação explícita antes de iniciar/encerrar sprint continuam como evolução.
