@@ -1836,11 +1836,12 @@ export function createMcpServer(
     "task_execution_queue_get",
     {
       title: "Consultar fila priorizada de execução",
-      description: "Lista tarefas Ready/in_progress atribuídas ao principal (por padrão), validadas pelos bloqueios reais de início. Ordena por prioridade efetiva (P1 primeiro), valor de negócio herdado/definido (maior primeiro) e rank; valores ausentes ficam por último. Se nada puder iniciar, emptyReason explica e upNext lista as próximas tarefas ainda não Ready (sem dependência aberta primeiro), excluindo as já entregues localmente e sem aceite formal (awaitingAcceptance/awaitingAcceptanceCount) com o que falta e a próxima ação. Read-only; inicie somente com task_start após task_start_check.",
+      description: "Lista tarefas Ready/in_progress atribuídas ao principal (por padrão), validadas pelos bloqueios reais de início. Ordena por prioridade efetiva (P1 primeiro), valor de negócio herdado/definido (maior primeiro) e rank; valores ausentes ficam por último. Se nada puder iniciar, emptyReason explica e upNext lista as próximas tarefas ainda não Ready (sem dependência aberta primeiro), excluindo as já entregues localmente e sem aceite formal (awaitingAcceptance/awaitingAcceptanceCount) com o que falta e a próxima ação. Por padrão a resposta omite justificativa e fonte do valor de negócio e a fonte da prioridade (verbose=true as inclui; work_item_get traz a justificativa). Read-only; inicie somente com task_start após task_start_check.",
       inputSchema: z.object({
         projectId: z.string().uuid(),
         assignedToMe: z.boolean().optional().default(true),
         limit: z.number().int().min(1).max(50).optional().default(20),
+        verbose: z.boolean().optional().default(false),
       }),
       outputSchema: z.object({
         projectId: z.string().uuid(),
@@ -1852,16 +1853,16 @@ export function createMcpServer(
         businessValueMissingCount: z.number().int().nonnegative(),
         blocked: z.array(z.object({
           id: z.string().uuid(), key: z.string(), title: z.string(), state: z.string(), assigneeId: z.string().uuid().nullable(),
-          priority: z.number().int().min(1).max(4), prioritySource: z.string(),
-          businessValueScore: z.number().int().min(0).max(100).nullable(), businessValueRationale: z.string().nullable(),
-          businessValueSource: z.string().nullable(), featureKey: z.string().nullable(), rank: z.number().int().positive(),
+          priority: z.number().int().min(1).max(4), prioritySource: z.string().optional(),
+          businessValueScore: z.number().int().min(0).max(100).nullable(), businessValueRationale: z.string().nullable().optional(),
+          businessValueSource: z.string().nullable().optional(), featureKey: z.string().nullable(), rank: z.number().int().positive(),
           blockerCodes: z.array(z.string()),
         })),
         tasks: z.array(z.object({
           id: z.string().uuid(), key: z.string(), title: z.string(), state: z.string(), assigneeId: z.string().uuid().nullable(),
-          priority: z.number().int().min(1).max(4), prioritySource: z.string(),
-          businessValueScore: z.number().int().min(0).max(100).nullable(), businessValueRationale: z.string().nullable(),
-          businessValueSource: z.string().nullable(), featureKey: z.string().nullable(), rank: z.number().int().positive(),
+          priority: z.number().int().min(1).max(4), prioritySource: z.string().optional(),
+          businessValueScore: z.number().int().min(0).max(100).nullable(), businessValueRationale: z.string().nullable().optional(),
+          businessValueSource: z.string().nullable().optional(), featureKey: z.string().nullable(), rank: z.number().int().positive(),
         })),
         emptyReason: z.enum(["no_ready_tasks", "ready_tasks_blocked"]).nullable(),
         inFlight: z.array(z.object({ key: z.string(), state: z.string(), assigneeId: z.string().uuid().nullable() })),
@@ -1869,9 +1870,9 @@ export function createMcpServer(
         awaitingAcceptance: z.array(z.string()),
         upNext: z.array(z.object({
           id: z.string().uuid(), key: z.string(), title: z.string(), state: z.string(), assigneeId: z.string().uuid().nullable(),
-          priority: z.number().int().min(1).max(4), prioritySource: z.string(),
-          businessValueScore: z.number().int().min(0).max(100).nullable(), businessValueRationale: z.string().nullable(),
-          businessValueSource: z.string().nullable(), featureKey: z.string().nullable(), rank: z.number().int().positive(),
+          priority: z.number().int().min(1).max(4), prioritySource: z.string().optional(),
+          businessValueScore: z.number().int().min(0).max(100).nullable(), businessValueRationale: z.string().nullable().optional(),
+          businessValueSource: z.string().nullable().optional(), featureKey: z.string().nullable(), rank: z.number().int().positive(),
           unmetDependencies: z.array(z.string()),
           dependenciesAwaitingAcceptance: z.array(z.string()),
           missing: z.array(z.enum(["not_ready_state", "assignee", "estimate", "business_value", "dependencies"])),
@@ -1879,7 +1880,7 @@ export function createMcpServer(
         })),
       }),
     },
-    ({ projectId, assignedToMe, limit }) => {
+    ({ projectId, assignedToMe, limit, verbose }) => {
       try {
         const result = getTaskExecutionQueue(database, {
           projectId,
@@ -1887,7 +1888,8 @@ export function createMcpServer(
           assignedToMe,
           limit,
         });
-        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+        const lean = verbose ? result : leanTaskQueue(result);
+        return { content: [{ type: "text", text: JSON.stringify(lean) }], structuredContent: lean };
       } catch (error) {
         return toToolError(error);
       }
@@ -4733,4 +4735,12 @@ function toToolError(error: unknown) {
     isError: true as const,
     content: [{ type: "text" as const, text: JSON.stringify(envelope) }],
   };
+}
+
+const queueVerboseFields = ["businessValueRationale", "businessValueSource", "prioritySource"] as const;
+
+/** Drops long, repeated justification fields from queue entries to save agent context; `verbose` restores them. */
+function leanTaskQueue<T extends { tasks: readonly object[]; blocked: readonly object[]; upNext: readonly object[] }>(queue: T): T {
+  const strip = (entry: object) => Object.fromEntries(Object.entries(entry).filter(([key]) => !(queueVerboseFields as readonly string[]).includes(key)));
+  return { ...queue, tasks: queue.tasks.map(strip), blocked: queue.blocked.map(strip), upNext: queue.upNext.map(strip) };
 }
