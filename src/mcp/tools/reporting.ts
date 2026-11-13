@@ -108,7 +108,7 @@ export function registerReportingTools(context: McpToolContext): void {
       title: "Consultar esforço e calibração por desenvolvedor",
       description: "Resume horas ativas no período, tarefas com última conclusão no período e calibração apenas sobre tarefas com estimativa confirmada. As datas usam o fuso do projeto; a amostra mínima é de cinco tarefas estimadas. Não calcula velocidade em pontos por pessoa nem produz ranking.",
       inputSchema: z.object({
-        projectId: z.string().uuid(), from: z.string().regex(/^d{4}-d{2}-d{2}$/u).optional(),
+        projectId: z.string().uuid(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
         to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(), developerPrincipalId: z.string().uuid().optional(),
       }),
       outputSchema: z.object({
