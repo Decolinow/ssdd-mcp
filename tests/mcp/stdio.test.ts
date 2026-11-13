@@ -141,6 +141,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "template_list",
       "template_set",
       "test_run_certify",
+      "test_run_import_junit",
       "test_run_list",
       "test_run_record",
       "trace_link_add",

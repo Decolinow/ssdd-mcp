@@ -109,7 +109,7 @@ const developerTools = [
 
 const qaTools = [
   "scenario_create", "scenario_revision_propose", "scenario_revision_publish",
-  "test_run_record", "test_run_certify", "evidence_add", "comment_add", "review_record", "review_list",
+  "test_run_record", "test_run_import_junit", "test_run_certify", "evidence_add", "comment_add", "review_record", "review_list",
 ] as const;
 
 const testDesignTools = [

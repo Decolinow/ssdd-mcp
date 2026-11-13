@@ -5,6 +5,7 @@ import { getSpecification, listSpecifications } from "../../application/specific
 import { specificationKinds } from "../../domain/specifications.js";
 import { scenarioKinds, testRunOrigins, testRunResults } from "../../domain/scenarios.js";
 import { createScenario, proposeScenarioRevision, publishScenarioRevision, recordTestRun } from "../../application/scenario-commands.js";
+import { importJunitReport } from "../../application/junit-import.js";
 import { getScenario, listScenarios, searchScenariosByCriterion } from "../../application/scenario-queries.js";
 import { scenarioRevisionSchema, scenarioSummarySchema, scenarioSchema, testRunSchema, scenarioCoverageMatchSchema, scenarioContentInputSchema, specificationContentSchema, specificationRevisionSchema, specificationSchema, traceLinkReceiptSchema } from "../schemas.js";
 import { toToolError, toolResult } from "../tool-support.js";
@@ -406,6 +407,50 @@ export function registerSpecificationTools(context: McpToolContext): void {
       try {
         const result = { matches: searchScenariosByCriterion(database, projectId, principalId, criterionRef) };
         return toolResult(result);
+      } catch (error) {
+        return toToolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "test_run_import_junit",
+    {
+      title: "Importar relatório JUnit",
+      description: "Importa um relatório JUnit: casos cujo nome, classname ou property scenario contém a chave de um cenário publicado viram uma execução por cenário (falha vence), com o hash do relatório como evidência. Casos sem cenário são listados em unmatched. origin ci exige run de sucesso do mesmo commit (ADR 0030).",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        requestId: z.string().trim().min(1).max(100),
+        buildId: z.string().trim().min(1).max(128),
+        xml: z.string().min(1).max(2_000_000).describe("Conteúdo XML do relatório JUnit (sem DOCTYPE)."),
+        origin: z.enum(testRunOrigins).optional(),
+        workItemIdOrKeys: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+      }),
+      outputSchema: z.object({
+        evidenceSha256: z.string(),
+        testCases: z.number().int().nonnegative(),
+        imported: z.array(z.object({
+          scenarioKey: z.string(),
+          revisionNumber: z.number().int().positive(),
+          result: z.enum(testRunResults),
+          cases: z.number().int().positive(),
+          run: testRunSchema,
+        })),
+        unmatched: z.array(z.string()),
+      }),
+    },
+    ({ projectId, requestId, buildId, xml, origin, workItemIdOrKeys }) => {
+      try {
+        const report = importJunitReport(database, {
+          projectId,
+          principalId,
+          requestId,
+          buildId,
+          xml,
+          ...(origin === undefined ? {} : { origin }),
+          ...(workItemIdOrKeys === undefined ? {} : { workItemIdOrKeys }),
+        });
+        return toolResult({ ...report });
       } catch (error) {
         return toToolError(error);
       }

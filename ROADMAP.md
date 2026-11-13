@@ -399,7 +399,7 @@ Resultado da [análise de qualidade](docs/analise-qualidade-e-melhorias.md). Sã
 | SSDD-938 | Critérios de aceite estruturados e critérios em tarefas | 5 | A · Entregar igual ao esperado |
 | SSDD-939 | Revisão de prontidão e perguntas em aberto | 8 | A |
 | SSDD-940 | Relatório de entrega por critério | 8 | A |
-| SSDD-941 | Evidência verificada por CI (fatia 1 entregue; ADR 0030) | 8 | A |
+| SSDD-941 | Evidência verificada por CI (fatias 1 e 2 entregues localmente; ADR 0030) | 8 | A |
 | SSDD-942 | Revisão independente como gate | 5 | A |
 | SSDD-943 | Definition of Done aplicada por item | 5 | A |
 | SSDD-944 | Vínculo entre tarefa e mudança de código | 5 | A |

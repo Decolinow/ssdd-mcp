@@ -23,6 +23,7 @@ export const approvableMcpToolNames = [
   "scenario_revision_propose",
   "scenario_revision_publish",
   "test_run_record",
+  "test_run_import_junit",
   "test_run_certify",
   "milestone_create",
   "milestone_scope_change",

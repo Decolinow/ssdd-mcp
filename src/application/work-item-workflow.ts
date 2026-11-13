@@ -643,6 +643,20 @@ export function certifyTestRun(
       if (latestRun.sequence !== run.sequence) {
         throw new ApplicationError("VERSION_CONFLICT", "A newer run exists for this scenario revision and build; certify the latest run.");
       }
+      if (getGatePolicy(database, input.projectId).level === "strict") {
+        const origin = database.prepare(
+          `SELECT tr.origin AS origin, s.kind AS kind FROM test_runs tr
+           INNER JOIN scenarios s ON s.project_id = tr.project_id AND s.scenario_id = tr.scenario_id
+           WHERE tr.project_id = ? AND tr.run_id = ?`,
+        ).get(input.projectId, runId) as { origin: string; kind: string };
+        if (origin.kind !== "manual" && origin.origin !== "ci") {
+          throw new ApplicationError(
+            "GATE_BLOCKED",
+            "Under the strict gate policy an automated scenario can only be certified from a run with origin ci (ADR 0030).",
+            { details: { runId, origin: origin.origin, scenarioKind: origin.kind } },
+          );
+        }
+      }
       const existing = database.prepare(
         `SELECT certification_id FROM test_run_certifications
          WHERE project_id = ? AND item_id = ? AND baseline_id = ? AND run_id = ?`,

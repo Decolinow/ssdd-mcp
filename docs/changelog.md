@@ -2,6 +2,12 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Evidência de CI, fatia 2 (2026-11-13, SSDD-163)
+
+- Nova tool `test_run_import_junit`: importa relatório JUnit e grava uma execução por cenário, associada pela chave do cenário no nome, `classname` ou property `scenario` do `testcase`; falha vence, hash SHA-256 do XML como evidência, DOCTYPE recusado, idempotente por `requestId` e cenário (não atômica).
+- Com a política `strict`, `test_run_certify` só aceita execução de origem `ci` para cenário que não seja `manual` (ADR 0030, itens 5 e 6). `lite` e `standard` não mudam.
+- `npm run check` 265/265. Limites: só JUnit (não Cucumber); a origem `ci` valida um workflow_run de sucesso do commit, mas nunca foi exercitada com webhook real; sem CI remota; sem tela no dashboard.
+
 ## Fechamento da SSDD-102 (2026-11-13)
 
 - SSDD-127 (matriz de rastreabilidade: 32 vínculos novos, [matriz-rastreabilidade.md](matriz-rastreabilidade.md)) e SSDD-139 (reverificação do catálogo) foram para Done pelo fluxo normal, com evidência de build e sem revisão independente (self_validation registrado).

@@ -57,7 +57,7 @@ const additiveMutationTools = [
   "comment_add", "evidence_add",
   "spec_create", "spec_revision_propose", "spec_revision_publish", "adr_link_task",
   "scenario_create", "scenario_revision_propose", "scenario_revision_publish",
-  "test_run_record", "test_run_certify",
+  "test_run_record", "test_run_import_junit", "test_run_certify",
   "task_workflow_propose", "task_workflow_publish", "task_workflow_step_transition",
   "task_start", "task_accept", "development_session_start", "development_session_transition", "development_session_recover",
   "file_claim_acquire", "file_claim_renew", "question_open", "question_answer", "task_delivery_report_submit", "review_record", "task_scope_set", "gate_policy_set", "project_guidance_set", "template_set", "template_apply",

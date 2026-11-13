@@ -40,6 +40,7 @@ export const mcpToolHints: Readonly<Record<string, ToolHint>> = {
   scenario_create: { precondition: "cobertura apontando para critérios existentes", commonError: "VALIDATION_FAILED" },
   scenario_revision_propose: { precondition: "expectedVersion atual", commonError: "VERSION_CONFLICT" },
   scenario_revision_publish: { precondition: "revisão em draft", commonError: "VERSION_CONFLICT" },
+  test_run_import_junit: { precondition: "cenários publicados cujas chaves aparecem nos nomes dos testcases", commonError: "VALIDATION_FAILED" },
   test_run_record: { precondition: "revisão publicada e buildId", commonError: "VALIDATION_FAILED" },
   test_run_certify: { precondition: "execução passou, QA e baseline Ready do PBI", commonError: "GATE_BLOCKED" },
   task_workflow_propose: { precondition: "tarefa sem sessão aberta na revisão anterior", commonError: "VERSION_CONFLICT" },

@@ -16,6 +16,7 @@ import { getWorkItem } from "../../src/application/work-item-queries.js";
 import { proposeWorkItemRevision, publishWorkItemRevision } from "../../src/application/work-item-revisions.js";
 import { startTaskDevelopment } from "../../src/application/task-development-start.js";
 import { createScenario, publishScenarioRevision, recordTestRun } from "../../src/application/scenario-commands.js";
+import { setGatePolicy } from "../../src/application/gate-policy.js";
 import { applyMigrations } from "../../src/storage-sqlite/migrations.js";
 import { openSqliteDatabase, type SqliteDatabase } from "../../src/storage-sqlite/database.js";
 import type { WorkItemState } from "../../src/domain/work-items.js";
@@ -408,6 +409,50 @@ describe("work item workflow, evidence and QA gates", () => {
       proposalId: proposal.id, expectedVersion: proposed.version,
     });
   }
+
+  it("under the strict policy certifies an automated scenario only from a ci run", () => {
+    const scenario = createPublishedScenario();
+    confirmStoryPoints();
+    transition("ready");
+    transition("in_progress");
+    transition("in_review");
+    transition("in_validation");
+    const sha = "1234567890abcdef1234567890abcdef12345678";
+    const build = "git-1234567";
+    addEvidence(storyId, "build", "https://ci.example/builds/1234567", build, "Build candidato");
+    setGatePolicy(database, {
+      projectId, principalId, requestId: requestId("policy"), level: "strict", expectedRevision: 0,
+      reason: "Exigir origem ci para cenários automatizados.",
+    });
+    const certifyInput = (runId: string) => ({
+      projectId, principalId, requestId: requestId("certify"), itemIdOrKey: storyId, runId,
+      expectedVersion: getWorkItem(database, projectId, principalId, storyId).version, reason: "QA conferiu a execução.",
+    });
+
+    const observed = recordRun(scenario.scenarioId, build, "passed", "strict-agent");
+    assert.throws(
+      () => certifyTestRun(database, certifyInput(observed.id)),
+      (error: unknown) => error instanceof ApplicationError && error.code === "GATE_BLOCKED" && /origin ci/u.test(error.message),
+    );
+
+    const receiptId = randomUUID();
+    database.prepare(
+      `INSERT INTO webhook_receipts (receipt_id, provider, delivery_id, project_id, principal_id, event_type, payload_sha256, receipt_json, received_at)
+       VALUES (?, 'github', ?, ?, ?, 'workflow_run', ?, '{}', ?)`,
+    ).run(receiptId, `delivery-${receiptId}`, projectId, principalId, "c".repeat(64), new Date().toISOString());
+    database.prepare(
+      `INSERT INTO github_workflow_run_events
+        (event_id, receipt_id, project_id, repository_id, repository_full_name, workflow_run_id, run_number, name, status,
+         conclusion, html_url, head_branch, head_sha, pull_request_numbers_json, work_item_id, work_item_key, received_at)
+       VALUES (?, ?, ?, '1', 'org/repo', '77', 1, 'ci', 'completed', 'success', 'https://github.com/org/repo/actions/runs/77', 'main', ?, '[]', NULL, NULL, ?)`,
+    ).run(randomUUID(), receiptId, projectId, sha, new Date().toISOString());
+    const verified = recordTestRun(database, {
+      projectId, principalId, requestId: "strict-ci", scenarioIdOrKey: scenario.scenarioId,
+      revisionNumber: 1, buildId: build, result: "passed", origin: "ci",
+    }).value;
+    const certification = certifyTestRun(database, certifyInput(verified.id));
+    assert.equal(certification.value.runId, verified.id);
+  });
 
   function recordRun(scenarioId: string, buildId: string, result: "passed" | "failed", id: string) {
     return recordTestRun(database, {

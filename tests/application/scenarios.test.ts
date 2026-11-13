@@ -14,6 +14,7 @@ import {
   publishScenarioRevision,
   recordTestRun,
 } from "../../src/application/scenario-commands.js";
+import { importJunitReport } from "../../src/application/junit-import.js";
 import { getScenario, listScenarios, listTestRunPage, searchScenariosByCriterion } from "../../src/application/scenario-queries.js";
 import { openSqliteDatabase, type SqliteDatabase } from "../../src/storage-sqlite/database.js";
 import { applyMigrations } from "../../src/storage-sqlite/migrations.js";
@@ -358,6 +359,58 @@ describe("versioned scenarios, coverage and test runs", () => {
     assert.deepEqual(
       page.runs.map((run) => run.origin).sort(),
       ["agent", "ci", "human"],
+    );
+  });
+
+  it("imports a JUnit report by scenario tag, folds cases, hashes the report and stays idempotent", () => {
+    createScenario(database, scenarioInput("PAY-TC-01", "Pedido confirmado"));
+    createScenario(database, scenarioInput("PAY-TC-02", "Pedido recusado"));
+    createScenario(database, scenarioInput("PAY-TC-03", "Rascunho nunca publicado"));
+    for (const [index, key] of ["PAY-TC-01", "PAY-TC-02"].entries()) {
+      publishScenarioRevision(database, {
+        projectId, principalId, requestId: `junit-pub-${index}`, scenarioIdOrKey: key, revisionNumber: 1, expectedVersion: 1,
+      });
+    }
+    const xml = `<?xml version="1.0"?>
+<testsuites><testsuite name="s">
+  <testcase classname="checkout" name="PAY-TC-01 confirma pedido"/>
+  <testcase classname="checkout" name="PAY-TC-01 gera identificador"><failure message="boom &amp; co"/></testcase>
+  <testcase classname="checkout" name="outro caso"><properties><property name="scenario" value="PAY-TC-02"/></properties><skipped/></testcase>
+  <testcase classname="checkout" name="PAY-TC-03 ainda rascunho"/>
+  <testcase classname="checkout" name="PAY-TC-011 nao e o 01"/>
+</testsuite></testsuites>`;
+    const input = { projectId, principalId, requestId: "junit-1", buildId: "git-abc1234", xml };
+    const report = importJunitReport(database, input);
+    assert.equal(report.testCases, 5);
+    assert.equal(report.evidenceSha256.length, 64);
+    const byKey = Object.fromEntries(report.imported.map((item) => [item.scenarioKey, item]));
+    assert.equal(byKey["PAY-TC-01"]?.result, "failed");
+    assert.equal(byKey["PAY-TC-01"]?.cases, 2);
+    assert.equal(byKey["PAY-TC-02"]?.result, "skipped");
+    assert.equal(byKey["PAY-TC-02"]?.run.evidenceSha256, report.evidenceSha256);
+    assert.equal(byKey["PAY-TC-02"]?.run.origin, "agent");
+    assert.equal(report.imported.length, 2);
+    assert.equal(report.unmatched.length, 2);
+
+    const replay = importJunitReport(database, input);
+    assert.deepEqual(replay.imported.map((item) => item.run.id), report.imported.map((item) => item.run.id));
+    assert.equal(listTestRunPage(database, projectId, principalId, {}).runs.length, 2);
+
+    assert.throws(
+      () => importJunitReport(database, { ...input, requestId: "junit-ci", origin: "ci" }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED",
+    );
+    assert.throws(
+      () => importJunitReport(database, { ...input, requestId: "junit-none", xml: "<testsuite><testcase name=\"nada\"/></testsuite>" }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED" && /nothing to import/u.test(error.message),
+    );
+    assert.throws(
+      () => importJunitReport(database, { ...input, requestId: "junit-dtd", xml: "<!DOCTYPE x [<!ENTITY a 'b'>]><testsuite><testcase name=\"PAY-TC-01\"/></testsuite>" }),
+      /DOCTYPE/u,
+    );
+    assert.throws(
+      () => importJunitReport(database, { ...input, requestId: "junit-empty", xml: "<testsuite/>" }),
+      /no testcase/u,
     );
   });
 
