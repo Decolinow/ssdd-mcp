@@ -53,6 +53,8 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `question_answer` | escrita (aprovável) | — | tech_lead, po | chamada direta (sem skill dedicada) |
 | `question_list` | leitura | — | refinement, specification, dev, test_design, tech_lead, security_review, po | chamada direta (sem skill dedicada) |
 | `question_open` | escrita (aprovável) | — | refinement, dev, tech_lead, po | chamada direta (sem skill dedicada) |
+| `review_list` | leitura | — | dev, qa, tech_lead | chamada direta (sem skill dedicada) |
+| `review_record` | escrita (aprovável) | — | dev, qa, tech_lead | chamada direta (sem skill dedicada) |
 | `roadmap_id_bind` | escrita (aprovável) | — | po | chamada direta (sem skill dedicada) |
 | `roadmap_id_list` | leitura | — | refinement, specification, test_design, tech_lead, security_review, po | chamada direta (sem skill dedicada) |
 | `roadmap_id_resolve` | leitura | — | refinement, specification, test_design, tech_lead, security_review, po | ssdd-developer |

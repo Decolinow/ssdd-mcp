@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Revisão independente como gate (2026-11-13, SSDD-942 / MCP SSDD-145)
+
+- Migração 37 cria `task_reviews` imutável. `review_record/review_list` registram a decisão de quem não trabalhou na tarefa; `changes_requested` bloqueia `in_review → in_validation`, e `SSDD_REQUIRE_INDEPENDENT_REVIEW=1` exige aprovação humana do relatório vigente. Revisão por principal não humano é consultiva. ADR 0028.
+
 ## Relatório de entrega por critério (2026-11-13, SSDD-940 / MCP SSDD-143)
 
 - Migração 36 cria `task_delivery_reports` imutável. `task_delivery_report_submit/get` registram e comparam esperado × entregue; `not_met` ou cobertura desatualizada bloqueia `in_progress → in_review`. Sem relatório a transição segue permitida, salvo `SSDD_REQUIRE_DELIVERY_REPORT=1`. ADR 0027. A visão lado a lado no dashboard não entrou.

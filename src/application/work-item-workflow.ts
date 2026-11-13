@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { assertIndependentReviewForValidation } from "./task-reviews.js";
 import { assertDeliveryReportForReview } from "./task-delivery-reports.js";
 import { openBlockingQuestions } from "./work-item-questions.js";
 import type { WorkItemState } from "../domain/work-items.js";
@@ -387,6 +388,9 @@ export function transitionWorkItem(
       }
       if (input.targetState === "in_progress") {
         assertDependenciesComplete(database, input.projectId, item.id);
+      }
+      if (input.targetState === "in_validation" && fromState === "in_review" && item.type === "task") {
+        assertIndependentReviewForValidation(database, input.projectId, item.id);
       }
       if (input.targetState === "in_review" && fromState === "in_progress" && item.type === "task") {
         assertDeliveryReportForReview(database, input.projectId, input.principalId, item.id);

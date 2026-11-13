@@ -135,10 +135,10 @@ test("stage profiles stay within their reviewed MCP context budgets", () => {
   const reviewedMaximum: Record<string, number> = {
     refinement: 30, // Inclui question_list, work_item_readiness_review e question_open (SSDD-939).
     specification: 36, // Inclui question_list e work_item_readiness_review (SSDD-939).
-    dev: 49, // Includes the task execution queue, workflow progress, atomic task start, and task_accept.
+    dev: 51, // Includes the task execution queue, workflow progress, atomic task start, and task_accept.
     test_design: 30, // Inclui question_list e work_item_readiness_review (SSDD-939).
-    qa: 29,
-    tech_lead: 73, // Timeline de auditoria somente leitura, ADR authoring, draft withdrawal, task workflow, execution ordering, and feature forecasts are part of the role.
+    qa: 31,
+    tech_lead: 75, // Timeline de auditoria somente leitura, ADR authoring, draft withdrawal, task workflow, execution ordering, and feature forecasts are part of the role.
     security_review: 30, // Inclui a timeline de auditoria somente leitura.
     po: 62, // Includes backlog discovery, draft withdrawal, task queue, feature roadmap and sprint planning.
     facilitator: 27,

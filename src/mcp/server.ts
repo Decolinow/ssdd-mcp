@@ -132,6 +132,7 @@ import { evidenceKinds } from "../domain/workflow.js";
 import { acceptTask } from "../application/task-accept.js";
 import { describeWithHint } from "./tool-hints.js";
 import { getFlowMetrics } from "../application/flow-metrics.js";
+import { listReviews, recordReview } from "../application/task-reviews.js";
 import { listDeliveryReports, submitDeliveryReport } from "../application/task-delivery-reports.js";
 import { answerQuestion, listQuestions, openQuestion } from "../application/work-item-questions.js";
 import { reviewWorkItemReadiness } from "../application/readiness-review.js";
@@ -3158,6 +3159,54 @@ export function createMcpServer(
           ...(summary === undefined ? {} : { summary }),
         });
         const result = { report: receipt.value.report, auditEventCount: receipt.auditEventIds.length };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  const reviewSchema = z.object({
+    id: z.string().uuid(), itemKey: z.string(), reportNumber: z.number().int().positive().nullable(), decision: z.enum(["approved", "changes_requested"]),
+    advisory: z.boolean(), findings: z.array(z.object({ criterionKey: z.string().optional(), message: z.string() })),
+    summary: z.string().nullable(), reviewerPrincipalId: z.string().uuid(), reviewedAt: z.string(),
+  });
+
+  server.registerTool(
+    "review_record",
+    {
+      title: "Registrar revisão independente",
+      description: "Registra a decisão (approved, changes_requested) e achados ligados a critérios sobre uma tarefa em in_review. O revisor não pode ter sessão de desenvolvimento nela; revisão por principal não humano é consultiva. Imutável; a última vale.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), taskIdOrKey: z.string().trim().min(1).max(120),
+        decision: z.enum(["approved", "changes_requested"]),
+        findings: z.array(z.object({ criterionKey: z.string().trim().min(1).max(40).optional(), message: z.string().trim().min(1).max(1_000) })).max(50).optional(),
+        summary: z.string().trim().min(1).max(2_000).optional(),
+      }),
+      outputSchema: z.object({ review: reviewSchema, auditEventCount: z.number().int().nonnegative() }),
+    },
+    ({ projectId, requestId, taskIdOrKey, decision, findings, summary }) => {
+      try {
+        const receipt = recordReview(database, {
+          projectId, principalId, requestId, itemIdOrKey: taskIdOrKey, decision,
+          ...(findings === undefined ? {} : { findings: findings.map((finding) => ({ ...(finding.criterionKey === undefined ? {} : { criterionKey: finding.criterionKey }), message: finding.message })) }),
+          ...(summary === undefined ? {} : { summary }),
+        });
+        const result = { review: receipt.value.review, auditEventCount: receipt.auditEventIds.length };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "review_list",
+    {
+      title: "Listar revisões da tarefa",
+      description: "Lista as revisões independentes da tarefa, da mais recente à mais antiga, com decisão, achados e se foram consultivas.",
+      inputSchema: z.object({ projectId: z.string().uuid(), taskIdOrKey: z.string().trim().min(1).max(120) }),
+      outputSchema: z.object({ reviews: z.array(reviewSchema) }),
+    },
+    ({ projectId, taskIdOrKey }) => {
+      try {
+        const result = listReviews(database, { projectId, principalId, itemIdOrKey: taskIdOrKey });
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) { return toToolError(error); }
     },

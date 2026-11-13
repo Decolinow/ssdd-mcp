@@ -91,6 +91,8 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "question_answer",
       "question_list",
       "question_open",
+      "review_list",
+      "review_record",
       "roadmap_id_bind",
       "roadmap_id_list",
       "roadmap_id_resolve",

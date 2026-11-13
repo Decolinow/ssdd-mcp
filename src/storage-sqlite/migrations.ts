@@ -2666,6 +2666,30 @@ export const initialMigrations: readonly SqliteMigration[] = [
       BEGIN SELECT RAISE(ABORT, 'task delivery reports are immutable'); END;
     `,
   },
+  {
+    version: 37,
+    name: "task-reviews",
+    sql: `
+      CREATE TABLE task_reviews (
+        review_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        report_number INTEGER CHECK (report_number IS NULL OR report_number > 0),
+        decision TEXT NOT NULL CHECK (decision IN ('approved', 'changes_requested')),
+        advisory INTEGER NOT NULL CHECK (advisory IN (0, 1)),
+        findings_json TEXT NOT NULL CHECK (json_valid(findings_json)),
+        summary TEXT CHECK (summary IS NULL OR length(summary) <= 2000),
+        reviewer_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        reviewed_at TEXT NOT NULL,
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id)
+      ) STRICT;
+      CREATE INDEX task_reviews_by_item ON task_reviews (project_id, item_id, reviewed_at);
+      CREATE TRIGGER task_reviews_no_update BEFORE UPDATE ON task_reviews
+      BEGIN SELECT RAISE(ABORT, 'task reviews are immutable'); END;
+      CREATE TRIGGER task_reviews_no_delete BEFORE DELETE ON task_reviews
+      BEGIN SELECT RAISE(ABORT, 'task reviews are immutable'); END;
+    `,
+  },
 ];
 
 export function applyMigrations(
