@@ -117,6 +117,8 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "sprint_start",
       "task_accept",
       "task_context_get",
+      "task_delivery_report_get",
+      "task_delivery_report_submit",
       "task_execution_queue_get",
       "task_start",
       "task_start_check",

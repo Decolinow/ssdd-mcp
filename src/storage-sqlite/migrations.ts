@@ -2644,6 +2644,28 @@ export const initialMigrations: readonly SqliteMigration[] = [
       CREATE INDEX work_item_questions_by_item ON work_item_questions (project_id, item_id, status);
     `,
   },
+  {
+    version: 36,
+    name: "task-delivery-reports",
+    sql: `
+      CREATE TABLE task_delivery_reports (
+        report_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        report_number INTEGER NOT NULL CHECK (report_number > 0),
+        entries_json TEXT NOT NULL CHECK (json_valid(entries_json)),
+        summary TEXT CHECK (summary IS NULL OR length(summary) <= 2000),
+        submitted_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        submitted_at TEXT NOT NULL,
+        UNIQUE (project_id, item_id, report_number),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id)
+      ) STRICT;
+      CREATE TRIGGER task_delivery_reports_no_update BEFORE UPDATE ON task_delivery_reports
+      BEGIN SELECT RAISE(ABORT, 'task delivery reports are immutable'); END;
+      CREATE TRIGGER task_delivery_reports_no_delete BEFORE DELETE ON task_delivery_reports
+      BEGIN SELECT RAISE(ABORT, 'task delivery reports are immutable'); END;
+    `,
+  },
 ];
 
 export function applyMigrations(

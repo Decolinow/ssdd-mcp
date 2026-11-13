@@ -132,6 +132,7 @@ import { evidenceKinds } from "../domain/workflow.js";
 import { acceptTask } from "../application/task-accept.js";
 import { describeWithHint } from "./tool-hints.js";
 import { getFlowMetrics } from "../application/flow-metrics.js";
+import { listDeliveryReports, submitDeliveryReport } from "../application/task-delivery-reports.js";
 import { answerQuestion, listQuestions, openQuestion } from "../application/work-item-questions.js";
 import { reviewWorkItemReadiness } from "../application/readiness-review.js";
 import { acquireFileClaims, listFileClaims, releaseFileClaims, renewFileClaims } from "../application/file-claims.js";
@@ -3121,6 +3122,65 @@ export function createMcpServer(
     const result = { question: receipt.value.question, auditEventCount: receipt.auditEventIds.length };
     return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
   };
+
+  const deliveryEntrySchema = z.object({
+    criterionKey: z.string().trim().min(1).max(40), scope: z.enum(["pbi", "task"]),
+    status: z.enum(["met", "partial", "not_met", "not_applicable"]),
+    evidence: z.string().trim().min(1).max(2_000).optional(), assumptions: z.string().trim().min(1).max(2_000).optional(),
+    deviations: z.string().trim().min(1).max(2_000).optional(),
+  });
+  const deliveryReportSchema = z.object({
+    id: z.string().uuid(), itemKey: z.string(), reportNumber: z.number().int().positive(), entries: z.array(deliveryEntrySchema),
+    summary: z.string().nullable(), submittedByPrincipalId: z.string().uuid(), submittedAt: z.string(),
+  });
+
+  server.registerTool(
+    "task_delivery_report_submit",
+    {
+      title: "Enviar relatório de entrega",
+      description: "Declara, por critério do PBI e por item do checklist da tarefa, status (met, partial, not_met, not_applicable), evidência, suposições e desvios. Imutável e numerado; reenviar cria o próximo número. Com not_met, in_progress → in_review é bloqueado.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), taskIdOrKey: z.string().trim().min(1).max(120),
+        entries: z.array(deliveryEntrySchema).min(1).max(100), summary: z.string().trim().min(1).max(2_000).optional(),
+      }),
+      outputSchema: z.object({ report: deliveryReportSchema, auditEventCount: z.number().int().nonnegative() }),
+    },
+    ({ projectId, requestId, taskIdOrKey, entries, summary }) => {
+      try {
+        const receipt = submitDeliveryReport(database, {
+          projectId, principalId, requestId, itemIdOrKey: taskIdOrKey,
+          entries: entries.map((entry) => ({
+            criterionKey: entry.criterionKey, scope: entry.scope, status: entry.status,
+            ...(entry.evidence === undefined ? {} : { evidence: entry.evidence }),
+            ...(entry.assumptions === undefined ? {} : { assumptions: entry.assumptions }),
+            ...(entry.deviations === undefined ? {} : { deviations: entry.deviations }),
+          })),
+          ...(summary === undefined ? {} : { summary }),
+        });
+        const result = { report: receipt.value.report, auditEventCount: receipt.auditEventIds.length };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "task_delivery_report_get",
+    {
+      title: "Consultar relatório de entrega",
+      description: "Devolve o esperado (critérios do PBI e checklist da tarefa) e os relatórios de entrega enviados, do mais recente ao mais antigo, para comparar esperado × entregue.",
+      inputSchema: z.object({ projectId: z.string().uuid(), taskIdOrKey: z.string().trim().min(1).max(120), latestOnly: z.boolean().optional() }),
+      outputSchema: z.object({
+        expected: z.array(z.object({ key: z.string(), scope: z.enum(["pbi", "task"]), required: z.boolean() })),
+        reports: z.array(deliveryReportSchema),
+      }),
+    },
+    ({ projectId, taskIdOrKey, latestOnly }) => {
+      try {
+        const result = listDeliveryReports(database, { projectId, principalId, itemIdOrKey: taskIdOrKey, ...(latestOnly === undefined ? {} : { latestOnly }) });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
 
   server.registerTool(
     "question_open",

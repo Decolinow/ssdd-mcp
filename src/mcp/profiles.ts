@@ -43,7 +43,7 @@ const developerReadTools = [
   "scenario_get", "scenario_list", "scenario_criterion_search", "test_run_list",
   "development_session_list", "deployment_event_list", "github_reference_list",
   "work_item_gate_check", "work_item_quality_get", "evidence_list", "trace_query",
-  "question_list", "work_item_readiness_review",
+  "question_list", "work_item_readiness_review", "task_delivery_report_get",
 ] as const;
 
 const qaReadTools = [
@@ -104,7 +104,7 @@ const securityReviewReadTools = [
 const developerTools = [
   "work_item_create", "work_item_assign", "comment_add", "work_item_estimate", "work_item_estimate_confirm",
   "development_session_start", "development_session_transition", "task_start_check", "task_start", "task_accept", "file_claim_acquire", "file_claim_renew", "file_claim_release", "file_claim_list", "task_workflow_propose",
-  "task_workflow_step_transition", "work_item_transition", "evidence_add", "question_open",
+  "task_workflow_step_transition", "work_item_transition", "evidence_add", "question_open", "task_delivery_report_submit",
 ] as const;
 
 const qaTools = [

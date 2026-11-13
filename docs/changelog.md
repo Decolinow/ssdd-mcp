@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Relatório de entrega por critério (2026-11-13, SSDD-940 / MCP SSDD-143)
+
+- Migração 36 cria `task_delivery_reports` imutável. `task_delivery_report_submit/get` registram e comparam esperado × entregue; `not_met` ou cobertura desatualizada bloqueia `in_progress → in_review`. Sem relatório a transição segue permitida, salvo `SSDD_REQUIRE_DELIVERY_REPORT=1`. ADR 0027. A visão lado a lado no dashboard não entrou.
+
 ## Revisão de prontidão e perguntas em aberto (2026-11-13, SSDD-939 / MCP SSDD-142)
 
 - Migração 35 cria `work_item_questions`. `question_open`, `question_answer` e `question_list` registram dúvidas por item; pergunta bloqueante aberta falha o gate Ready (`no-blocking-questions`) e aparece no contexto da tarefa. `work_item_readiness_review` devolve achados determinísticos sobre critérios, cenários e checklist. Orçamentos de perfil subiram (refinement 30, specification/test_design/security_review 30–36, dev 47, tech_lead 71, po 62).
