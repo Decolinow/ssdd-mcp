@@ -207,6 +207,40 @@ describe("versioned work item content", () => {
     return id;
   }
 
+  it("stores structured criterion fields, keeps them on re-proposal and stays backward compatible", () => {
+    const first = criteria[0]!;
+    proposeWorkItemRevision(database, {
+      projectId, principalId, requestId: "structured-propose", itemIdOrKey: storyId, expectedVersion: 1,
+      criteria: [
+        { id: first.id, description: first.description, given: "um pedido válido", when: "o cliente confirma", then: "o pedido é criado", verification: "automated", example: "pedido #1" },
+        { id: criteria[1]!.id, description: criteria[1]!.description },
+      ],
+    });
+    publishWorkItemRevision(database, { projectId, principalId, requestId: "structured-publish", itemIdOrKey: storyId, revisionNumber: 2, expectedVersion: 2 });
+    let current = getWorkItem(database, projectId, principalId, storyId);
+    assert.equal(current.criteria[0]?.given, "um pedido válido");
+    assert.equal(current.criteria[0]?.verification, "automated");
+    assert.equal(current.criteria[1]?.given, undefined);
+
+    // Re-proposing without structured fields keeps the previous structure.
+    proposeWorkItemRevision(database, {
+      projectId, principalId, requestId: "structured-reuse", itemIdOrKey: storyId, expectedVersion: 3,
+      criteria: [{ id: first.id, description: "Pedido válido é confirmado (reescrito)" }],
+    });
+    publishWorkItemRevision(database, { projectId, principalId, requestId: "structured-reuse-publish", itemIdOrKey: storyId, revisionNumber: 3, expectedVersion: 4 });
+    current = getWorkItem(database, projectId, principalId, storyId);
+    assert.equal(current.criteria[0]?.then, "o pedido é criado");
+    assert.equal(current.criteria[0]?.description, "Pedido válido é confirmado (reescrito)");
+
+    assert.throws(
+      () => proposeWorkItemRevision(database, {
+        projectId, principalId, requestId: "structured-invalid", itemIdOrKey: storyId, expectedVersion: 5,
+        criteria: [{ id: first.id, description: "x", verification: "magic" as unknown as "manual" }],
+      }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED",
+    );
+  });
+
   function command(type: "epic" | "feature" | "story", title: string, overrides: {
     parentId?: string;
     description?: string;

@@ -2,6 +2,7 @@ import type { SqliteDatabase } from "../storage-sqlite/database.js";
 import { createHash } from "node:crypto";
 import type {
   AcceptanceCriterion,
+  CriterionStructure,
   WorkItem,
   WorkItemContentRevision,
   WorkItemEstimate,
@@ -65,7 +66,7 @@ export function getWorkItem(
 
   const criteria = database
     .prepare(
-      `SELECT criterion_id, criterion_key, description, is_required, position
+      `SELECT criterion_id, criterion_key, description, is_required, position, structure_json
        FROM work_item_criteria WHERE project_id = ? AND item_id = ? AND is_active = 1 ORDER BY position`,
     )
     .all(projectId, row.item_id)
@@ -76,6 +77,7 @@ export function getWorkItem(
         description: string;
         is_required: number;
         position: number;
+        structure_json: string | null;
       };
       const result: AcceptanceCriterion = {
         id: criterion.criterion_id,
@@ -83,6 +85,7 @@ export function getWorkItem(
         description: criterion.description,
         required: criterion.is_required === 1,
         position: criterion.position,
+        ...(criterion.structure_json === null ? {} : (JSON.parse(criterion.structure_json) as CriterionStructure)),
       };
       return result;
     });

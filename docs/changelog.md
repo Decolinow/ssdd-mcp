@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Critérios de aceite estruturados (2026-11-13, SSDD-938 / MCP SSDD-141)
+
+- Migração 34 adiciona `work_item_criteria.structure_json`. Critérios aceitam `given`, `when`, `then`, `verification` (`automated`, `manual`, `inspection`) e `example` opcionais por `work_item_revision_propose`; omitir todos os campos preserva a estrutura anterior. Tarefas aceitam critérios como checklist de saída, exibido em `task_context_get`. Revisões antigas continuam legíveis. `task_accept` rejeita evidência com placeholder ou descrição curta.
+
 ## Descrições das tools com pré-condição e erro comum (2026-11-12, SSDD-946 / MCP SSDD-149)
 
 `src/mcp/tool-hints.ts` anexa "Pré-condição … Erro comum …" à descrição de cada uma das 58 tools de escrita; `tests/mcp/tool-contract.test.ts` falha se alguma tool não tiver as três anotações, se uma escrita não tiver a dica ou se existir dica órfã. Custo: ≈100 caracteres por tool de escrita em `tools/list`.

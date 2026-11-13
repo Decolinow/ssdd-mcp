@@ -235,12 +235,21 @@ const managedUsersSchema = z.object({
   })),
 });
 
+const criterionStructureShape = {
+  given: z.string().trim().min(1).max(2_000).optional(),
+  when: z.string().trim().min(1).max(2_000).optional(),
+  then: z.string().trim().min(1).max(2_000).optional(),
+  verification: z.enum(["automated", "manual", "inspection"]).optional(),
+  example: z.string().trim().min(1).max(2_000).optional(),
+};
+
 const criterionSchema = z.object({
   id: z.string().uuid(),
   key: z.string(),
   description: z.string(),
   required: z.boolean(),
   position: z.number().int().positive(),
+  ...criterionStructureShape,
 });
 
 const workItemEstimateSchema = z.object({
@@ -1722,6 +1731,7 @@ export function createMcpServer(
           id: z.string().uuid().optional(),
           description: z.string().trim().min(1).max(2_000),
           required: z.boolean().optional(),
+          ...criterionStructureShape,
         })).max(50).optional(),
       }),
       outputSchema: z.object({
@@ -1750,6 +1760,11 @@ export function createMcpServer(
                   ...(criterion.id === undefined ? {} : { id: criterion.id }),
                   description: criterion.description,
                   ...(criterion.required === undefined ? {} : { required: criterion.required }),
+                  ...(criterion.given === undefined ? {} : { given: criterion.given }),
+                  ...(criterion.when === undefined ? {} : { when: criterion.when }),
+                  ...(criterion.then === undefined ? {} : { then: criterion.then }),
+                  ...(criterion.verification === undefined ? {} : { verification: criterion.verification }),
+                  ...(criterion.example === undefined ? {} : { example: criterion.example }),
                 })),
               }),
         });

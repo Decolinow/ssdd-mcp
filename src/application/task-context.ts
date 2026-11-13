@@ -157,7 +157,27 @@ export function getTaskContext(database: SqliteDatabase, input: TaskContextInput
       key: criterion.key,
       title: criterion.key,
       source: workItemSource(input.projectId, pbi, baseline?.references.find((ref) => ref.entityType === "work_item_revision" && ref.entityId === pbi.id)?.revisionNumber ?? pbi.revision, baseline === undefined ? "current" : "pinned"),
-      content: { id: criterion.id, description: criterion.description, required: criterion.required, position: criterion.position },
+      content: {
+        id: criterion.id, description: criterion.description, required: criterion.required, position: criterion.position,
+        ...(criterion.given === undefined ? {} : { given: criterion.given }),
+        ...(criterion.when === undefined ? {} : { when: criterion.when }),
+        ...(criterion.then === undefined ? {} : { then: criterion.then }),
+        ...(criterion.verification === undefined ? {} : { verification: criterion.verification }),
+        ...(criterion.example === undefined ? {} : { example: criterion.example }),
+      },
+    });
+  }
+
+  for (const item of task.criteria) {
+    entries.push({
+      section: "acceptanceCriteria",
+      key: `task:${item.key}`,
+      title: `Exit checklist ${item.key}`,
+      source: workItemSource(input.projectId, task, task.revision, "current"),
+      content: {
+        id: item.id, description: item.description, required: item.required, position: item.position, scope: "task",
+        ...(item.verification === undefined ? {} : { verification: item.verification }),
+      },
     });
   }
 

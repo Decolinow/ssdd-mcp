@@ -22,7 +22,19 @@ export const allowedParentTypes: Readonly<Record<WorkItemType, readonly WorkItem
   task: ["story", "bug"],
 };
 
-export interface AcceptanceCriterion {
+export const criterionVerifications = ["automated", "manual", "inspection"] as const;
+export type CriterionVerification = (typeof criterionVerifications)[number];
+
+/** Optional structure that makes a criterion testable; old revisions simply omit it. */
+export interface CriterionStructure {
+  readonly given?: string;
+  readonly when?: string;
+  readonly then?: string;
+  readonly verification?: CriterionVerification;
+  readonly example?: string;
+}
+
+export interface AcceptanceCriterion extends CriterionStructure {
   readonly id: string;
   readonly key: string;
   readonly description: string;

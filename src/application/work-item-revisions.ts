@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AcceptanceCriterion, WorkItemContentRevision, WorkItemType } from "../domain/work-items.js";
+import { criterionVerifications, type AcceptanceCriterion, type CriterionStructure, type WorkItemContentRevision, type WorkItemType } from "../domain/work-items.js";
 import type { SqliteDatabase } from "../storage-sqlite/database.js";
 import { ApplicationError } from "./errors.js";
 import { executeIdempotentCommand, type CommandReceipt } from "./idempotent-command.js";
@@ -17,11 +17,11 @@ export interface ProposeWorkItemRevisionInput {
   readonly priority?: number;
   readonly businessValueScore?: number | null;
   readonly businessValueRationale?: string | null;
-  readonly criteria?: readonly {
+  readonly criteria?: readonly ({
     readonly id?: string;
     readonly description: string;
     readonly required?: boolean;
-  }[];
+  } & CriterionStructure)[];
 }
 
 export interface PublishWorkItemRevisionInput {
@@ -110,6 +110,7 @@ export function proposeWorkItemRevision(
               ...(criterion.id === undefined ? {} : { id: criterion.id }),
               description: criterion.description,
               ...(criterion.required === undefined ? {} : { required: criterion.required }),
+              ...pickStructure(criterion),
             })),
           }),
     },
@@ -318,9 +319,9 @@ function normalizeSnapshot(
 
   const criteria = input.criteria === undefined
     ? previous.criteria
-    : normalizeCriteria(database, input.projectId, target, input.criteria);
-  if (criteria.length > 0 && target.type !== "story" && target.type !== "bug") {
-    throw new ApplicationError("VALIDATION_FAILED", "Acceptance criteria can only be added to stories and bugs.");
+    : normalizeCriteria(database, input.projectId, target, previous.criteria, input.criteria);
+  if (criteria.length > 0 && target.type !== "story" && target.type !== "bug" && target.type !== "task") {
+    throw new ApplicationError("VALIDATION_FAILED", "Acceptance criteria can only be added to stories, bugs and tasks (task criteria are its exit checklist).");
   }
   return {
     type: previous.type,
@@ -351,11 +352,12 @@ function normalizeCriteria(
   database: SqliteDatabase,
   projectId: string,
   target: WorkItemTarget,
-  criteria: readonly {
+  previousCriteria: readonly AcceptanceCriterion[],
+  criteria: readonly ({
     readonly id?: string;
     readonly description: string;
     readonly required?: boolean;
-  }[],
+  } & CriterionStructure)[],
 ): readonly AcceptanceCriterion[] {
   if (criteria.length > 50) {
     throw new ApplicationError("VALIDATION_FAILED", "At most 50 acceptance criteria can be included in a revision.");
@@ -406,8 +408,45 @@ function normalizeCriteria(
       description,
       required: criterion.required ?? (existing === undefined || existing.is_required === 1),
       position: index + 1,
+      ...resolveStructure(criterion, previousCriteria.find((entry) => entry.id === id)),
     };
   });
+}
+
+const structureTextFields = ["given", "when", "then", "example"] as const;
+
+function pickStructure(criterion: CriterionStructure): CriterionStructure {
+  const result: Record<string, string> = {};
+  for (const field of structureTextFields) {
+    const value = criterion[field];
+    if (value !== undefined) result[field] = value;
+  }
+  if (criterion.verification !== undefined) result.verification = criterion.verification;
+  return result as CriterionStructure;
+}
+
+/** Keeps the previous structure when a re-proposal omits every structured field; validates and trims otherwise. */
+function resolveStructure(criterion: CriterionStructure, previous: AcceptanceCriterion | undefined): CriterionStructure {
+  const provided = pickStructure(criterion);
+  if (Object.keys(provided).length === 0) {
+    return previous === undefined ? {} : pickStructure(previous);
+  }
+  const result: Record<string, string> = {};
+  for (const field of structureTextFields) {
+    const value = provided[field]?.trim();
+    if (value === undefined || value.length === 0) continue;
+    if (value.length > 2_000) {
+      throw new ApplicationError("VALIDATION_FAILED", `Criterion ${field} cannot exceed 2000 characters.`);
+    }
+    result[field] = value;
+  }
+  if (provided.verification !== undefined) {
+    if (!criterionVerifications.includes(provided.verification)) {
+      throw new ApplicationError("VALIDATION_FAILED", "Criterion verification must be automated, manual or inspection.");
+    }
+    result.verification = provided.verification;
+  }
+  return result as CriterionStructure;
 }
 
 function applySnapshotToWorkItem(
@@ -437,12 +476,12 @@ function applySnapshotToWorkItem(
   );
   const insertCriterion = database.prepare(
     `INSERT INTO work_item_criteria
-      (criterion_id, project_id, item_id, criterion_key, description, is_required, position, created_at, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      (criterion_id, project_id, item_id, criterion_key, description, is_required, position, created_at, is_active, structure_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
   );
   const updateCriterion = database.prepare(
     `UPDATE work_item_criteria
-     SET description = ?, is_required = ?, position = ?, is_active = 1
+     SET description = ?, is_required = ?, position = ?, is_active = 1, structure_json = ?
      WHERE project_id = ? AND item_id = ? AND criterion_id = ?`,
   );
   for (const criterion of snapshot.criteria) {
@@ -459,6 +498,7 @@ function applySnapshotToWorkItem(
         criterion.required ? 1 : 0,
         criterion.position,
         now,
+        structureJson(criterion),
       );
     } else {
       if (existing.criterion_key !== criterion.key) {
@@ -468,6 +508,7 @@ function applySnapshotToWorkItem(
         criterion.description,
         criterion.required ? 1 : 0,
         criterion.position,
+        structureJson(criterion),
         target.project_id,
         target.item_id,
         criterion.id,
@@ -537,3 +578,8 @@ function updateWorkItemVersion(
   }
 }
 
+
+function structureJson(criterion: CriterionStructure): string | null {
+  const structure = pickStructure(criterion);
+  return Object.keys(structure).length === 0 ? null : JSON.stringify(structure);
+}

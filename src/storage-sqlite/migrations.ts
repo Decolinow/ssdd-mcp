@@ -2610,6 +2610,14 @@ export const initialMigrations: readonly SqliteMigration[] = [
       CREATE INDEX file_claims_by_principal ON file_claims (project_id, principal_id, released_at);
     `,
   },
+  {
+    version: 34,
+    name: "structured-acceptance-criteria",
+    sql: `
+      ALTER TABLE work_item_criteria
+        ADD COLUMN structure_json TEXT CHECK (structure_json IS NULL OR json_valid(structure_json));
+    `,
+  },
 ];
 
 export function applyMigrations(
