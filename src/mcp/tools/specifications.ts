@@ -50,29 +50,6 @@ export function registerSpecificationTools(context: McpToolContext): void {
   );
 
   server.registerTool(
-    "adr_create",
-    {
-      title: "Cadastrar ADR",
-      description: "Cria uma decisão de arquitetura como revisão Draft imutável. A publicação posterior continua sujeita ao gate humano de Tech Lead.",
-      inputSchema: z.object({
-        projectId: z.string().uuid(),
-        requestId: z.string().trim().min(1).max(128),
-        key: z.string().trim().min(1).max(32),
-        title: z.string().trim().min(1).max(200),
-        content: specificationContentSchema,
-      }),
-      outputSchema: z.object({ revision: specificationRevisionSchema, auditEventIds: z.array(z.string().uuid()) }),
-    },
-    ({ projectId, requestId, key, title, content }) => {
-      try {
-        const receipt = createSpecification(database, { projectId, principalId, requestId, key, kind: "adr", title, content });
-        const result = { revision: receipt.value, auditEventIds: receipt.auditEventIds };
-        return toolResult(result);
-      } catch (error) { return toToolError(error); }
-    },
-  );
-
-  server.registerTool(
     "spec_revision_propose",
     {
       title: "Propor revisão de especificação",
@@ -221,36 +198,6 @@ export function registerSpecificationTools(context: McpToolContext): void {
       } catch (error) {
         return toToolError(error);
       }
-    },
-  );
-
-  server.registerTool(
-    "adr_search",
-    {
-      title: "Buscar ADRs",
-      description: "Busca ADRs por chave, título ou conteúdo da revisão mais recente; retorna resumos paginados para manter o contexto compacto.",
-      inputSchema: z.object({
-        projectId: z.string().uuid(),
-        query: z.string().trim().min(2).max(160),
-        limit: z.number().int().min(1).max(100).optional(),
-        cursor: z.string().trim().min(1).max(4_096).optional(),
-      }),
-      outputSchema: z.object({
-        specifications: z.array(specificationSchema),
-        nextCursor: z.string().nullable(),
-        watermark: z.number().int().nonnegative(),
-      }),
-    },
-    ({ projectId, query, limit, cursor }) => {
-      try {
-        const result = listSpecifications(database, projectId, principalId, {
-          kind: "adr",
-          search: query,
-          ...(limit === undefined ? {} : { limit }),
-          ...(cursor === undefined ? {} : { cursor }),
-        });
-        return toolResult(result);
-      } catch (error) { return toToolError(error); }
     },
   );
 

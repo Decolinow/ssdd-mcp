@@ -6,9 +6,7 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 
 | Tool | Mutabilidade | Paginação | Perfis | Skills consumidoras |
 |---|---|---|---|---|
-| `adr_create` | escrita (aprovável) | — | specification, tech_lead | chamada direta (sem skill dedicada) |
 | `adr_link_task` | escrita (aprovável) | — | specification, tech_lead | chamada direta (sem skill dedicada) |
-| `adr_search` | leitura | cursor | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, devops | chamada direta (sem skill dedicada) |
 | `approval_issue` | escrita | — | admin | chamada direta (sem skill dedicada) |
 | `approval_revoke` | escrita | — | admin | chamada direta (sem skill dedicada) |
 | `audit_event_list` | leitura | cursor | tech_lead, security_review, admin | chamada direta (sem skill dedicada) |

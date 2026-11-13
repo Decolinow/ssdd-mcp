@@ -21,7 +21,7 @@ const refinementReadTools = [
   ...projectReadTools, "roadmap_id_resolve", "roadmap_id_list",
   "work_item_get", "work_item_revision_list", "work_item_list", "work_item_semantic_search", "task_workflow_get", "comment_list",
   "spec_get", "spec_list", "scenario_get", "scenario_list", "scenario_criterion_search", "trace_query",
-  "adr_search", "work_item_gate_check", "work_item_quality_get", "task_context_get",
+  "work_item_gate_check", "work_item_quality_get", "task_context_get",
   "question_list", "work_item_readiness_review",
 ] as const;
 
@@ -39,7 +39,7 @@ const developerReadTools = [
   ...projectReadTools,
   "task_context_get", "work_item_get", "work_item_revision_list", "work_item_list", "work_item_semantic_search", "task_workflow_get",
   "task_execution_queue_get",
-  "comment_list", "baseline_get", "impact_list", "spec_get", "spec_list", "adr_search", "task_start_check",
+  "comment_list", "baseline_get", "impact_list", "spec_get", "spec_list", "task_start_check",
   "scenario_get", "scenario_list", "scenario_criterion_search", "test_run_list",
   "development_session_list", "deployment_event_list", "github_reference_list",
   "work_item_gate_check", "work_item_quality_get", "evidence_list", "trace_query",
@@ -50,7 +50,7 @@ const qaReadTools = [
   ...projectReadTools,
   "task_context_get", "work_item_get", "work_item_revision_list", "work_item_list", "task_workflow_get", "comment_list",
   "baseline_get", "impact_list", "spec_get", "spec_list", "scenario_get", "scenario_list",
-  "scenario_criterion_search", "test_run_list", "github_reference_list", "adr_search",
+  "scenario_criterion_search", "test_run_list", "github_reference_list",
   "work_item_gate_check", "work_item_quality_get", "evidence_list", "trace_query",
 ] as const;
 
@@ -118,7 +118,7 @@ const testDesignTools = [
 
 const technicalLeadTools = [
   "baseline_fix", "baseline_revalidate", "work_item_create", "work_item_revision_propose",
-  "work_item_revision_publish", "work_item_estimate_confirm", "spec_create", "adr_create", "adr_link_task",
+  "work_item_revision_publish", "work_item_estimate_confirm", "spec_create", "adr_link_task",
   "spec_revision_propose", "spec_revision_publish", "spec_revision_withdraw", "trace_link_add", "trace_link_remove", "work_item_semantic_index",
   "task_workflow_propose", "task_workflow_publish", "task_workflow_step_transition",
   "development_session_stale_list", "development_session_recover", "question_answer", "gate_policy_set", "project_guidance_set", "template_set",
@@ -128,7 +128,6 @@ const technicalLeadTools = [
 const productOwnerTools = [
   "work_item_create", "work_item_revision_propose", "work_item_revision_publish",
   "work_item_assign", "work_item_rank", "work_item_transition", "question_open", "question_answer", "gate_policy_set", "gate_policy_get", "project_guidance_set", "project_guidance_get", "template_set", "template_apply", "template_list", "spec_create", "spec_revision_propose", "spec_revision_publish", "spec_revision_withdraw",
-  "adr_search",
   "milestone_create", "milestone_scope_change", "milestone_forecast_recalculate",
   "roadmap_id_bind",
   "work_item_semantic_index",
@@ -143,7 +142,7 @@ const refinementWriteTools = [
 
 const specificationWriteTools = [
   "work_item_create", "work_item_revision_propose", "spec_create", "spec_revision_propose",
-  "adr_search", "adr_create", "adr_link_task", "trace_link_add", "trace_link_remove", "comment_add", "work_item_semantic_index",
+  "adr_link_task", "trace_link_add", "trace_link_remove", "comment_add", "work_item_semantic_index",
 ] as const;
 
 const facilitatorTools = [
@@ -185,7 +184,7 @@ const profileToolNames: Readonly<Record<Exclude<McpProfile, "full">, ReadonlySet
     "milestone_get", "milestone_list", "milestone_forecast_history", "milestone_forecast_recalculate",
     "metrics_get", "deployment_event_list", "deployment_event_record", "github_reference_list",
     "project_feature_roadmap_get",
-    "team_list", "team_capacity_get", "spec_get", "spec_list", "adr_search", "scenario_get", "scenario_list",
+    "team_list", "team_capacity_get", "spec_get", "spec_list", "scenario_get", "scenario_list",
   ]),
   admin: new Set([...adminReadTools, ...administrationTools]),
 };

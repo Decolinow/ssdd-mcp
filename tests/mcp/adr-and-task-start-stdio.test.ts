@@ -42,15 +42,15 @@ test("MCP creates, searches and traces ADRs and reports task-start blockers", as
   } });
   const task = (taskResult.structuredContent as { workItem: { id: string; key: string; state: string; version: number } }).workItem;
 
-  const adrResult = await client.callTool({ name: "adr_create", arguments: {
-    projectId, requestId: "adr-test-create", key: "ADR-PAY-01", title: "Idempotência por pedido",
+  const adrResult = await client.callTool({ name: "spec_create", arguments: {
+    projectId, requestId: "adr-test-create", key: "ADR-PAY-01", kind: "adr", title: "Idempotência por pedido",
     content: { decision: "A decisão usa uma chave estável por pedido." },
   } });
   assert.notEqual(adrResult.isError, true);
   const adr = (adrResult.structuredContent as { revision: { key: string; status: string } }).revision;
   assert.equal(adr.status, "draft");
 
-  const search = await client.callTool({ name: "adr_search", arguments: { projectId, query: "decisao" } });
+  const search = await client.callTool({ name: "spec_list", arguments: { projectId, kind: "adr", search: "decisao" } });
   assert.notEqual(search.isError, true);
   assert.deepEqual((search.structuredContent as { specifications: Array<{ key: string }> }).specifications.map(({ key }) => key), [adr.key]);
 

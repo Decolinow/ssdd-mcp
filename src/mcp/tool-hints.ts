@@ -34,7 +34,6 @@ export const mcpToolHints: Readonly<Record<string, ToolHint>> = {
   comment_add: { precondition: "membro do projeto", commonError: "VALIDATION_FAILED" },
   evidence_add: { precondition: "item com baseline", commonError: "VALIDATION_FAILED" },
   spec_create: { precondition: "chave única e conteúdo JSON não vazio", commonError: "CONFLICT" },
-  adr_create: { precondition: "chave única e decisão/consequências", commonError: "CONFLICT" },
   spec_revision_propose: { precondition: "expectedVersion atual", commonError: "VERSION_CONFLICT" },
   spec_revision_publish: { precondition: "revisão em draft/in_review", commonError: "VERSION_CONFLICT" },
   adr_link_task: { precondition: "ADR publicado", commonError: "VALIDATION_FAILED" },

@@ -44,9 +44,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
   assert.deepEqual(
     listedTools.tools.map((tool) => tool.name).sort(),
     [
-      "adr_create",
       "adr_link_task",
-      "adr_search",
       "approval_issue",
       "approval_revoke",
       "audit_event_list",

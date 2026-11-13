@@ -2,13 +2,11 @@
 
 Gerado de `src/dashboard/tool-ui-matrix.ts` (`UPDATE_UI_MATRIX=1 npm test` regenera). Cada ferramenta do MCP tem uma operação de UI, cobertura parcial ou uma lacuna futura explícita; `tests/dashboard/tool-ui-matrix.test.ts` falha se uma ferramenta nova ficar sem classificação.
 
-Resumo: 57 com UI, 10 parciais, 57 lacunas futuras (124 ferramentas).
+Resumo: 55 com UI, 10 parciais, 57 lacunas futuras (122 ferramentas).
 
 | Tool | Cobertura | Operação da UI ou motivo da lacuna |
 | --- | --- | --- |
-| `adr_create` | UI | aba Especificações → Nova especificação (tipo ADR); `POST …/specifications` |
 | `adr_link_task` | UI | aba Especificações → vincular ADR a tarefa; `POST …/work-items/:key/adr-links` |
-| `adr_search` | UI | aba Especificações: busca e filtros; `GET …/specifications` |
 | `approval_issue` | Lacuna futura | Operação administrativa de host: fica no CLI/MCP humano; sem rota no dashboard. |
 | `approval_revoke` | Lacuna futura | Operação administrativa de host: fica no CLI/MCP humano; sem rota no dashboard. |
 | `audit_event_list` | UI | aba Atividade; `GET …/audit` e timeline do item |

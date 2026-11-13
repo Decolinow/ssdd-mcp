@@ -17,6 +17,11 @@ Pedido: o catálogo parece grande demais; refinar, procurar redundância e melho
 
 Resultado: `full` 646 → 502 KB (-22%); `po` 106 → 77 mil tokens; `facilitator` 74 → 39 mil; `dev` 70 → 63 mil; `tech_lead` 99 → 92 mil.
 
+## Aplicado depois: consolidações seguras
+
+- `adr_create` e `adr_search` removidas: eram aliases exatos de `spec_create` (`kind: "adr"`) e `spec_list` (`kind: "adr"`, `search`). Catálogo: 124 → 122 tools. Perfis, anotações, aprovações, hints, testes, docs e a matriz de UI foram atualizados.
+- As demais candidatas abaixo continuam abertas por mudarem contrato ou fluxo de gate (get/list, métricas, importadores, sessão).
+
 ## Redundâncias e consolidações candidatas
 
 Ordenadas por ganho. Nenhuma foi aplicada: mudam contrato, skills, perfis e a matriz de paridade, então exigem decisão.

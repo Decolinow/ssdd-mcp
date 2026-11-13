@@ -21,9 +21,7 @@ const adminGap = "Operação administrativa de host: fica no CLI/MCP humano; sem
 const agentGap = "Fluxo de agente de desenvolvimento; o dashboard só exibe o resultado (detalhe da tarefa).";
 
 export const toolUiMatrix: Readonly<Record<string, ToolUiEntry>> = {
-  adr_create: ui(`${spec} → Nova especificação (tipo ADR); \`POST …/specifications\``),
   adr_link_task: ui(`${spec} → vincular ADR a tarefa; \`POST …/work-items/:key/adr-links\``),
-  adr_search: ui(`${spec}: busca e filtros; \`GET …/specifications\``),
   approval_issue: gap(adminGap),
   approval_revoke: gap(adminGap),
   audit_event_list: ui("aba Atividade; `GET …/audit` e timeline do item"),

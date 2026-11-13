@@ -16,7 +16,6 @@ export const approvableMcpToolNames = [
   "work_item_estimate",
   "work_item_estimate_confirm",
   "spec_create",
-  "adr_create",
   "adr_link_task",
   "spec_revision_propose",
   "spec_revision_publish",
