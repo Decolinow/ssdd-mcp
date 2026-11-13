@@ -2963,7 +2963,7 @@ export function createMcpServer(
       outputSchema: z.object({
         key: z.string(), state: z.literal("done"), version: z.number().int().positive(), steps: z.array(z.string()),
         evidenceId: z.string().uuid().nullable(), sessionId: z.string().uuid().nullable(), alreadyDone: z.boolean(),
-        auditEventIds: z.array(z.string().uuid()),
+        auditEventCount: z.number().int().nonnegative(),
       }),
     },
     ({ projectId, requestId, taskIdOrKey, expectedVersion, reason, estimateHours, evidence }) => {

@@ -32,7 +32,7 @@ export interface AcceptTaskResult {
   readonly evidenceId: string | null;
   readonly sessionId: string | null;
   readonly alreadyDone: boolean;
-  readonly auditEventIds: readonly string[];
+  readonly auditEventCount: number;
 }
 
 /**
@@ -50,6 +50,10 @@ export function acceptTask(database: SqliteDatabase, input: AcceptTaskInput): Co
   if (reason.length === 0 || reason.length > 500) {
     throw new ApplicationError("VALIDATION_FAILED", "A reason of 1-500 characters is required.");
   }
+  const evidenceDescription = input.evidence.description.trim();
+  if (evidenceDescription.length < 20 || /\b(placeholder|todo|tbd|lorem)\b/iu.test(evidenceDescription)) {
+    throw new ApplicationError("VALIDATION_FAILED", "Evidence description must state what was verified (at least 20 characters, no placeholder text).");
+  }
   const base = { projectId: input.projectId, principalId: input.principalId };
 
   const run = database.transaction((): CommandReceipt<AcceptTaskResult> => {
@@ -59,7 +63,7 @@ export function acceptTask(database: SqliteDatabase, input: AcceptTaskInput): Co
       throw new ApplicationError("VERSION_CONFLICT", `Task is at version ${item.version}, expected ${input.expectedVersion}.`);
     }
     if (item.state === "done") {
-      return { value: { key: item.key, state: "done", version: item.version, steps: [], evidenceId: null, sessionId: null, alreadyDone: true, auditEventIds: [] }, auditEventIds: [] };
+      return { value: { key: item.key, state: "done", version: item.version, steps: [], evidenceId: null, sessionId: null, alreadyDone: true, auditEventCount: 0 }, auditEventIds: [] };
     }
     if (item.state !== "draft" && item.state !== "ready") {
       throw new ApplicationError("VALIDATION_FAILED", `Task is ${item.state}; accept only starts from draft or ready. Finish it with the individual tools.`);
@@ -131,7 +135,7 @@ export function acceptTask(database: SqliteDatabase, input: AcceptTaskInput): Co
     return {
       value: {
         key: item.key, state: "done", version: item.version, steps, evidenceId: evidence.value.id,
-        sessionId: started.value.session.id, alreadyDone: false, auditEventIds: audit,
+        sessionId: started.value.session.id, alreadyDone: false, auditEventCount: audit.length,
       },
       auditEventIds: audit,
     };

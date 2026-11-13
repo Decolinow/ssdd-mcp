@@ -42,7 +42,7 @@ describe("task_accept composite command (U11/U18)", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  const evidence = { kind: "commit" as const, uri: "git:abc123", description: "Entrega verificada" };
+  const evidence = { kind: "commit" as const, uri: "git:abc123", description: "Entrega verificada pelos testes automatizados" };
 
   it("closes a draft task through every gate in one call and replays idempotently", () => {
     const task = item("task", "Entregar", storyId);
@@ -73,6 +73,14 @@ describe("task_accept composite command (U11/U18)", () => {
     const task = item("task", "Sem estimativa", storyId);
     assert.throws(() => acceptTask(database, { projectId, principalId, requestId: "accept-3", itemIdOrKey: task.key, reason: "Aceite", evidence }), /estimateHours/);
     assert.throws(() => acceptTask(database, { projectId, principalId, requestId: "accept-4", itemIdOrKey: storyId, reason: "Aceite", estimateHours: 1, evidence }), /Only task/);
+  });
+
+  it("rejects placeholder or too-short evidence before touching the task", () => {
+    const task = item("task", "Sem prova", storyId);
+    for (const description of ["Placeholder", "curto", "TODO: preencher depois com algo útil"]) {
+      assert.throws(() => acceptTask(database, { projectId, principalId, requestId: `accept-ph-${description.length}`, itemIdOrKey: task.key, reason: "Aceite", estimateHours: 1, evidence: { ...evidence, description } }), /Evidence description/);
+    }
+    assert.equal(getWorkItem(database, projectId, principalId, task.id).state, "draft");
   });
 
   function item(type: "epic" | "feature" | "story" | "task", title: string, parentId?: string) {
