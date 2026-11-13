@@ -6,6 +6,10 @@ Histórico datado das entregas, verificações e auditorias do projeto, movido d
 
 - Botão Certificar (QA) nas execuções aprovadas do detalhe do PBI, via `backlog/test_run_certify` sobre `certifyTestRun`; execuções não certificáveis explicam o motivo. Teste HTTP cobre CSRF, validação e recusa com código; o caminho positivo continua coberto por `tests/application/work-item-workflow.test.ts`.
 
+## Evidência de SCN-90-AC1 e AC4 (2026-11-13, SSDD-90)
+
+- `tests/application/scenario-publish-authority.test.ts` prova que agente com papel QA e humano sem QA não publicam revisão de cenário (FORBIDDEN, revisão segue rascunho) e que humano QA publica. O smoke de navegador semeia um cenário com uma execução por resultado e audita os painéis de cobertura e resultados QA com `axe-core` (nova devDependency), sem violações. Auditoria automatizada não substitui teste com leitor de tela.
+
 ## Baseline e impactos no dashboard (2026-11-13, SSDD-97)
 
 - Rotas `GET …/baseline` e `…/impacts`, operações `baseline_revalidate` e `baseline_fix` em `backlog/:operation` e painel Baseline e impactos no detalhe do PBI. Motivo: SCN-97-AC1 foi registrado como reprovado por falta dessa UI. Testes em `tests/dashboard/backlog-operations.test.ts` (CSRF, motivo obrigatório, 404 sem baseline, 409/4xx) e `tests/dashboard/api.test.ts` (baseline sem snapshots e impactos). Fluxo positivo (fixar, republicar a regra, ver o impacto aberto e revalidar) e a recusa de um desenvolvedor (403) estão testados pela API; o navegador não executa a revalidação.

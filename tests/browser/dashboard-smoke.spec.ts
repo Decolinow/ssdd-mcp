@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -7,6 +7,7 @@ import { chromium } from "playwright-core";
 import { createDashboardApiServer, listenDashboardApiServer } from "../../src/dashboard/api.js";
 import { createWorkItem } from "../../src/application/create-work-item.js";
 import { initializeProject } from "../../src/application/initialize-project.js";
+import { createScenario, publishScenarioRevision, recordTestRun } from "../../src/application/scenario-commands.js";
 import { createManagedUser, ensureBootstrapAdministrator } from "../../src/application/user-management.js";
 import { openSqliteDatabase } from "../../src/storage-sqlite/database.js";
 
@@ -29,6 +30,12 @@ test("dashboard smoke: login, backlog and board, gate-refused transition and PBI
   const epic = createWorkItem(database, { projectId, principalId: adminId, requestId: "smoke-epic", type: "epic", title: "Épico do smoke" }).value;
   const feature = createWorkItem(database, { projectId, principalId: adminId, requestId: "smoke-feature", type: "feature", title: "Feature do smoke", parentId: epic.id }).value;
   createWorkItem(database, { projectId, principalId: adminId, requestId: "smoke-story", type: "story", title: "História sem critérios", parentId: feature.id });
+  // Published scenario with one run per result so the QA chart renders real data for the accessibility audit (SCN-90-AC4).
+  createScenario(database, { projectId, principalId: adminId, requestId: "smoke-scenario", key: "SMK-TC-1", kind: "acceptance", title: "Cenário do smoke", steps: [{ action: "Executar", expected: "Passa" }] });
+  publishScenarioRevision(database, { projectId, principalId: adminId, requestId: "smoke-scenario-publish", scenarioIdOrKey: "SMK-TC-1", revisionNumber: 1, expectedVersion: 1 });
+  for (const result of ["passed", "failed", "blocked", "skipped"] as const) {
+    recordTestRun(database, { projectId, principalId: adminId, requestId: `smoke-run-${result}`, scenarioIdOrKey: "SMK-TC-1", revisionNumber: 1, buildId: `smoke-build-${result}`, result });
+  }
   database.close();
 
   const dashboard = createDashboardApiServer(workspace);
@@ -90,7 +97,16 @@ test("dashboard smoke: login, backlog and board, gate-refused transition and PBI
 
   await page.click("#quality-tab");
   await page.locator("#qa-coverage table").waitFor({ state: "visible" });
-  await page.locator("#qa-run-chart .empty-state").waitFor({ state: "visible" });
+  await page.locator("#qa-run-chart table").waitFor({ state: "visible" });
+  // Automated accessibility audit (axe-core) of the QA coverage and results panels. It does not replace a screen-reader pass.
+  await page.evaluate(readFileSync(join(process.cwd(), "node_modules", "axe-core", "axe.min.js"), "utf8"));
+  const audit = await page.evaluate(async () => {
+    const axe = (globalThis as unknown as { axe: { run: (context: unknown) => Promise<{ passes: unknown[]; violations: Array<{ id: string; impact: string; nodes: Array<{ target: string[] }> }> }> } }).axe;
+    const result = await axe.run({ include: ["#qa-coverage", "#qa-run-chart"] });
+    return { passes: result.passes.length, violations: result.violations.map((violation) => ({ id: violation.id, impact: violation.impact, targets: violation.nodes.map((node) => node.target.join(" ")) })) };
+  });
+  assert.ok(audit.passes > 0, "the audit must actually evaluate the QA panels");
+  assert.deepEqual(audit.violations, [], `QA chart accessibility violations: ${JSON.stringify(audit.violations)}`);
   await page.locator('[data-coverage-bucket]:not([disabled])').first().click();
   await page.locator("[data-coverage-clear]").waitFor({ state: "visible" });
   await page.click("[data-coverage-clear]");
