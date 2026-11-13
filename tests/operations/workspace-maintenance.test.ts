@@ -86,8 +86,8 @@ describe("workspace backup, restore, export, and diagnostics", () => {
 
     const restoredWorkspace = join(root, "restored");
     const restored = await restoreWorkspace(restoredWorkspace, backupPath);
-    assert.equal(restored.restoredSchemaVersion, 38);
-    assert.equal(restored.sourceSchemaVersion, 38);
+    assert.equal(restored.restoredSchemaVersion, 39);
+    assert.equal(restored.sourceSchemaVersion, 39);
     assert.deepEqual(restored.projectKeys, ["PAY"]);
 
     const restoredDatabase = openSqliteDatabase(restored.databasePath);

@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Vínculo entre tarefa e mudança de código (2026-11-13, SSDD-944 / MCP SSDD-147)
+
+- Migração 39 adiciona o conjunto de mudanças ao relatório de entrega e a tabela `task_path_scopes`. `task_scope_set` declara o escopo esperado; caminhos fora dele aparecem como achado `out_of_scope_change`, sem bloquear. Caminhos vêm do relatório porque o webhook de PR do GitHub não os inclui.
+
 ## Briefing de tarefa em uma chamada (2026-11-13, SSDD-945 / MCP SSDD-148)
 
 - `task_briefing_get` devolve contexto, gates de início, progresso do workflow, perguntas abertas, termos de glossário citados e a próxima ação recomendada. A skill `ssdd-developer` passa a chamá-lo primeiro; `task_context_get` segue para paginação e outras seções.

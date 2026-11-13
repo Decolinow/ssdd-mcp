@@ -60,7 +60,7 @@ const additiveMutationTools = [
   "test_run_record", "test_run_certify",
   "task_workflow_propose", "task_workflow_publish", "task_workflow_step_transition",
   "task_start", "task_accept", "development_session_start", "development_session_transition", "development_session_recover",
-  "file_claim_acquire", "file_claim_renew", "question_open", "question_answer", "task_delivery_report_submit", "review_record",
+  "file_claim_acquire", "file_claim_renew", "question_open", "question_answer", "task_delivery_report_submit", "review_record", "task_scope_set",
   "deployment_event_record",
   "milestone_create", "milestone_scope_change",
   "team_create", "team_capacity_set", "definition_of_done_set",

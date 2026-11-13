@@ -134,7 +134,7 @@ import { acceptTask } from "../application/task-accept.js";
 import { describeWithHint } from "./tool-hints.js";
 import { getFlowMetrics } from "../application/flow-metrics.js";
 import { listReviews, recordReview } from "../application/task-reviews.js";
-import { listDeliveryReports, submitDeliveryReport } from "../application/task-delivery-reports.js";
+import { listDeliveryReports, setTaskPathScope, submitDeliveryReport } from "../application/task-delivery-reports.js";
 import { answerQuestion, listQuestions, openQuestion } from "../application/work-item-questions.js";
 import { reviewWorkItemReadiness } from "../application/readiness-review.js";
 import { acquireFileClaims, listFileClaims, releaseFileClaims, renewFileClaims } from "../application/file-claims.js";
@@ -3175,6 +3175,8 @@ export function createMcpServer(
   });
   const deliveryReportSchema = z.object({
     id: z.string().uuid(), itemKey: z.string(), reportNumber: z.number().int().positive(), entries: z.array(deliveryEntrySchema),
+    changeSet: z.object({ branch: z.string().optional(), commits: z.array(z.string()), paths: z.array(z.string()) }).nullable(),
+    outOfScopePaths: z.array(z.string()),
     summary: z.string().nullable(), submittedByPrincipalId: z.string().uuid(), submittedAt: z.string(),
   });
 
@@ -3186,10 +3188,15 @@ export function createMcpServer(
       inputSchema: z.object({
         projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), taskIdOrKey: z.string().trim().min(1).max(120),
         entries: z.array(deliveryEntrySchema).min(1).max(100), summary: z.string().trim().min(1).max(2_000).optional(),
+        changeSet: z.object({
+          branch: z.string().trim().min(1).max(200).optional(),
+          commits: z.array(z.string().trim().min(7).max(64)).max(200),
+          paths: z.array(z.string().trim().min(1).max(500)).max(500),
+        }).optional(),
       }),
       outputSchema: z.object({ report: deliveryReportSchema, auditEventCount: z.number().int().nonnegative() }),
     },
-    ({ projectId, requestId, taskIdOrKey, entries, summary }) => {
+    ({ projectId, requestId, taskIdOrKey, entries, summary, changeSet }) => {
       try {
         const receipt = submitDeliveryReport(database, {
           projectId, principalId, requestId, itemIdOrKey: taskIdOrKey,
@@ -3200,6 +3207,7 @@ export function createMcpServer(
             ...(entry.deviations === undefined ? {} : { deviations: entry.deviations }),
           })),
           ...(summary === undefined ? {} : { summary }),
+          ...(changeSet === undefined ? {} : { changeSet: { ...(changeSet.branch === undefined ? {} : { branch: changeSet.branch }), commits: changeSet.commits, paths: changeSet.paths } }),
         });
         const result = { report: receipt.value.report, auditEventCount: receipt.auditEventIds.length };
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
@@ -3256,6 +3264,26 @@ export function createMcpServer(
   );
 
   server.registerTool(
+    "task_scope_set",
+    {
+      title: "Declarar escopo de caminhos da tarefa",
+      description: "Declara (substitui) os caminhos do repositório que a tarefa deve tocar. Alteração fora do escopo vira achado na revisão e em task_delivery_report_get, nunca bloqueio automático.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), taskIdOrKey: z.string().trim().min(1).max(120),
+        paths: z.array(z.string().trim().min(1).max(500)).max(200),
+      }),
+      outputSchema: z.object({ itemKey: z.string(), paths: z.array(z.string()), version: z.number().int().positive(), auditEventCount: z.number().int().nonnegative() }),
+    },
+    ({ projectId, requestId, taskIdOrKey, paths }) => {
+      try {
+        const receipt = setTaskPathScope(database, { projectId, principalId, requestId, itemIdOrKey: taskIdOrKey, paths });
+        const result = { ...receipt.value, auditEventCount: receipt.auditEventIds.length };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
     "task_delivery_report_get",
     {
       title: "Consultar relatório de entrega",
@@ -3264,6 +3292,7 @@ export function createMcpServer(
       outputSchema: z.object({
         expected: z.array(z.object({ key: z.string(), scope: z.enum(["pbi", "task", "dod"]), required: z.boolean() })),
         reports: z.array(deliveryReportSchema),
+        pathScope: z.array(z.string()).nullable(),
       }),
     },
     ({ projectId, taskIdOrKey, latestOnly }) => {
@@ -3341,7 +3370,7 @@ export function createMcpServer(
       outputSchema: z.object({
         itemKey: z.string(), type: z.string(),
         findings: z.array(z.object({
-          code: z.enum(["no_observable_outcome", "vague_term", "term_not_in_glossary", "criterion_without_scenario", "task_without_checklist", "blocking_question_open"]),
+          code: z.enum(["no_observable_outcome", "vague_term", "term_not_in_glossary", "criterion_without_scenario", "task_without_checklist", "blocking_question_open", "out_of_scope_change"]),
           severity: z.enum(["blocking", "warning"]), criterionKey: z.string().optional(), message: z.string(),
         })),
         counts: z.object({ blocking: z.number().int().nonnegative(), warning: z.number().int().nonnegative() }),

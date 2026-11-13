@@ -7,7 +7,7 @@ import { createWorkItem } from "../../src/application/create-work-item.js";
 import { ApplicationError } from "../../src/application/errors.js";
 import { initializeProject } from "../../src/application/initialize-project.js";
 import { getTaskContext } from "../../src/application/task-context.js";
-import { listDeliveryReports, submitDeliveryReport, unattestedDefinitionOfDone } from "../../src/application/task-delivery-reports.js";
+import { listDeliveryReports, setTaskPathScope, submitDeliveryReport, unattestedDefinitionOfDone } from "../../src/application/task-delivery-reports.js";
 import { transitionWorkItem } from "../../src/application/work-item-workflow.js";
 import { openSqliteDatabase, type SqliteDatabase } from "../../src/storage-sqlite/database.js";
 import { applyMigrations } from "../../src/storage-sqlite/migrations.js";
@@ -104,5 +104,23 @@ describe("delivery report per criterion (SSDD-940)", () => {
     const context = getTaskContext(database, { projectId, principalId, taskIdOrKey: taskId, include: ["definitionOfDone"] });
     assert.deepEqual(context.sections.definitionOfDone.map((entry) => entry.key), ["DoD-r1:1", "DoD-r1:2"]);
     assert.ok(context.warnings.some((warning) => warning.code === "DOD_REVISED_AFTER_PIN"));
+  });
+
+  it("records the change set and flags paths outside the declared scope without blocking (SSDD-944)", () => {
+    setTaskPathScope(database, { projectId, principalId, requestId: "scope", itemIdOrKey: taskId, paths: ["src/application", "docs/mcp.md"] });
+    const report = submitDeliveryReport(database, {
+      projectId, principalId, requestId: "with-changes", itemIdOrKey: taskId,
+      entries: [
+        { criterionKey: "AC-1", scope: "pbi", status: "met", evidence: "teste X" },
+        { criterionKey: "AC-2", scope: "pbi", status: "met", evidence: "teste Y" },
+      ],
+      changeSet: { branch: "feat/x", commits: ["ABCDEF1", "abcdef1", "1234567890ab"], paths: ["src/application/a.ts", "docs/mcp.md", "src/mcp/server.ts"] },
+    });
+    assert.deepEqual(report.value.report.changeSet?.commits, ["abcdef1", "1234567890ab"]);
+    assert.deepEqual(report.value.report.outOfScopePaths, ["src/mcp/server.ts"]);
+    assert.deepEqual(listDeliveryReports(database, { projectId, principalId, itemIdOrKey: taskId }).pathScope, ["docs/mcp.md", "src/application"]);
+    assert.equal(toReview("scope-review").value.transition.toState, "in_review");
+    assert.throws(() => setTaskPathScope(database, { projectId, principalId, requestId: "bad-scope", itemIdOrKey: taskId, paths: ["../etc"] }),
+      (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED");
   });
 });

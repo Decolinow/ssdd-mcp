@@ -1,5 +1,6 @@
 import type { SqliteDatabase } from "../storage-sqlite/database.js";
 import { assertProjectAuthorization } from "./local-identity.js";
+import { listDeliveryReports } from "./task-delivery-reports.js";
 import { openBlockingQuestions } from "./work-item-questions.js";
 import { getWorkItem } from "./work-item-queries.js";
 import { hasPublishedCriterionScenario } from "./work-item-workflow.js";
@@ -14,7 +15,8 @@ export type ReadinessFindingCode =
   | "term_not_in_glossary"
   | "criterion_without_scenario"
   | "task_without_checklist"
-  | "blocking_question_open";
+  | "blocking_question_open"
+  | "out_of_scope_change";
 
 export interface ReadinessFinding {
   readonly code: ReadinessFindingCode;
@@ -67,6 +69,12 @@ export function reviewWorkItemReadiness(database: SqliteDatabase, input: {
   }
   if (item.type === "task" && item.criteria.length === 0) {
     findings.push({ code: "task_without_checklist", severity: "warning", message: "A tarefa não tem checklist de saída (critérios próprios)." });
+  }
+  if (item.type === "task") {
+    const latest = listDeliveryReports(database, { projectId: input.projectId, principalId: input.principalId, itemIdOrKey: item.id, latestOnly: true }).reports[0];
+    for (const path of latest?.outOfScopePaths ?? []) {
+      findings.push({ code: "out_of_scope_change", severity: "warning", message: `O relatório alterou ${path}, fora do escopo de caminhos declarado; confira na revisão (não bloqueia).` });
+    }
   }
   for (const question of openBlockingQuestions(database, input.projectId, item.id)) {
     findings.push({ code: "blocking_question_open", severity: "blocking", message: `Pergunta bloqueante ${question.key} sem resposta: ${question.text}` });

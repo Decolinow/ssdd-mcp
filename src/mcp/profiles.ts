@@ -104,7 +104,7 @@ const securityReviewReadTools = [
 const developerTools = [
   "work_item_create", "work_item_assign", "comment_add", "work_item_estimate", "work_item_estimate_confirm",
   "development_session_start", "development_session_transition", "task_start_check", "task_start", "task_accept", "file_claim_acquire", "file_claim_renew", "file_claim_release", "file_claim_list", "task_workflow_propose",
-  "task_workflow_step_transition", "work_item_transition", "evidence_add", "question_open", "task_delivery_report_submit", "review_record",
+  "task_workflow_step_transition", "work_item_transition", "evidence_add", "question_open", "task_delivery_report_submit", "review_record", "task_scope_set",
 ] as const;
 
 const qaTools = [

@@ -85,6 +85,7 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `task_delivery_report_get` | leitura | — | dev, tech_lead | chamada direta (sem skill dedicada) |
 | `task_delivery_report_submit` | escrita (aprovável) | — | dev, tech_lead | chamada direta (sem skill dedicada) |
 | `task_execution_queue_get` | leitura | — | dev, tech_lead, po | ssdd-developer, ssdd-product-owner |
+| `task_scope_set` | escrita (aprovável) | — | dev, tech_lead | chamada direta (sem skill dedicada) |
 | `task_start` | escrita (aprovável) | — | dev, tech_lead | ssdd-developer |
 | `task_start_check` | leitura | — | dev, tech_lead | ssdd-developer |
 | `task_workflow_get` | leitura | — | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, release | ssdd-developer, ssdd-quality-assurance, ssdd-technical-lead, ssdd-test-designer |

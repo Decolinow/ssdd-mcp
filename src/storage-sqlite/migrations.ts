@@ -2704,6 +2704,24 @@ export const initialMigrations: readonly SqliteMigration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 39,
+    name: "task-change-scope",
+    sql: `
+      ALTER TABLE task_delivery_reports
+        ADD COLUMN change_set_json TEXT CHECK (change_set_json IS NULL OR json_valid(change_set_json));
+      CREATE TABLE task_path_scopes (
+        project_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        paths_json TEXT NOT NULL CHECK (json_valid(paths_json)),
+        declared_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        declared_at TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+        PRIMARY KEY (project_id, item_id),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id)
+      ) STRICT;
+    `,
+  },
 ];
 
 export function applyMigrations(

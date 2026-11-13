@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SqliteDatabase } from "../storage-sqlite/database.js";
 import { ApplicationError } from "./errors.js";
 import { executeIdempotentCommand, type CommandReceipt, type JsonValue } from "./idempotent-command.js";
+import { normalizeClaimPath } from "./file-claims.js";
 import { assertProjectAuthorization } from "./local-identity.js";
 import { getWorkItem } from "./work-item-queries.js";
 
@@ -22,8 +23,17 @@ export interface DeliveryReportEntry {
   readonly deviations?: string;
 }
 
+/** Branch, commits and changed paths declared by the executor (from git); the webhook carries branch/SHA only. */
+export interface ChangeSet {
+  readonly branch?: string;
+  readonly commits: readonly string[];
+  readonly paths: readonly string[];
+}
+
 export interface DeliveryReport {
   readonly id: string;
+  readonly changeSet: ChangeSet | null;
+  readonly outOfScopePaths: readonly string[];
   readonly itemKey: string;
   readonly reportNumber: number;
   readonly entries: readonly DeliveryReportEntry[];
@@ -33,18 +43,27 @@ export interface DeliveryReport {
 }
 
 interface ReportRow {
-  readonly report_id: string; readonly item_key: string; readonly report_number: number; readonly entries_json: string;
+  readonly report_id: string; readonly item_key: string; readonly report_number: number; readonly entries_json: string; readonly change_set_json: string | null; readonly scope_json: string | null;
   readonly summary: string | null; readonly submitted_by_principal_id: string; readonly submitted_at: string;
 }
 
 const selectReports = `
-  SELECT r.report_id, wi.item_key, r.report_number, r.entries_json, r.summary, r.submitted_by_principal_id, r.submitted_at
+  SELECT r.report_id, wi.item_key, r.report_number, r.entries_json, r.change_set_json, s.paths_json AS scope_json, r.summary, r.submitted_by_principal_id, r.submitted_at
   FROM task_delivery_reports r
   INNER JOIN work_items wi ON wi.project_id = r.project_id AND wi.item_id = r.item_id
+  LEFT JOIN task_path_scopes s ON s.project_id = r.project_id AND s.item_id = r.item_id
   WHERE r.project_id = ? AND r.item_id = ?`;
 
+export function pathInScope(path: string, scope: readonly string[]): boolean {
+  return scope.some((entry) => path === entry || path.startsWith(`${entry}/`));
+}
+
 function toReport(row: ReportRow): DeliveryReport {
+  const changeSet = row.change_set_json === null ? null : JSON.parse(row.change_set_json) as ChangeSet;
+  const scope = row.scope_json === null ? null : JSON.parse(row.scope_json) as string[];
   return {
+    changeSet,
+    outOfScopePaths: changeSet === null || scope === null ? [] : changeSet.paths.filter((path) => !pathInScope(path, scope)),
     id: row.report_id, itemKey: row.item_key, reportNumber: row.report_number, entries: JSON.parse(row.entries_json) as DeliveryReportEntry[],
     summary: row.summary, submittedByPrincipalId: row.submitted_by_principal_id, submittedAt: row.submitted_at,
   };
@@ -67,14 +86,15 @@ export function expectedDeliveryCriteria(database: SqliteDatabase, projectId: st
 
 export function submitDeliveryReport(database: SqliteDatabase, input: {
   readonly projectId: string; readonly principalId: string; readonly requestId: string; readonly itemIdOrKey: string;
-  readonly entries: readonly DeliveryReportEntry[]; readonly summary?: string;
+  readonly entries: readonly DeliveryReportEntry[]; readonly summary?: string; readonly changeSet?: ChangeSet;
 }): CommandReceipt<{ report: DeliveryReport }> {
+  const changeSet = input.changeSet === undefined ? null : normalizeChangeSet(input.changeSet);
   const summary = input.summary?.trim() || null;
   if (summary !== null && summary.length > 2_000) throw new ApplicationError("VALIDATION_FAILED", "Summary cannot exceed 2000 characters.");
   const entries = input.entries.map(normalizeEntry);
   return executeIdempotentCommand(database, {
     projectId: input.projectId, principalId: input.principalId, action: "task_delivery_report.submit", requestId: input.requestId,
-    payload: { projectId: input.projectId, itemIdOrKey: input.itemIdOrKey, entries, summary } as unknown as JsonValue,
+    payload: { projectId: input.projectId, itemIdOrKey: input.itemIdOrKey, entries, summary, changeSet } as unknown as JsonValue,
     requiredRoles: ["developer", "qa", "tech_lead"],
     auditEvent: (result) => ({
       projectId: input.projectId, principalId: input.principalId, eventType: "task.delivery_report_submitted", entityType: "task_delivery_report",
@@ -102,9 +122,9 @@ export function submitDeliveryReport(database: SqliteDatabase, input: {
         .get(input.projectId, taskId) as { maximum: number }).maximum;
       const id = randomUUID();
       database.prepare(
-        `INSERT INTO task_delivery_reports (report_id, project_id, item_id, report_number, entries_json, summary, submitted_by_principal_id, submitted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(id, input.projectId, taskId, maximum + 1, JSON.stringify(entries), summary, input.principalId, new Date().toISOString());
+        `INSERT INTO task_delivery_reports (report_id, project_id, item_id, report_number, entries_json, summary, submitted_by_principal_id, submitted_at, change_set_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(id, input.projectId, taskId, maximum + 1, JSON.stringify(entries), summary, input.principalId, new Date().toISOString(), changeSet === null ? null : JSON.stringify(changeSet));
       return { report: toReport(database.prepare(`${selectReports} AND r.report_id = ?`).get(input.projectId, taskId, id) as ReportRow) };
     },
   });
@@ -137,11 +157,11 @@ function normalizeEntry(entry: DeliveryReportEntry): DeliveryReportEntry {
 
 export function listDeliveryReports(database: SqliteDatabase, input: {
   readonly projectId: string; readonly principalId: string; readonly itemIdOrKey: string; readonly latestOnly?: boolean;
-}): { reports: DeliveryReport[]; expected: Array<{ key: string; scope: "pbi" | "task" | "dod"; required: boolean }> } {
+}): { reports: DeliveryReport[]; expected: Array<{ key: string; scope: "pbi" | "task" | "dod"; required: boolean }>; pathScope: string[] | null } {
   assertProjectAuthorization(database, input.projectId, input.principalId);
   const { taskId, expected } = expectedDeliveryCriteria(database, input.projectId, input.principalId, input.itemIdOrKey.trim());
   const rows = database.prepare(`${selectReports} ORDER BY r.report_number DESC`).all(input.projectId, taskId) as unknown as ReportRow[];
-  return { reports: (input.latestOnly === true ? rows.slice(0, 1) : rows).map(toReport), expected: expected.map((entry) => ({ ...entry })) };
+  return { reports: (input.latestOnly === true ? rows.slice(0, 1) : rows).map(toReport), expected: expected.map((entry) => ({ ...entry })), pathScope: getTaskPathScope(database, input.projectId, taskId) };
 }
 
 /**
@@ -191,4 +211,57 @@ export function unattestedDefinitionOfDone(database: SqliteDatabase, projectId: 
     .filter((entry) => entry.scope === "dod" && (entry.status === "met" || entry.status === "not_applicable"))
     .map((entry) => entry.criterionKey));
   return pin.criteria.map((criterion) => criterion.id).filter((id) => !attested.has(id));
+}
+
+function normalizeChangeSet(changeSet: ChangeSet): ChangeSet {
+  const branch = changeSet.branch?.trim();
+  if (branch !== undefined && (branch.length === 0 || branch.length > 200 || /\p{Cc}/u.test(branch))) {
+    throw new ApplicationError("VALIDATION_FAILED", "Branch must contain 1-200 printable characters.");
+  }
+  if (changeSet.commits.length > 200 || changeSet.paths.length > 500) {
+    throw new ApplicationError("VALIDATION_FAILED", "A change set accepts at most 200 commits and 500 paths.");
+  }
+  const commits = [...new Set(changeSet.commits.map((commit) => commit.trim().toLowerCase()))];
+  if (commits.some((commit) => !/^[0-9a-f]{7,64}$/u.test(commit))) {
+    throw new ApplicationError("VALIDATION_FAILED", "Commits must be hexadecimal SHAs of 7-64 characters.");
+  }
+  const paths = [...new Set(changeSet.paths.map(normalizeClaimPath))].sort();
+  return { ...(branch === undefined ? {} : { branch }), commits, paths };
+}
+
+/** Declares (replaces) the repository paths a task is expected to touch; out-of-scope changes are findings, never blockers. */
+export function setTaskPathScope(database: SqliteDatabase, input: {
+  readonly projectId: string; readonly principalId: string; readonly requestId: string; readonly itemIdOrKey: string;
+  readonly paths: readonly string[];
+}): CommandReceipt<{ itemKey: string; paths: string[]; version: number }> {
+  if (input.paths.length > 200) throw new ApplicationError("VALIDATION_FAILED", "At most 200 scope paths.");
+  const paths = [...new Set(input.paths.map(normalizeClaimPath))].sort();
+  return executeIdempotentCommand(database, {
+    projectId: input.projectId, principalId: input.principalId, action: "task_scope.set", requestId: input.requestId,
+    payload: { projectId: input.projectId, itemIdOrKey: input.itemIdOrKey, paths } as unknown as JsonValue,
+    requiredRoles: ["developer", "tech_lead", "po"],
+    auditEvent: (result) => ({
+      projectId: input.projectId, principalId: input.principalId, eventType: "task.scope_declared", entityType: "work_item",
+      entityId: getWorkItem(database, input.projectId, input.principalId, result.itemKey).id, payload: { itemKey: result.itemKey, paths: result.paths },
+    }),
+    execute: () => {
+      const task = getWorkItem(database, input.projectId, input.principalId, input.itemIdOrKey.trim());
+      if (task.type !== "task") throw new ApplicationError("VALIDATION_FAILED", "Only tasks declare a path scope.");
+      const existing = database.prepare("SELECT version FROM task_path_scopes WHERE project_id = ? AND item_id = ?").get(input.projectId, task.id) as { version: number } | undefined;
+      const now = new Date().toISOString();
+      if (existing === undefined) {
+        database.prepare("INSERT INTO task_path_scopes (project_id, item_id, paths_json, declared_by_principal_id, declared_at) VALUES (?, ?, ?, ?, ?)")
+          .run(input.projectId, task.id, JSON.stringify(paths), input.principalId, now);
+      } else {
+        database.prepare("UPDATE task_path_scopes SET paths_json = ?, declared_by_principal_id = ?, declared_at = ?, version = version + 1 WHERE project_id = ? AND item_id = ?")
+          .run(JSON.stringify(paths), input.principalId, now, input.projectId, task.id);
+      }
+      return { itemKey: task.key, paths, version: (existing?.version ?? 0) + 1 };
+    },
+  });
+}
+
+export function getTaskPathScope(database: SqliteDatabase, projectId: string, itemId: string): string[] | null {
+  const row = database.prepare("SELECT paths_json FROM task_path_scopes WHERE project_id = ? AND item_id = ?").get(projectId, itemId) as { paths_json: string } | undefined;
+  return row === undefined ? null : JSON.parse(row.paths_json) as string[];
 }
