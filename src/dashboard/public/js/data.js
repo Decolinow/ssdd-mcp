@@ -397,7 +397,9 @@ export function renderProjectRoadmap() {
   const warning = roadmap.forecastUnavailableReason
     ? `<div class="roadmap-warning" role="status"><strong>Previsão por data indisponível.</strong> ${escapeHtml(roadmapForecastReason(null, null, roadmap.forecastUnavailableReason))}</div>`
     : `<p class="table-note">${escapeHtml(roadmap.forecastAssumption)} Valores ausentes continuam sem posição de negócio até avaliação do PO.</p>`;
-  elements.roadmapContent.innerHTML = `${warning}${chart}<div class="roadmap-features">${rows}</div>`;
+  const epicRows = (roadmap.epics ?? []).map((epic) => `<li><strong>${escapeHtml(epic.key)}</strong> · ${epic.progressPercent === null ? "sem tarefas" : `<progress max="100" value="${epic.progressPercent}" aria-label="${escapeHtml(epic.key)}: ${epic.progressPercent}% das tarefas concluídas"></progress> ${escapeHtml(metricNumber(epic.progressPercent))}% · ${escapeHtml(epic.taskDone)}/${escapeHtml(epic.taskTotal)} tarefas`} · ${escapeHtml(epic.featureCount)} feature(s)</li>`).join("");
+  const epicSummary = epicRows ? `<section aria-label="Progresso por épico"><h3>Épicos</h3><ul class="roadmap-epics">${epicRows}</ul></section>` : "";
+  elements.roadmapContent.innerHTML = `${warning}${epicSummary}${chart}<div class="roadmap-features">${rows}</div>`;
 }
 
 export function roadmapForecastReason(status, feature, reason) {
