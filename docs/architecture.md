@@ -207,3 +207,7 @@ Tabela append-only (triggers bloqueiam `UPDATE`/`DELETE`) com decisão, indicado
 ## Política de gates (`gate_policy_revisions`, SSDD-947)
 
 Tabela append-only de revisões por projeto (`lite`/`standard`/`strict`, motivo, autor). A política vigente é a maior revisão; sem revisão vale `standard`. Os gates consultam `getGatePolicy` na avaliação.
+
+## Orientações do projeto (`project_guidance_revisions`, SSDD-948)
+
+Tabela append-only de revisões por projeto com convenções, comandos de verificação, autor e motivo. A seção `guidance` do contexto combina a revisão vigente com as ações da retrospectiva corrente e as devoluções recentes lidas de `work_item_state_transitions`.

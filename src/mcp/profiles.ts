@@ -43,7 +43,7 @@ const developerReadTools = [
   "scenario_get", "scenario_list", "scenario_criterion_search", "test_run_list",
   "development_session_list", "deployment_event_list", "github_reference_list",
   "work_item_gate_check", "work_item_quality_get", "evidence_list", "trace_query",
-  "question_list", "work_item_readiness_review", "task_delivery_report_get", "review_list", "task_briefing_get", "gate_policy_get",
+  "question_list", "work_item_readiness_review", "task_delivery_report_get", "review_list", "task_briefing_get", "gate_policy_get", "project_guidance_get",
 ] as const;
 
 const qaReadTools = [
@@ -121,13 +121,13 @@ const technicalLeadTools = [
   "work_item_revision_publish", "work_item_estimate_confirm", "spec_create", "adr_create", "adr_link_task",
   "spec_revision_propose", "spec_revision_publish", "spec_revision_withdraw", "trace_link_add", "trace_link_remove", "work_item_semantic_index",
   "task_workflow_propose", "task_workflow_publish", "task_workflow_step_transition",
-  "development_session_stale_list", "development_session_recover", "question_answer", "gate_policy_set",
+  "development_session_stale_list", "development_session_recover", "question_answer", "gate_policy_set", "project_guidance_set",
   "file_claim_acquire", "file_claim_renew", "file_claim_release", "file_claim_list",
 ] as const;
 
 const productOwnerTools = [
   "work_item_create", "work_item_revision_propose", "work_item_revision_publish",
-  "work_item_assign", "work_item_rank", "work_item_transition", "question_open", "question_answer", "gate_policy_set", "gate_policy_get", "spec_create", "spec_revision_propose", "spec_revision_publish", "spec_revision_withdraw",
+  "work_item_assign", "work_item_rank", "work_item_transition", "question_open", "question_answer", "gate_policy_set", "gate_policy_get", "project_guidance_set", "project_guidance_get", "spec_create", "spec_revision_propose", "spec_revision_publish", "spec_revision_withdraw",
   "adr_search",
   "milestone_create", "milestone_scope_change", "milestone_forecast_recalculate",
   "roadmap_id_bind",

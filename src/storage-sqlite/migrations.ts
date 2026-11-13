@@ -2741,6 +2741,25 @@ export const initialMigrations: readonly SqliteMigration[] = [
       BEGIN SELECT RAISE(ABORT, 'gate policy revisions are immutable'); END;
     `,
   },
+  {
+    version: 41,
+    name: "project-guidance",
+    sql: `
+      CREATE TABLE project_guidance_revisions (
+        project_id TEXT NOT NULL REFERENCES projects(project_id),
+        revision_number INTEGER NOT NULL CHECK (revision_number > 0),
+        content_json TEXT NOT NULL CHECK (json_valid(content_json)),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) BETWEEN 1 AND 1000),
+        created_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, revision_number)
+      ) STRICT;
+      CREATE TRIGGER project_guidance_revisions_no_update BEFORE UPDATE ON project_guidance_revisions
+      BEGIN SELECT RAISE(ABORT, 'project guidance revisions are immutable'); END;
+      CREATE TRIGGER project_guidance_revisions_no_delete BEFORE DELETE ON project_guidance_revisions
+      BEGIN SELECT RAISE(ABORT, 'project guidance revisions are immutable'); END;
+    `,
+  },
 ];
 
 export function applyMigrations(

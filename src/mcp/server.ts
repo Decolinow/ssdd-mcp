@@ -133,6 +133,7 @@ import { evidenceKinds } from "../domain/workflow.js";
 import { acceptTask } from "../application/task-accept.js";
 import { describeWithHint } from "./tool-hints.js";
 import { getFlowMetrics } from "../application/flow-metrics.js";
+import { readProjectGuidance, setProjectGuidance } from "../application/project-guidance.js";
 import { readGatePolicy, setGatePolicy } from "../application/gate-policy.js";
 import { listReviews, recordReview } from "../application/task-reviews.js";
 import { listDeliveryReports, setTaskPathScope, submitDeliveryReport } from "../application/task-delivery-reports.js";
@@ -1000,6 +1001,7 @@ const taskContextSchema = z.object({
     testRuns: z.array(taskContextEntrySchema),
     baseline: z.array(taskContextEntrySchema),
     definitionOfDone: z.array(taskContextEntrySchema),
+    guidance: z.array(taskContextEntrySchema),
   }),
   warnings: z.array(z.object({ code: z.string(), message: z.string(), key: z.string().optional() })),
   truncated: z.boolean(),
@@ -3269,6 +3271,50 @@ export function createMcpServer(
     level: z.enum(["lite", "standard", "strict"]), revisionNumber: z.number().int().positive().nullable(), reason: z.string().nullable(),
     setByPrincipalId: z.string().uuid().nullable(), setAt: z.string().nullable(),
   });
+
+  const guidanceSchema = z.object({
+    revisionNumber: z.number().int().positive().nullable(),
+    content: z.object({ conventions: z.array(z.object({ title: z.string(), text: z.string() })), verificationCommands: z.array(z.string()) }),
+    reason: z.string().nullable(), setByPrincipalId: z.string().uuid().nullable(), setAt: z.string().nullable(),
+  });
+
+  server.registerTool(
+    "project_guidance_get",
+    {
+      title: "Consultar orientações do projeto",
+      description: "Devolve a revisão vigente das orientações do projeto (convenções do repositório e comandos de verificação) com autoria e motivo; vazio quando nunca configuradas.",
+      inputSchema: z.object({ projectId: z.string().uuid() }),
+      outputSchema: guidanceSchema,
+    },
+    ({ projectId }) => {
+      try {
+        const result = readProjectGuidance(database, projectId, principalId);
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "project_guidance_set",
+    {
+      title: "Definir orientações do projeto",
+      description: "PO ou Tech Lead humano grava nova revisão imutável das orientações (até 30 convenções e 20 comandos de verificação) com motivo de 10+ caracteres; expectedRevision 0 cria a primeira. Entram na seção guidance do contexto da tarefa.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), expectedRevision: z.number().int().min(0),
+        conventions: z.array(z.object({ title: z.string().trim().min(1).max(120), text: z.string().trim().min(1).max(1_000) })).max(30),
+        verificationCommands: z.array(z.string().trim().min(1).max(300)).max(20),
+        reason: z.string().trim().min(10).max(1_000),
+      }),
+      outputSchema: z.object({ guidance: guidanceSchema, auditEventCount: z.number().int().nonnegative() }),
+    },
+    ({ projectId, requestId, expectedRevision, conventions, verificationCommands, reason }) => {
+      try {
+        const receipt = setProjectGuidance(database, { projectId, principalId, requestId, expectedRevision, content: { conventions, verificationCommands }, reason });
+        const result = { guidance: receipt.value, auditEventCount: receipt.auditEventIds.length };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
 
   server.registerTool(
     "gate_policy_get",

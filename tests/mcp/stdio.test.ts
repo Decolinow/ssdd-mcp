@@ -89,6 +89,8 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "milestone_scope_change",
       "project_feature_roadmap_get",
       "project_get",
+      "project_guidance_get",
+      "project_guidance_set",
       "project_list",
       "question_answer",
       "question_list",

@@ -51,6 +51,8 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `milestone_scope_change` | escrita (aprovável) | — | po | chamada direta (sem skill dedicada) |
 | `project_feature_roadmap_get` | leitura | — | tech_lead, po, facilitator, devops | ssdd-delivery-facilitator, ssdd-product-owner |
 | `project_get` | leitura | — | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, release, devops, admin | ssdd-product-owner, ssdd-technical-lead |
+| `project_guidance_get` | leitura | — | dev, tech_lead, po | chamada direta (sem skill dedicada) |
+| `project_guidance_set` | escrita (aprovável) | — | tech_lead, po | chamada direta (sem skill dedicada) |
 | `project_list` | leitura | — | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, release, devops, admin | chamada direta (sem skill dedicada) |
 | `question_answer` | escrita (aprovável) | — | tech_lead, po | chamada direta (sem skill dedicada) |
 | `question_list` | leitura | — | refinement, specification, dev, test_design, tech_lead, security_review, po | chamada direta (sem skill dedicada) |

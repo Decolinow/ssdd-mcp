@@ -1,4 +1,5 @@
 import type { WorkBaseline } from "../domain/baselines.js";
+import { currentRetrospectiveActions, getProjectGuidance, recentReturnReasons } from "./project-guidance.js";
 import { pinnedDefinitionOfDone } from "./task-delivery-reports.js";
 import { openBlockingQuestions } from "./work-item-questions.js";
 import type { ScenarioSnapshot } from "../domain/scenarios.js";
@@ -24,6 +25,7 @@ export const taskContextSections = [
   "testRuns",
   "baseline",
   "definitionOfDone",
+  "guidance",
 ] as const;
 export type TaskContextSection = (typeof taskContextSections)[number];
 
@@ -110,13 +112,13 @@ interface ScenarioReferenceRow {
 }
 
 const profileSections: Readonly<Record<TaskContextProfile, readonly TaskContextSection[]>> = {
-  dev: ["hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "definitionOfDone"],
-  qa: ["hierarchy", "acceptanceCriteria", "businessRules", "scenarios", "testRuns", "definitionOfDone"],
-  po: ["hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "testRuns", "baseline", "definitionOfDone"],
+  dev: ["hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "definitionOfDone", "guidance"],
+  qa: ["hierarchy", "acceptanceCriteria", "businessRules", "scenarios", "testRuns", "definitionOfDone", "guidance"],
+  po: ["hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "testRuns", "baseline", "definitionOfDone", "guidance"],
 };
 
 const sectionOrder: readonly TaskContextSection[] = [
-  "hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "testRuns", "baseline", "definitionOfDone",
+  "hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "testRuns", "baseline", "definitionOfDone", "guidance",
 ];
 
 export function getTaskContext(database: SqliteDatabase, input: TaskContextInput): TaskContextResult {
@@ -202,6 +204,37 @@ export function getTaskContext(database: SqliteDatabase, input: TaskContextInput
     if (latestDod.latest !== null && latestDod.latest > dodPin.revision) {
       warnings.push({ code: "DOD_REVISED_AFTER_PIN", message: `A Definition of Done r${latestDod.latest} foi publicada depois do início da tarefa; vale a r${dodPin.revision} pinada e itens concluídos não são reprocessados.` });
     }
+  }
+
+  const guidance = getProjectGuidance(database, input.projectId);
+  if (guidance.revisionNumber !== null) {
+    entries.push({
+      section: "guidance",
+      key: `guidance:conventions:r${guidance.revisionNumber}`,
+      title: `Orientações do projeto r${guidance.revisionNumber}`,
+      source: workItemSource(input.projectId, task, task.revision, "current"),
+      content: { ...guidance.content, provenance: { kind: "project_guidance", revision: guidance.revisionNumber, setByPrincipalId: guidance.setByPrincipalId, setAt: guidance.setAt } },
+    });
+  }
+  const retrospective = currentRetrospectiveActions(database, input.projectId);
+  if (retrospective !== null) {
+    entries.push({
+      section: "guidance",
+      key: `guidance:retrospective:${retrospective.sprintKey}`,
+      title: `Ações da retrospectiva ${retrospective.sprintKey}`,
+      source: workItemSource(input.projectId, task, task.revision, "current"),
+      content: { actions: retrospective.actions, provenance: { kind: "sprint_retrospective", sprint: retrospective.sprintKey, revision: retrospective.revisionNumber } },
+    });
+  }
+  const returns = recentReturnReasons(database, input.projectId, pbi.id);
+  if (returns.length > 0) {
+    entries.push({
+      section: "guidance",
+      key: `guidance:returns:${pbi.key}`,
+      title: `Devoluções recentes de ${pbi.key}`,
+      source: workItemSource(input.projectId, task, task.revision, "current"),
+      content: { returns, provenance: { kind: "state_transitions", pbi: pbi.key } },
+    });
   }
 
   const linkedSpecs = findLinkedSpecifications(database, input.projectId, hierarchy.map((item) => item.id));
@@ -919,7 +952,7 @@ function createResult(
 
 function emptySections(): Record<TaskContextSection, TaskContextEntry[]> {
   return {
-    hierarchy: [], acceptanceCriteria: [], businessRules: [], technicalDecisions: [], scenarios: [], testRuns: [], baseline: [], definitionOfDone: [],
+    hierarchy: [], acceptanceCriteria: [], businessRules: [], technicalDecisions: [], scenarios: [], testRuns: [], baseline: [], definitionOfDone: [], guidance: [],
   };
 }
 
