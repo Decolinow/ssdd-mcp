@@ -2,6 +2,12 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Certificação delegada e histórias em Done (2026-11-13)
+
+- O QA humano delegou a certificação ao agente ("não vamos ter mais interação humana"). Foram certificados 34/34 critérios obrigatórios e as histórias SSDD-68, 72, 76, 81, 86, 90, 94 e 97 foram movidas para Done com `buildId` `git-87b51ff`.
+- Limites registrados nas notas dos runs: evidência automatizada local (`npm run check` 261/261, `test:browser`, instalador no WSL 5/5), sem CI remota, sem macOS, auditoria axe-core não substitui leitor de tela. Certificação por delegação não equivale a revisão humana independente.
+- Pendentes: SSDD-127 e 139 (curadoria de escopo por link, PO) e SSDD-144 (evidência de CI remota). Histórias sem critérios obrigatórios (metas de sprint, SSDD-62, SSDD-102) seguem em Ready por não terem cenários publicados.
+
 ## Certificação QA pelo dashboard (2026-11-13, SSDD-93)
 
 - Botão Certificar (QA) nas execuções aprovadas do detalhe do PBI, via `backlog/test_run_certify` sobre `certifyTestRun`; execuções não certificáveis explicam o motivo. Teste HTTP cobre CSRF, validação e recusa com código; o caminho positivo continua coberto por `tests/application/work-item-workflow.test.ts`.
