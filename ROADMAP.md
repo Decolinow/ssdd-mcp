@@ -404,7 +404,7 @@ Resultado da [análise de qualidade](docs/analise-qualidade-e-melhorias.md). Sã
 | SSDD-943 | Definition of Done aplicada por item | 5 | A |
 | SSDD-944 | Vínculo entre tarefa e mudança de código | 5 | A |
 | SSDD-945 | Briefing de tarefa em uma chamada | 5 | B · Menos fricção, mais contexto |
-| SSDD-946 | Anotações e descrições das tools (anotações implementadas localmente; descrições pendentes) | 3 | B |
+| SSDD-946 | Anotações e descrições das tools (concluída localmente; `tool-hints.ts` + `tests/mcp/tool-contract.test.ts`) | 3 | B |
 | SSDD-947 | Política de gates por projeto | 8 | B |
 | SSDD-948 | Orientações do projeto no contexto | 5 | B |
 | SSDD-949 | Modelos de item e de workflow | 3 | B |

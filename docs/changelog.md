@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Descrições das tools com pré-condição e erro comum (2026-11-12, SSDD-946 / MCP SSDD-149)
+
+`src/mcp/tool-hints.ts` anexa "Pré-condição … Erro comum …" à descrição de cada uma das 58 tools de escrita; `tests/mcp/tool-contract.test.ts` falha se alguma tool não tiver as três anotações, se uma escrita não tiver a dica ou se existir dica órfã. Custo: ≈100 caracteres por tool de escrita em `tools/list`.
+
 ## Custo de contexto do catálogo (2026-11-12, U19)
 
 Medição de `tools/list`: 554 KB (`full`), 193 KB (`dev`), 276 KB (`tech_lead`), 83% em `outputSchema`. Nova variável `SSDD_MCP_OMIT_OUTPUT_SCHEMAS=1` remove os schemas de saída mantendo `structuredContent`; coberta por `tests/mcp/output-schema-opt-out.test.ts`.

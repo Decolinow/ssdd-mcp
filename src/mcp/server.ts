@@ -130,6 +130,7 @@ import { listProjectTeams } from "../application/team-directory.js";
 import { changeMilestoneScope, createMilestone, getMilestone, listMilestones } from "../application/milestones.js";
 import { evidenceKinds } from "../domain/workflow.js";
 import { acceptTask } from "../application/task-accept.js";
+import { describeWithHint } from "./tool-hints.js";
 import { getFlowMetrics } from "../application/flow-metrics.js";
 import { acquireFileClaims, listFileClaims, releaseFileClaims, renewFileClaims } from "../application/file-claims.js";
 import { listStaleDevelopmentSessions, recoverDevelopmentSession } from "../application/session-recovery.js";
@@ -1057,6 +1058,9 @@ export function createMcpServer(
   server.registerTool = ((name: string, config: unknown, callback: (args: unknown, context: unknown) => unknown) => {
     if (!mcpProfileAllowsTool(profile, name, isHostAdministrator)) return undefined as never;
     config = withToolAnnotations(name, config);
+    if (typeof config === "object" && config !== null && "description" in config) {
+      config = { ...(config as Record<string, unknown>), description: describeWithHint(name, (config as { description?: unknown }).description) };
+    }
     if (omitOutputSchemas && typeof config === "object" && config !== null && "outputSchema" in config) {
       const withoutOutputSchema = { ...(config as Record<string, unknown>) };
       delete withoutOutputSchema.outputSchema;

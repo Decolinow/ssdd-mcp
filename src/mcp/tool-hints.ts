@@ -1,0 +1,73 @@
+/**
+ * Pré-condição e erro mais comum de cada tool de escrita (SSDD-946). Anexados à descrição para que o agente acerte na
+ * primeira chamada; mantidos curtos para não inflar o contexto de `tools/list`.
+ */
+export interface ToolHint { readonly precondition: string; readonly commonError: string }
+
+export const mcpToolHints: Readonly<Record<string, ToolHint>> = {
+  metrics_get: { precondition: "membro do projeto", commonError: "VALIDATION_FAILED (período inválido)" },
+  work_item_semantic_index: { precondition: "provedor de embeddings configurado", commonError: "SEMANTIC_PROVIDER_NOT_CONFIGURED" },
+  work_item_semantic_search: { precondition: "provedor configurado e projeto com até 10.000 itens", commonError: "SEMANTIC_SEARCH_PROJECT_TOO_LARGE" },
+  trace_link_remove: { precondition: "vínculo ativo e papel autorizado", commonError: "NOT_FOUND" },
+  approval_revoke: { precondition: "aprovação ainda não consumida", commonError: "NOT_FOUND" },
+  user_auth_key_revoke: { precondition: "administrador do host", commonError: "FORBIDDEN" },
+  user_auth_key_rotate: { precondition: "administrador do host", commonError: "FORBIDDEN" },
+  spec_revision_withdraw: { precondition: "revisão em draft ou in_review", commonError: "INVALID_TRANSITION" },
+  file_claim_release: { precondition: "ser o dono (ou Tech Lead/Admin com motivo de 10+ caracteres)", commonError: "FORBIDDEN" },
+  sprint_cancel: { precondition: "sprint planejada ou ativa", commonError: "INVALID_TRANSITION" },
+  sprint_close: { precondition: "sprint ativa", commonError: "INVALID_TRANSITION" },
+  work_item_transition: { precondition: "gates do estado de destino cumpridos e expectedVersion atual; tarefa Ready só inicia por task_start", commonError: "GATE_BLOCKED ou USE_TASK_START" },
+  github_issue_import_apply: { precondition: "prévia gerada e repositório/token configurados", commonError: "VALIDATION_FAILED" },
+  azure_work_item_import_apply: { precondition: "prévia gerada e conexão configurada", commonError: "VALIDATION_FAILED" },
+  approval_issue: { precondition: "administrador; argumentos idênticos aos da chamada aprovada", commonError: "VALIDATION_FAILED" },
+  user_create: { precondition: "administrador do host", commonError: "FORBIDDEN" },
+  roadmap_id_bind: { precondition: "alias SSDD-### livre e item existente", commonError: "CONFLICT" },
+  baseline_fix: { precondition: "PBI Ready e papel tech_lead", commonError: "GATE_BLOCKED" },
+  baseline_revalidate: { precondition: "baseline existente", commonError: "NOT_FOUND" },
+  work_item_create: { precondition: "pai do tipo correto (tarefa só sob história/bug)", commonError: "VALIDATION_FAILED" },
+  work_item_revision_propose: { precondition: "expectedVersion atual", commonError: "VERSION_CONFLICT" },
+  work_item_revision_publish: { precondition: "revisão em draft e papel adequado", commonError: "VERSION_CONFLICT" },
+  work_item_assign: { precondition: "responsável elegível no projeto e expectedVersion atual", commonError: "VERSION_CONFLICT" },
+  work_item_rank: { precondition: "vizinhos do mesmo pai", commonError: "VALIDATION_FAILED" },
+  work_item_estimate: { precondition: "tarefa em horas, história/bug em pontos", commonError: "VALIDATION_FAILED (unidade)" },
+  work_item_estimate_confirm: { precondition: "proposta pendente e expectedVersion atual", commonError: "VERSION_CONFLICT" },
+  comment_add: { precondition: "membro do projeto", commonError: "VALIDATION_FAILED" },
+  evidence_add: { precondition: "item com baseline", commonError: "VALIDATION_FAILED" },
+  spec_create: { precondition: "chave única e conteúdo JSON não vazio", commonError: "CONFLICT" },
+  adr_create: { precondition: "chave única e decisão/consequências", commonError: "CONFLICT" },
+  spec_revision_propose: { precondition: "expectedVersion atual", commonError: "VERSION_CONFLICT" },
+  spec_revision_publish: { precondition: "revisão em draft/in_review", commonError: "VERSION_CONFLICT" },
+  adr_link_task: { precondition: "ADR publicado", commonError: "VALIDATION_FAILED" },
+  scenario_create: { precondition: "cobertura apontando para critérios existentes", commonError: "VALIDATION_FAILED" },
+  scenario_revision_propose: { precondition: "expectedVersion atual", commonError: "VERSION_CONFLICT" },
+  scenario_revision_publish: { precondition: "revisão em draft", commonError: "VERSION_CONFLICT" },
+  test_run_record: { precondition: "revisão publicada e buildId", commonError: "VALIDATION_FAILED" },
+  test_run_certify: { precondition: "execução passou, QA e baseline Ready do PBI", commonError: "GATE_BLOCKED" },
+  task_workflow_propose: { precondition: "tarefa sem sessão aberta na revisão anterior", commonError: "VERSION_CONFLICT" },
+  task_workflow_publish: { precondition: "rascunho presente e sem sessão ativa", commonError: "SESSION_CONFLICT" },
+  task_workflow_step_transition: { precondition: "sessão aberta e workflow publicado", commonError: "INVALID_TRANSITION" },
+  task_start: { precondition: "tarefa Ready, atribuída a você, PBI pai Ready com baseline e dependências Done (veja task_start_check)", commonError: "START_BLOCKED" },
+  task_accept: { precondition: "tarefa Draft/Ready sua (ou sem dono) sob PBI Ready; informe estimateHours se não houver estimativa", commonError: "GATE_BLOCKED (tudo é revertido)" },
+  development_session_start: { precondition: "tarefa em in_progress atribuída a você", commonError: "SESSION_CONFLICT" },
+  development_session_transition: { precondition: "ser o dono da sessão e expectedVersion atual", commonError: "VERSION_CONFLICT" },
+  development_session_recover: { precondition: "Admin/Tech Lead e sessão sem eventos há staleAfterHours", commonError: "SESSION_NOT_STALE" },
+  file_claim_acquire: { precondition: "caminhos relativos ao repositório, sem '..'", commonError: "CLAIM_CONFLICT" },
+  file_claim_renew: { precondition: "ser o dono e a reserva não liberada", commonError: "CLAIM_CONFLICT" },
+  deployment_event_record: { precondition: "produção exige Done e homologação bem-sucedida do mesmo build", commonError: "GATE_BLOCKED" },
+  milestone_create: { precondition: "itens do escopo existentes", commonError: "VALIDATION_FAILED" },
+  milestone_scope_change: { precondition: "expectedVersion atual e motivo", commonError: "VERSION_CONFLICT" },
+  team_create: { precondition: "membros com papel developer", commonError: "VALIDATION_FAILED" },
+  team_capacity_set: { precondition: "equipe existente e valores de horas válidos", commonError: "VALIDATION_FAILED" },
+  definition_of_done_set: { precondition: "papel tech_lead/po", commonError: "VERSION_CONFLICT" },
+  sprint_draft: { precondition: "equipe com capacidade e itens Ready estimados", commonError: "VALIDATION_FAILED" },
+  sprint_scope_change: { precondition: "sprint não encerrada e expectedVersion atual", commonError: "VERSION_CONFLICT" },
+  sprint_start: { precondition: "sprint em draft e meta definida", commonError: "INVALID_TRANSITION" },
+  sprint_retrospective_set: { precondition: "sprint encerrada", commonError: "INVALID_TRANSITION" },
+  trace_link_add: { precondition: "extremos existentes; depends_on só entre itens de trabalho", commonError: "VALIDATION_FAILED" },
+};
+
+export function describeWithHint(toolName: string, description: unknown): unknown {
+  const hint = mcpToolHints[toolName];
+  if (hint === undefined || typeof description !== "string") return description;
+  return `${description} Pré-condição: ${hint.precondition}. Erro comum: ${hint.commonError}.`;
+}
