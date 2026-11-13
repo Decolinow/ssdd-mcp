@@ -29,6 +29,14 @@ function certifyControl(run) {
   return `<button class="button button-secondary" type="button" data-certify-run="${escapeHtml(run.id)}">Certificar (QA)</button>`;
 }
 
+export function renderBaselinePanel(baseline, impacts) {
+  const open = impacts.filter((impact) => impact.status === "open");
+  const refs = baseline ? baseline.references.map((ref) => `<li>${escapeHtml(ref.key)} · r${escapeHtml(ref.revisionNumber)} · ${escapeHtml(ref.entityType)}</li>`).join("") : "";
+  const impactList = impacts.length ? `<ul class="impact-list">${impacts.map((impact) => `<li><strong>${escapeHtml(impact.specificationKey)}</strong> · baseline r${escapeHtml(impact.baselineRevision)} → publicada r${escapeHtml(impact.publishedRevision)} · ${impact.status === "open" ? "aberto" : "revalidado"}<br>${escapeHtml(impact.reason)}</li>`).join("")}</ul>` : "<p>Nenhum impacto registrado.</p>";
+  const action = baseline ? `<button class="button button-secondary" type="button" data-baseline-revalidate>Revalidar baseline${open.length ? ` (${open.length} impacto${open.length === 1 ? "" : "s"} aberto${open.length === 1 ? "" : "s"})` : ""}</button>` : "";
+  return `<section id="baseline-panel" class="detail-section"><h3>Baseline e impactos</h3>${baseline ? `<p>Baseline ${escapeHtml(baseline.sequence)} · ${escapeHtml(baseline.kind)} · ${escapeHtml(formatDate(baseline.createdAt))}</p><details><summary>${baseline.references.length} revisões fixadas</summary><ul>${refs}</ul></details>` : "<p>Sem baseline fixada (preview).</p>"}${impactList}${action}</section>`;
+}
+
 export function renderQualityDetail(report) {
   const baseline = report.baseline
     ? `Baseline ${report.baseline.sequence} · fixada para este fluxo`
@@ -244,6 +252,10 @@ export async function openItem(itemId) {
     const base = `/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(itemId)}`;
     const result = await api(base);
     const item = result.workItem;
+    const isPbi = item.type === "story" || item.type === "bug";
+    const [baselineResult, impactsResult] = isPbi
+      ? await Promise.all([api(`${base}/baseline`).catch(() => null), api(`${base}/impacts`).catch(() => ({ impacts: [] }))])
+      : [null, { impacts: [] }];
     const [qualityResult, timeline, revisionsResult, sessionsResult, deploymentResult, childTasks, taskContext, workflowResult] = await Promise.all([
       item.type === "story" || item.type === "bug" ? api(`${base}/quality?limit=100`) : Promise.resolve(null),
       api(`${base}/timeline?limit=100`),
@@ -292,6 +304,7 @@ export async function openItem(itemId) {
       ${item.type === "task" ? renderTaskWorkflow(item, workflowResult.workflow) : ""}
       <section class="detail-section"><h3>Responsável</h3><p>${escapeHtml(item.assigneeId || "Não atribuído")}</p></section>
       <section class="detail-section"><h3>Revisões de conteúdo</h3><ul>${revisions || "<li>Nenhuma revisão.</li>"}</ul>${draftRevision ? `<button class="button button-secondary" type="button" data-publish-item-revision="${draftRevision.revisionNumber}">Publicar rascunho r${draftRevision.revisionNumber}</button>` : ""}</section>
+      ${isPbi ? renderBaselinePanel(baselineResult?.baseline ?? null, impactsResult.impacts) : ""}
       ${qualityResult ? renderQualityDetail(qualityResult.quality) : renderTaskContext(taskContext)}
       ${renderTaskExecution(item, sessionsResult.sessions, deploymentResult.events)}
       <section class="detail-section"><h3>Timeline · watermark ${timeline.watermark}</h3>${renderItemTimeline(timeline.events)}</section>`;

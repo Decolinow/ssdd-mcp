@@ -107,8 +107,14 @@ test("dashboard smoke: login, backlog and board, gate-refused transition and PBI
   await page.click("#submit-planning");
   await page.locator("#toast:not([hidden])").filter({ hasText: "concluído" }).waitFor();
   await page.keyboard.press("Escape");
-  await page.locator("#item-dialog[open]").waitFor({ state: "detached" }).catch(() => undefined);
-  if (await page.locator("#item-dialog[open]").count() > 0) await page.keyboard.press("Escape");
+  await page.locator("#planning-dialog[open]").waitFor({ state: "detached" });
+  // The operation reloads the item and reopens its dialog once the reload finishes; wait for it, then close it.
+  await page.locator("#item-dialog[open]").waitFor({ timeout: 5_000 }).catch(() => undefined);
+  await page.waitForTimeout(500);
+  for (let attempt = 0; attempt < 5 && await page.locator("#item-dialog[open]").count() > 0; attempt += 1) {
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+  }
   await page.click("#open-planning");
   await page.locator("#planning-dialog[open]").waitFor();
   await page.selectOption("#planning-operation", "definition_of_done_set");

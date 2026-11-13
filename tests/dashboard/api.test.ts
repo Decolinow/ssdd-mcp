@@ -1214,6 +1214,18 @@ test("dashboard API sessions and project authorization match MCP access", async 
   const qualityBody = await qualityDetail.json() as { quality: { mode: string; baseline: { id: string } | null } };
   assert.equal(qualityBody.quality.mode, "pinned");
   assert.equal(qualityBody.quality.baseline?.id, parentBaselineId);
+  const baselineResponse = await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${story.key}/baseline`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  assert.equal(baselineResponse.status, 200);
+  const baselineBody = await baselineResponse.json() as { baseline: { id: string; sequence: number; references: Array<{ snapshot?: unknown }> } };
+  assert.equal(baselineBody.baseline.id, parentBaselineId);
+  assert.ok(baselineBody.baseline.references.every((reference) => reference.snapshot === undefined), "the dashboard lists pinned revisions without their snapshots");
+  const impactsResponse = await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${story.key}/impacts?status=open`, {
+    headers: { Cookie: cookie, Origin: address.origin },
+  });
+  assert.equal(impactsResponse.status, 200);
+  assert.ok(Array.isArray(((await impactsResponse.json()) as { impacts: unknown[] }).impacts));
 
   const itemTimeline = await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${story.key}/timeline`, {
     headers: { Cookie: cookie, Origin: address.origin },

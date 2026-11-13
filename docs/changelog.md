@@ -6,6 +6,10 @@ Histórico datado das entregas, verificações e auditorias do projeto, movido d
 
 - Botão Certificar (QA) nas execuções aprovadas do detalhe do PBI, via `backlog/test_run_certify` sobre `certifyTestRun`; execuções não certificáveis explicam o motivo. Teste HTTP cobre CSRF, validação e recusa com código; o caminho positivo continua coberto por `tests/application/work-item-workflow.test.ts`.
 
+## Baseline e impactos no dashboard (2026-11-13, SSDD-97)
+
+- Rotas `GET …/baseline` e `…/impacts`, operações `baseline_revalidate` e `baseline_fix` em `backlog/:operation` e painel Baseline e impactos no detalhe do PBI. Motivo: SCN-97-AC1 foi registrado como reprovado por falta dessa UI. Testes em `tests/dashboard/backlog-operations.test.ts` (CSRF, motivo obrigatório, 404 sem baseline, 409/4xx) e `tests/dashboard/api.test.ts` (baseline sem snapshots e impactos). O fluxo positivo de revalidação com impacto aberto roda só no nível de aplicação, não pelo navegador.
+
 ## Validade e baseline desatualizada na cobertura (2026-11-13, SSDD-94)
 
 - `GET …/quality` ganha `staleBaseline` (existe revisão publicada do PBI mais nova que a fixada na baseline; rascunhos não contam) e `certifiedRuns` (certificações na baseline vigente). O painel de cobertura ganha as situações "Baseline desatualizada" e "Sem validação", com drill-down, e a linha do PBI mostra baseline desatualizada/validado por QA. Motivo: o cenário SCN-94-AC2 tinha sido registrado como reprovado por essa lacuna. Testes em `tests/application/work-item-workflow.test.ts` e `tests/dashboard/qa-runs.test.ts`.

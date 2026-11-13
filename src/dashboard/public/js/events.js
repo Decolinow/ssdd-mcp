@@ -406,6 +406,10 @@ document.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target.closest("[data-certify-run]") : null;
   if (target && model.currentItem) openBacklogOperations(model.currentItem, "test_run_certify", { runId: target.getAttribute("data-certify-run") });
 });
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target.closest("[data-baseline-revalidate]") : null;
+  if (target && model.currentItem) openBacklogOperations(model.currentItem, "baseline_revalidate");
+});
 elements.detailOperations.addEventListener("click", () => { if (model.currentItem) openBacklogOperations(model.currentItem); });
 elements.planningOperation.addEventListener("change", applyPlanningTemplate);
 elements.planningForm.addEventListener("submit", (event) => { void submitPlanning(event); });

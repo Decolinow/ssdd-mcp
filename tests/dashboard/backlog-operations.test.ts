@@ -67,4 +67,16 @@ test("dashboard backlog operations reuse MCP commands: assign, comment, estimate
   assert.ok(refused.status >= 400 && refused.status < 500, "an unknown run or a PBI outside validation is refused with a client error");
   const refusal = await refused.json() as { code?: string; message?: string };
   assert.ok(refusal.code, "the refusal carries a code the dashboard can show");
+
+  // SSDD-97 AC-1: baseline, impacts and revalidation share the MCP commands, roles and versions.
+  const itemUrl = `${address.origin}/api/v1/projects/${projectId}/work-items/${story.key}`;
+  assert.equal((await fetch(`${itemUrl}/baseline`, { headers })).status, 404, "a PBI before Ready has no baseline");
+  assert.deepEqual(await (await fetch(`${itemUrl}/impacts`, { headers })).json(), { impacts: [] });
+  assert.equal((await fetch(`${itemUrl}/impacts?status=nope`, { headers })).status, 400);
+  const noCsrfRevalidate = await call("baseline_revalidate", { requestId: "b0", itemIdOrKey: story.key, expectedVersion: 1, reason: "x" }, { Cookie: cookie, Origin: address.origin, "Content-Type": "application/json" });
+  assert.equal(noCsrfRevalidate.status, 403);
+  assert.equal((await call("baseline_revalidate", { requestId: "b-bad", itemIdOrKey: story.key, expectedVersion: 1 })).status, 400, "the reason is mandatory");
+  const revalidateWithoutBaseline = await call("baseline_revalidate", { requestId: "b1", itemIdOrKey: story.key, expectedVersion: (await getItem(story.key)).version, reason: "Sem baseline" });
+  assert.ok(revalidateWithoutBaseline.status >= 400 && revalidateWithoutBaseline.status < 500, "revalidation needs an existing baseline");
+  assert.equal((await call("baseline_revalidate", { requestId: "b-stale", itemIdOrKey: story.key, expectedVersion: 1, reason: "Versão antiga" })).status >= 400, true);
 });

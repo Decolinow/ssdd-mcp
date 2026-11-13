@@ -2,7 +2,7 @@
 
 Gerado de `src/dashboard/tool-ui-matrix.ts` (`UPDATE_UI_MATRIX=1 npm test` regenera). Cada ferramenta do MCP tem uma operação de UI, cobertura parcial ou uma lacuna futura explícita; `tests/dashboard/tool-ui-matrix.test.ts` falha se uma ferramenta nova ficar sem classificação.
 
-Resumo: 65 com UI, 8 parciais, 49 lacunas futuras (122 ferramentas).
+Resumo: 69 com UI, 7 parciais, 46 lacunas futuras (122 ferramentas).
 
 | Tool | Cobertura | Operação da UI ou motivo da lacuna |
 | --- | --- | --- |
@@ -12,9 +12,9 @@ Resumo: 65 com UI, 8 parciais, 49 lacunas futuras (122 ferramentas).
 | `audit_event_list` | UI | aba Atividade; `GET …/audit` e timeline do item |
 | `azure_work_item_import_apply` | Lacuna futura | Importação de provedor externo: fluxo de PO via MCP; sem UI planejada. |
 | `azure_work_item_import_preview` | Lacuna futura | Importação de provedor externo: fluxo de PO via MCP; sem UI planejada. |
-| `baseline_fix` | Lacuna futura | A baseline é fixada pela transição para Ready (aba Backlog → mover); não há ação isolada. |
-| `baseline_get` | Parcial | Detalhe do PBI mostra a baseline fixada via `GET …/work-items/:key/quality`; sem consulta de baselines históricas. |
-| `baseline_revalidate` | Lacuna futura | Revalidação de baseline sem UI; lacuna do AC-1 do SSDD-97. |
+| `baseline_fix` | UI | diálogo Operações do item (`POST …/backlog/baseline_fix`) |
+| `baseline_get` | UI | detalhe do PBI, painel Baseline e impactos; `GET …/work-items/:key/baseline` |
+| `baseline_revalidate` | UI | detalhe do PBI, botão Revalidar baseline; diálogo Operações (`POST …/backlog/baseline_revalidate`) |
 | `comment_add` | UI | diálogo Operações do item (`POST …/backlog/:operation`): comment_add |
 | `comment_list` | UI | detalhe do item; `GET …/work-items/:key/comments` |
 | `definition_of_done_get` | Parcial | Capacidade/DoD exibidas nos resumos de sprint; sem tela dedicada da DoD. |
@@ -40,7 +40,7 @@ Resumo: 65 com UI, 8 parciais, 49 lacunas futuras (122 ferramentas).
 | `github_issue_import_apply` | Lacuna futura | Importação de provedor externo: fluxo de PO via MCP; sem UI planejada. |
 | `github_issue_import_preview` | Lacuna futura | Importação de provedor externo: fluxo de PO via MCP; sem UI planejada. |
 | `github_reference_list` | Lacuna futura | Referências GitHub sem UI. |
-| `impact_list` | Lacuna futura | Impactos sem UI; lacuna do AC-1 do SSDD-97. |
+| `impact_list` | UI | detalhe do PBI, painel Baseline e impactos; `GET …/work-items/:key/impacts` |
 | `metrics_get` | UI | aba Métricas; `GET …/dashboard-metrics` |
 | `milestone_create` | UI | diálogo Planejamento (`POST …/planning/:operation`): milestone_create |
 | `milestone_forecast_history` | Parcial | Histórico de previsão exibido na aba Métricas (projeção de entrega). |

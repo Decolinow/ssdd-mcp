@@ -38,6 +38,7 @@ import { createSpecification, proposeSpecificationRevision, publishSpecification
 import { sprintStates } from "../domain/sprints.js";
 import { addWorkItemComment, assignWorkItem, confirmWorkItemEstimate, listWorkItemComments, proposeWorkItemEstimate, rankWorkItem } from "../application/work-item-commands.js";
 import { addTraceLink, removeTraceLink } from "../application/trace-commands.js";
+import { fixWorkItemBaseline, getWorkBaseline, listImpactFlags, revalidateWorkItemBaseline } from "../application/baseline-commands.js";
 import { queryTraceGraph } from "../application/trace-queries.js";
 import { traceLinkTypes } from "../domain/trace.js";
 import { createTeamCapacityConfiguration, setTeamCapacityConfiguration } from "../application/team-capacity.js";
@@ -616,6 +617,25 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
         return;
       }
 
+      const impactsMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/impacts$/.exec(route);
+      if (request.method === "GET" && impactsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(impactsMatch[1]));
+        const status = requestUrl.searchParams.get("status");
+        if (status !== null && status !== "open" && status !== "revalidated") throw new ApplicationError("VALIDATION_FAILED", "Impact status must be open or revalidated.");
+        sendJson(response, 200, { impacts: listImpactFlags(database, projectId, principal.id, decodePathSegment(impactsMatch[2]), status ?? undefined) });
+        return;
+      }
+
+      const baselineMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/baseline$/.exec(route);
+      if (request.method === "GET" && baselineMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(baselineMatch[1]));
+        const sequenceParam = requestUrl.searchParams.get("sequence");
+        const baseline = getWorkBaseline(database, projectId, principal.id, decodePathSegment(baselineMatch[2]), sequenceParam === null ? undefined : Number(sequenceParam));
+        // Snapshots are large and immutable; the dashboard lists what the baseline pins, not the content.
+        sendJson(response, 200, { baseline: { ...baseline, references: baseline.references.map(({ entityType, entityId, key, revisionNumber }) => ({ entityType, entityId, key, revisionNumber })) } });
+        return;
+      }
+
       const traceMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/trace$/.exec(route);
       if (request.method === "GET" && traceMatch !== null) {
         const projectId = parseUuid(decodePathSegment(traceMatch[1]));
@@ -1107,6 +1127,16 @@ const backlogOperations: Record<string, PlanningHandler> = {
     const input = z.object({ requestId: requestIdField, itemIdOrKey: itemRef, proposalId: z.string().uuid(), expectedVersion: z.number().int().positive() }).strict().parse(body);
     const receipt = confirmWorkItemEstimate(database, { projectId, principalId, ...input });
     return { ...receipt.value, auditEventIds: receipt.auditEventIds };
+  },
+  baseline_revalidate: (database, projectId, principalId, body) => {
+    const input = z.object({ requestId: requestIdField, itemIdOrKey: itemRef, expectedVersion: z.number().int().positive(), reason: reasonField }).strict().parse(body);
+    const receipt = revalidateWorkItemBaseline(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "revalidation", receipt.auditEventIds);
+  },
+  baseline_fix: (database, projectId, principalId, body) => {
+    const input = z.object({ requestId: requestIdField, itemIdOrKey: itemRef, expectedVersion: z.number().int().positive(), reason: reasonField }).strict().parse(body);
+    const receipt = fixWorkItemBaseline(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "baseline", receipt.auditEventIds);
   },
   test_run_certify: (database, projectId, principalId, body) => {
     const input = z.object({ requestId: requestIdField, itemIdOrKey: itemRef, runId: z.string().uuid(), expectedVersion: z.number().int().positive(), reason: reasonField }).strict().parse(body);
