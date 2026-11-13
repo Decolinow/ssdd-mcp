@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { SqliteDatabase } from "../storage-sqlite/database.js";
+import { getGatePolicy } from "./gate-policy.js";
 import { ApplicationError } from "./errors.js";
 import { executeIdempotentCommand, type CommandReceipt, type JsonValue } from "./idempotent-command.js";
 import { assertProjectAuthorization } from "./local-identity.js";
@@ -124,7 +125,7 @@ export function assertIndependentReviewForValidation(database: SqliteDatabase, p
   if (latest?.decision === "changes_requested") {
     throw new ApplicationError("GATE_BLOCKED", "The latest review requested changes; address the findings and obtain a new review.", { details: { reviewId: latest.id, findings: latest.findings } });
   }
-  if (process.env["SSDD_REQUIRE_INDEPENDENT_REVIEW"] !== "1") return;
+  if (process.env["SSDD_REQUIRE_INDEPENDENT_REVIEW"] !== "1" && getGatePolicy(database, projectId).level !== "strict") return;
   const currentReport = latestReportNumber(database, projectId, taskId);
   const valid = rows.map(toReview).find((review) => review.decision === "approved" && !review.advisory && review.reportNumber === currentReport);
   if (valid === undefined) {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SqliteDatabase } from "../storage-sqlite/database.js";
 import { ApplicationError } from "./errors.js";
 import { executeIdempotentCommand, type CommandReceipt, type JsonValue } from "./idempotent-command.js";
+import { getGatePolicy } from "./gate-policy.js";
 import { normalizeClaimPath } from "./file-claims.js";
 import { assertProjectAuthorization } from "./local-identity.js";
 import { getWorkItem } from "./work-item-queries.js";
@@ -172,7 +173,7 @@ export function assertDeliveryReportForReview(database: SqliteDatabase, projectI
   const { expected } = expectedDeliveryCriteria(database, projectId, principalId, taskId);
   const latest = database.prepare(`${selectReports} ORDER BY r.report_number DESC LIMIT 1`).get(projectId, taskId) as ReportRow | undefined;
   if (latest === undefined) {
-    if (process.env["SSDD_REQUIRE_DELIVERY_REPORT"] === "1" && expected.length > 0) {
+    if (deliveryReportRequired(database, projectId) && expected.length > 0) {
       throw new ApplicationError("GATE_BLOCKED", "Submit a delivery report (task_delivery_report_submit) before moving the task to review.", { details: { expected: expected.map((entry) => `${entry.scope}:${entry.key}`) } });
     }
     return;
@@ -206,7 +207,7 @@ export function unattestedDefinitionOfDone(database: SqliteDatabase, projectId: 
   const pin = pinnedDefinitionOfDone(database, projectId, itemId);
   if (pin === null || pin.criteria.length === 0) return [];
   const latest = database.prepare(`${selectReports} ORDER BY r.report_number DESC LIMIT 1`).get(projectId, itemId) as ReportRow | undefined;
-  if (latest === undefined) return process.env["SSDD_REQUIRE_DELIVERY_REPORT"] === "1" ? pin.criteria.map((criterion) => criterion.id) : [];
+  if (latest === undefined) return deliveryReportRequired(database, projectId) ? pin.criteria.map((criterion) => criterion.id) : [];
   const attested = new Set(toReport(latest).entries
     .filter((entry) => entry.scope === "dod" && (entry.status === "met" || entry.status === "not_applicable"))
     .map((entry) => entry.criterionKey));
@@ -264,4 +265,9 @@ export function setTaskPathScope(database: SqliteDatabase, input: {
 export function getTaskPathScope(database: SqliteDatabase, projectId: string, itemId: string): string[] | null {
   const row = database.prepare("SELECT paths_json FROM task_path_scopes WHERE project_id = ? AND item_id = ?").get(projectId, itemId) as { paths_json: string } | undefined;
   return row === undefined ? null : JSON.parse(row.paths_json) as string[];
+}
+
+/** A report is mandatory under the strict policy or when the host forces it with SSDD_REQUIRE_DELIVERY_REPORT=1. */
+export function deliveryReportRequired(database: SqliteDatabase, projectId: string): boolean {
+  return process.env["SSDD_REQUIRE_DELIVERY_REPORT"] === "1" || getGatePolicy(database, projectId).level === "strict";
 }

@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Política de gates por projeto (2026-11-13, SSDD-947 / MCP SSDD-150)
+
+- Migração 40 cria `gate_policy_revisions`. `gate_policy_get/set` definem `lite`, `standard` ou `strict`; `strict` torna obrigatórios o relatório de entrega e a revisão independente, `lite` dispensa cenário publicado no Ready. Os relatórios de gates exibem a política vigente. ADR 0029.
+
 ## Vínculo entre tarefa e mudança de código (2026-11-13, SSDD-944 / MCP SSDD-147)
 
 - Migração 39 adiciona o conjunto de mudanças ao relatório de entrega e a tabela `task_path_scopes`. `task_scope_set` declara o escopo esperado; caminhos fora dele aparecem como achado `out_of_scope_change`, sem bloquear. Caminhos vêm do relatório porque o webhook de PR do GitHub não os inclui.

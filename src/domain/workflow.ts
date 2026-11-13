@@ -61,6 +61,7 @@ export interface WorkItemGateReport {
   readonly gates: readonly WorkflowGate[];
   readonly canProceed: boolean;
   readonly transitionPath: readonly string[];
+  readonly policy: { readonly level: "lite" | "standard" | "strict"; readonly revisionNumber: number | null };
   readonly warnings: readonly { readonly code: string; readonly message: string }[];
 }
 

@@ -133,6 +133,7 @@ import { evidenceKinds } from "../domain/workflow.js";
 import { acceptTask } from "../application/task-accept.js";
 import { describeWithHint } from "./tool-hints.js";
 import { getFlowMetrics } from "../application/flow-metrics.js";
+import { readGatePolicy, setGatePolicy } from "../application/gate-policy.js";
 import { listReviews, recordReview } from "../application/task-reviews.js";
 import { listDeliveryReports, setTaskPathScope, submitDeliveryReport } from "../application/task-delivery-reports.js";
 import { answerQuestion, listQuestions, openQuestion } from "../application/work-item-questions.js";
@@ -409,6 +410,7 @@ const workItemGateReportSchema = z.object({
   gates: z.array(workflowGateSchema),
   canProceed: z.boolean(),
   transitionPath: z.array(z.string()),
+  policy: z.object({ level: z.enum(["lite", "standard", "strict"]), revisionNumber: z.number().int().positive().nullable() }),
   warnings: z.array(z.object({ code: z.string(), message: z.string() })),
 });
 const workItemEvidenceSchema = z.object({
@@ -3258,6 +3260,47 @@ export function createMcpServer(
     ({ projectId, taskIdOrKey }) => {
       try {
         const result = listReviews(database, { projectId, principalId, itemIdOrKey: taskIdOrKey });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  const gatePolicySchema = z.object({
+    level: z.enum(["lite", "standard", "strict"]), revisionNumber: z.number().int().positive().nullable(), reason: z.string().nullable(),
+    setByPrincipalId: z.string().uuid().nullable(), setAt: z.string().nullable(),
+  });
+
+  server.registerTool(
+    "gate_policy_get",
+    {
+      title: "Consultar política de gates",
+      description: "Devolve o nível vigente (lite, standard ou strict; standard quando nunca configurado) e o histórico de revisões da política do projeto.",
+      inputSchema: z.object({ projectId: z.string().uuid() }),
+      outputSchema: z.object({ policy: gatePolicySchema, history: z.array(gatePolicySchema) }),
+    },
+    ({ projectId }) => {
+      try {
+        const result = readGatePolicy(database, projectId, principalId);
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "gate_policy_set",
+    {
+      title: "Definir política de gates",
+      description: "PO ou Tech Lead humano grava nova revisão da política (lite, standard, strict) com motivo de 10+ caracteres; expectedRevision 0 cria a primeira. lite dispensa cenário publicado no Ready; strict exige relatório de entrega e revisão independente humana.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), level: z.enum(["lite", "standard", "strict"]),
+        reason: z.string().trim().min(10).max(1_000), expectedRevision: z.number().int().min(0),
+      }),
+      outputSchema: z.object({ policy: gatePolicySchema, auditEventCount: z.number().int().nonnegative() }),
+    },
+    ({ projectId, requestId, level, reason, expectedRevision }) => {
+      try {
+        const receipt = setGatePolicy(database, { projectId, principalId, requestId, level, reason, expectedRevision });
+        const result = { policy: receipt.value, auditEventCount: receipt.auditEventIds.length };
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) { return toToolError(error); }
     },

@@ -36,6 +36,8 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `file_claim_release` | escrita | — | dev, tech_lead | chamada direta (sem skill dedicada) |
 | `file_claim_renew` | escrita | — | dev, tech_lead | chamada direta (sem skill dedicada) |
 | `flow_metrics_get` | leitura | — | tech_lead | chamada direta (sem skill dedicada) |
+| `gate_policy_get` | leitura | — | dev, tech_lead, po | chamada direta (sem skill dedicada) |
+| `gate_policy_set` | escrita (aprovável) | — | tech_lead, po | chamada direta (sem skill dedicada) |
 | `github_issue_import_apply` | escrita | — | po | chamada direta (sem skill dedicada) |
 | `github_issue_import_preview` | leitura | — | po | chamada direta (sem skill dedicada) |
 | `github_reference_list` | leitura | — | dev, qa, tech_lead, release, devops | ssdd-release-manager |

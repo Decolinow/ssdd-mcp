@@ -52,6 +52,7 @@ export const mcpToolHints: Readonly<Record<string, ToolHint>> = {
   development_session_transition: { precondition: "ser o dono da sessão e expectedVersion atual", commonError: "VERSION_CONFLICT" },
   development_session_recover: { precondition: "Admin/Tech Lead e sessão sem eventos há staleAfterHours", commonError: "SESSION_NOT_STALE" },
   task_delivery_report_submit: { precondition: "tarefa em in_progress e relatório cobrindo exatamente os critérios do PBI e o checklist da tarefa", commonError: "VALIDATION_FAILED" },
+  gate_policy_set: { precondition: "PO ou Tech Lead humano, motivo de 10+ caracteres e expectedRevision atual", commonError: "VERSION_CONFLICT" },
   task_scope_set: { precondition: "item do tipo tarefa e caminhos relativos ao repositório, sem '..'", commonError: "VALIDATION_FAILED" },
   review_record: { precondition: "tarefa em in_review e revisor sem sessão de desenvolvimento nela", commonError: "FORBIDDEN" },
   question_open: { precondition: "item existente e não concluído; bloqueante impede Ready até ser respondida", commonError: "INVALID_TRANSITION" },

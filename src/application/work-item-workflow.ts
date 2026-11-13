@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getGatePolicy } from "./gate-policy.js";
 import { unattestedDefinitionOfDone } from "./task-delivery-reports.js";
 import { assertIndependentReviewForValidation } from "./task-reviews.js";
 import { assertDeliveryReportForReview } from "./task-delivery-reports.js";
@@ -704,6 +705,7 @@ function evaluateGates(
     gates,
     canProceed: gates.every((gate) => gate.passed),
     transitionPath: shortestTransitionPath(item.state as WorkItemState, targetState),
+    policy: (({ level, revisionNumber }) => ({ level, revisionNumber }))(getGatePolicy(database, item.projectId)),
     warnings: independenceWarnings(database, item, principalId, targetState),
   };
 }
@@ -779,9 +781,11 @@ function evaluateReadyGates(
       .filter((criterion) => criterion.required)
       .filter((criterion) => !hasPublishedCriterionScenario(database, item.projectId, criterion.id))
       .map((criterion) => criterion.key);
-    addGate(gates, "required-criterion-coverage", missingCoverage.length === 0,
-      missingCoverage.length === 0 ? "Every required criterion has a published scenario." : "Required criteria need a published scenario.",
-      { uncoveredCriteria: missingCoverage });
+    const lite = getGatePolicy(database, item.projectId).level === "lite";
+    addGate(gates, "required-criterion-coverage", lite || missingCoverage.length === 0,
+      lite ? "Policy lite: published scenarios are not required for Ready."
+        : missingCoverage.length === 0 ? "Every required criterion has a published scenario." : "Required criteria need a published scenario.",
+      { uncoveredCriteria: lite ? [] : missingCoverage });
     const confirmedPoints = item.estimates.some((estimate) => estimate.unit === "points");
     addGate(gates, "confirmed-estimate", confirmedPoints, confirmedPoints
       ? "The PBI has a confirmed point estimate."

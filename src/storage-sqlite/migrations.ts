@@ -2722,6 +2722,25 @@ export const initialMigrations: readonly SqliteMigration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 40,
+    name: "project-gate-policy",
+    sql: `
+      CREATE TABLE gate_policy_revisions (
+        project_id TEXT NOT NULL REFERENCES projects(project_id),
+        revision_number INTEGER NOT NULL CHECK (revision_number > 0),
+        level TEXT NOT NULL CHECK (level IN ('lite', 'standard', 'strict')),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) BETWEEN 1 AND 1000),
+        created_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, revision_number)
+      ) STRICT;
+      CREATE TRIGGER gate_policy_revisions_no_update BEFORE UPDATE ON gate_policy_revisions
+      BEGIN SELECT RAISE(ABORT, 'gate policy revisions are immutable'); END;
+      CREATE TRIGGER gate_policy_revisions_no_delete BEFORE DELETE ON gate_policy_revisions
+      BEGIN SELECT RAISE(ABORT, 'gate policy revisions are immutable'); END;
+    `,
+  },
 ];
 
 export function applyMigrations(
