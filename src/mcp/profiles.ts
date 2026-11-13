@@ -91,7 +91,7 @@ const releaseReadTools = [
 const adminReadTools = [
   ...projectReadTools,
   "task_context_get", "work_item_get", "work_item_revision_list", "work_item_list",
-  "baseline_get", "test_run_list", "work_item_gate_check", "work_item_quality_get", "evidence_list", "audit_event_list",
+  "baseline_get", "test_run_list", "work_item_gate_check", "work_item_quality_get", "evidence_list", "audit_event_list", "development_session_stale_list",
 ] as const;
 
 const securityReviewReadTools = [
@@ -119,6 +119,7 @@ const technicalLeadTools = [
   "work_item_revision_publish", "work_item_estimate_confirm", "spec_create", "adr_create", "adr_link_task",
   "spec_revision_propose", "spec_revision_publish", "spec_revision_withdraw", "trace_link_add", "trace_link_remove", "work_item_semantic_index",
   "task_workflow_propose", "task_workflow_publish", "task_workflow_step_transition",
+  "development_session_stale_list", "development_session_recover",
 ] as const;
 
 const productOwnerTools = [
@@ -153,7 +154,7 @@ const releaseTools = [
 
 const administrationTools = [
   "user_create", "user_list", "user_auth_key_rotate", "user_auth_key_revoke",
-  "approval_issue", "approval_revoke",
+  "approval_issue", "approval_revoke", "development_session_recover",
 ] as const;
 
 const refinementTools = new Set([...refinementReadTools, ...refinementWriteTools]);

@@ -130,6 +130,7 @@ import { listProjectTeams } from "../application/team-directory.js";
 import { changeMilestoneScope, createMilestone, getMilestone, listMilestones } from "../application/milestones.js";
 import { evidenceKinds } from "../domain/workflow.js";
 import { acceptTask } from "../application/task-accept.js";
+import { listStaleDevelopmentSessions, recoverDevelopmentSession } from "../application/session-recovery.js";
 import { getDefinitionOfDone, setDefinitionOfDone } from "../application/definition-of-done.js";
 import { cancelSprint, changeSprintScope, closeSprint, createSprintDraft, startSprint } from "../application/sprint-commands.js";
 import { getSprint, listSprints } from "../application/sprint-queries.js";
@@ -2981,6 +2982,67 @@ export function createMcpServer(
       try {
         const receipt = transitionDevelopmentSession(database, { projectId, principalId, requestId, sessionId, action, expectedVersion, reason });
         const result = { session: receipt.value, auditEventIds: receipt.auditEventIds };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "development_session_stale_list",
+    {
+      title: "Listar sessões abandonadas",
+      description: "Admin/Tech Lead: lista sessões ativas ou pausadas sem evento há pelo menos staleAfterHours (padrão 24), com último evento, tempo registrado e tempo não confiável (nunca creditado).",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), staleAfterHours: z.number().int().min(1).max(2_160).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+      }),
+      outputSchema: z.object({
+        staleAfterHours: z.number().int(),
+        sessions: z.array(z.object({
+          sessionId: z.string().uuid(), itemKey: z.string(), itemTitle: z.string(), developerPrincipalId: z.string().uuid(),
+          developerName: z.string(), status: z.enum(["active", "paused"]), startedAt: z.string(), lastEventType: z.string(),
+          lastEventAt: z.string(), idleHours: z.number(), recordedActiveSeconds: z.number().int(),
+          unreliableSeconds: z.number().int(), version: z.number().int().positive(),
+        })),
+      }),
+    },
+    ({ projectId, staleAfterHours, limit }) => {
+      try {
+        const result = listStaleDevelopmentSessions(database, {
+          projectId, principalId,
+          ...(staleAfterHours === undefined ? {} : { staleAfterHours }), ...(limit === undefined ? {} : { limit }),
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "development_session_recover",
+    {
+      title: "Recuperar sessão abandonada",
+      description: "Admin/Tech Lead: encerra (cancel ou complete) uma sessão sem atividade há staleAfterHours, com motivo obrigatório e auditoria. Preserva a autoria do desenvolvedor e o tempo registrado; o tempo desde a última retomada não é creditado.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), sessionId: z.string().uuid(),
+        action: z.enum(["cancel", "complete"]), expectedVersion: z.number().int().positive(),
+        staleAfterHours: z.number().int().min(1).max(2_160).optional(), reason: z.string().trim().min(10).max(500),
+      }),
+      outputSchema: z.object({
+        recovery: z.object({
+          sessionId: z.string().uuid(), itemKey: z.string(), developerPrincipalId: z.string().uuid(),
+          status: z.enum(["cancelled", "completed"]), endedAt: z.string(), recordedActiveSeconds: z.number().int(),
+          discardedUnreliableSeconds: z.number().int(), recoveredByPrincipalId: z.string().uuid(), version: z.number().int().positive(),
+        }),
+        auditEventIds: z.array(z.string().uuid()),
+      }),
+    },
+    ({ projectId, requestId, sessionId, action, expectedVersion, staleAfterHours, reason }) => {
+      try {
+        const receipt = recoverDevelopmentSession(database, {
+          projectId, principalId, requestId, sessionId, action, expectedVersion, reason,
+          ...(staleAfterHours === undefined ? {} : { staleAfterHours }),
+        });
+        const result = { recovery: receipt.value, auditEventIds: receipt.auditEventIds };
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) { return toToolError(error); }
     },

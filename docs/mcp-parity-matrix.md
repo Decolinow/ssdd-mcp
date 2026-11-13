@@ -25,6 +25,8 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `deployment_event_record` | escrita (aprovável) | — | release, devops | ssdd-release-manager |
 | `developer_execution_metrics_get` | leitura | — | tech_lead | chamada direta (sem skill dedicada) |
 | `development_session_list` | leitura | — | dev, tech_lead, security_review | chamada direta (sem skill dedicada) |
+| `development_session_recover` | escrita (aprovável) | — | tech_lead, admin | chamada direta (sem skill dedicada) |
+| `development_session_stale_list` | leitura | — | tech_lead, admin | chamada direta (sem skill dedicada) |
 | `development_session_start` | escrita (aprovável) | — | dev, tech_lead | chamada direta (sem skill dedicada) |
 | `development_session_transition` | escrita (aprovável) | — | dev, tech_lead | ssdd-developer |
 | `evidence_add` | escrita (aprovável) | — | dev, qa, tech_lead | chamada direta (sem skill dedicada) |

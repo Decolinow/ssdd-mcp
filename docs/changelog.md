@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Recuperação de sessões abandonadas (2026-11-12, SSDD-928 / MCP SSDD-131)
+
+Novo `src/application/session-recovery.ts` e tools `development_session_stale_list` / `development_session_recover`. Sem heartbeat de cliente, a inatividade vem do último evento imutável da sessão (padrão 24 h, configurável de 1 h a 90 dias). A recuperação exige papel `admin` ou `tech_lead`, motivo de 10–500 caracteres, versão esperada e `requestId` idempotente; encerra como `cancelled` ou `completed` sem alterar a autoria do desenvolvedor, mantém o tempo registrado, descarta (e informa) o tempo desde a última retomada e grava o recuperador no evento (`[recovery]`) e na auditoria. Sem migração: reutiliza os tipos de evento existentes.
+
 ## Benchmark da busca semântica (2026-11-12, SSDD-923 / MCP SSDD-125)
 
 Novo teste de benchmark com provedor determinístico offline (384 dimensões) em 1.000, 5.000 e 10.000 itens: indexação ~0,2 ms/item, busca aquecida p95 de 24 / 127 / 319 ms, 7 consultas SQL por busca, banco de 79 MB aos 10.000 itens e heap extra < 7 MB. SLOs folgados (≈10×) e a rejeição acima de 10.000 itens sem chamada ao provedor estão cobertos em `docs/semantic-search-benchmark.md`. `task_accept` foi reinstalada no runtime do agente; SSDD-119, 121 e 123 receberam aceite formal.

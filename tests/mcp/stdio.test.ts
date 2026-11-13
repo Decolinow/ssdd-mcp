@@ -63,6 +63,8 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "deployment_event_record",
       "developer_execution_metrics_get",
       "development_session_list",
+      "development_session_recover",
+      "development_session_stale_list",
       "development_session_start",
       "development_session_transition",
       "evidence_add",

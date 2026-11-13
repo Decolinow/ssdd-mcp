@@ -84,7 +84,7 @@
 | SSDD-925 | Draft; registrada via MCP | Curadoria precisa de especificações e cenários por tarefa/PBI ainda aguarda completar matriz e evidência sem converter testes locais em certificação QA. |
 | SSDD-926 | Implementada localmente; Draft no MCP | `task_start_check` e `task_start` revalidam gates e abrem sessão/transição atomicamente, incluindo dependências, ADRs `implements`, versão, papel, atribuição e sessão. |
 | SSDD-927 | Implementada localmente; Draft no MCP | `adr_create/search/link_task` cadastram, pesquisam e associam ADRs; Draft não é publicado nem aceito como decisão. |
-| SSDD-928 | Pendente; Draft no MCP | Recuperação humana de sessões abandonadas precisa de idade/heartbeat e evento auditado, sem inventar tempo offline. |
+| SSDD-928 | Concluído localmente | `development_session_stale_list` e `development_session_recover` (Admin/Tech Lead, aprovável): inatividade pelo último evento imutável, motivo obrigatório, idempotência, autoria preservada e tempo não observado nunca creditado; testes em `tests/application/session-recovery.test.ts`. |
 | SSDD-929 | Pendente; Draft no MCP | Worktrees/claims de arquivos entre agentes ainda não têm lease, conflito de caminho ou coordenação no servidor. |
 | SSDD-930 | Pendente; Draft no MCP | Tempo de ciclo/espera/bloqueio e caminho crítico exigem eventos, corte/watermark e amostra censurada; ainda sem implementação. |
 | SSDD-931 | Implementada localmente; ADR e regra publicadas; work item permanece Draft | ADR 0023 e regra `SSDD-BR-TASK-WF-01` definem etapas versionadas, regras de esforço e sequência; publicação da especificação não aceita o item de backlog. |

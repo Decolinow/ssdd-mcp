@@ -175,3 +175,7 @@ Homologação e produção são eventos append-only com build, ator, timestamp U
 5. O dashboard mostra board e trilha histórica, burndown com entrada/saída de escopo, capacidade e projeção explicitamente condicionada à qualidade dos dados.
 6. Reiniciar o processo e restaurar um backup preservam dados, IDs, versões e trilhas de aprovação.
 7. Um agente com papel adequado não consegue executar mutação elegível sem aprovação humana vinculada, e não consegue alterar payload, projeto, versão ou executor após aprovação; consumo concorrente/replay falha e a mutação volta junto se o consumo/auditoria não confirmar.
+
+## Recuperação de sessões de desenvolvimento abandonadas (SSDD-928)
+
+Uma sessão ativa ou pausada sem evento há pelo menos `staleAfterHours` (padrão 24) pode ser encerrada por `admin` ou `tech_lead` com motivo obrigatório. A recuperação é idempotente, auditada (`development_session.recovered`) e exige confirmação humana quando o chamador é agente. Nunca altera a autoria da sessão, nunca credita tempo não observado (o intervalo desde a última retomada é descartado e informado) e não toca sessões de outras tarefas.
