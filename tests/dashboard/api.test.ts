@@ -893,6 +893,37 @@ test("dashboard API sessions and project authorization match MCP access", async 
     withoutObservedAt(mcpMetrics.structuredContent),
     withoutObservedAt(dashboardMetricsBody),
   );
+  // SCN-97-AC3: roadmap, audit timeline, sprints and backlog share filters and contract with the MCP tools.
+  const dashboardGet = async (path: string) => {
+    const response = await fetch(`${address.origin}/api/v1/projects/${projectId}/${path}`, { headers: { Cookie: cookie, Origin: address.origin } });
+    assert.equal(response.status, 200, path);
+    return response.json() as Promise<unknown>;
+  };
+  const mcpCall = async (name: string, args: Record<string, unknown>) => {
+    const result = await client.callTool({ name, arguments: { projectId, ...args } });
+    assert.notEqual(result.isError, true, `${name}: ${JSON.stringify(result.content)}`);
+    return result.structuredContent;
+  };
+  assert.deepEqual(
+    await mcpCall("project_feature_roadmap_get", { teamId: capacity.teamId, asOfDate: dashboardMetricsBody.asOfDate }),
+    await dashboardGet(`feature-roadmap?teamId=${capacity.teamId}&asOfDate=${dashboardMetricsBody.asOfDate}`),
+    "roadmap with team and cutoff filters",
+  );
+  assert.deepEqual(
+    await mcpCall("audit_event_list", { entityType: "work_item", limit: 5 }),
+    await dashboardGet("audit?entityType=work_item&limit=5"),
+    "audit timeline with entity and limit filters",
+  );
+  assert.deepEqual(
+    await mcpCall("sprint_list", { teamId: capacity.teamId, statuses: ["active"], limit: 10 }),
+    await dashboardGet(`sprints?teamId=${capacity.teamId}&status=active&limit=10`),
+    "sprints with team and status filters",
+  );
+  assert.deepEqual(
+    await mcpCall("work_item_list", { types: ["story"], limit: 10 }),
+    await dashboardGet("work-items?type=story&limit=10"),
+    "backlog with type filter",
+  );
   const mcpInvalidMetricDate = await client.callTool({
     name: "metrics_get",
     arguments: { projectId, milestoneId: metricMilestone.id, asOfDate: "2026-02-30" },

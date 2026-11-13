@@ -424,3 +424,8 @@ Por decisão do usuário, as 13 tarefas históricas das Sprints 1 a 3 que bloque
 
 - `project_feature_roadmap_get`: `progressPercent` da feature passa a refletir tarefas concluídas / tarefas não canceladas (`taskDone`, `taskTotal`); `deliveredPercent` preserva a medida de pontos de PBIs validados (Done). Nova lista `epics` com rollup de tarefas por épico. A previsão de datas segue usando apenas pontos.
 - Motivo: o cálculo anterior ignorava tarefas e só avançava com histórias Done (exige certificação humana de QA), deixando 14 de 15 features em 0%.
+
+## 2026-11-13 — SCN-97-AC3: paridade de filtros dashboard × MCP
+
+- `tests/dashboard/api.test.ts` compara dashboard e MCP com os mesmos filtros: `feature-roadmap` × `project_feature_roadmap_get` (equipe + data de corte), `audit` × `audit_event_list` (entidade + limite), `sprints` × `sprint_list` (equipe + estado) e `work-items` × `work_item_list` (tipo + limite); métricas/forecast (marco, sprint, data) já eram comparados.
+- A comparação encontrou um defeito real: `project_feature_roadmap_get` rejeitava qualquer `asOfDate` válido (regex com barras duplicadas em `src/mcp/tools/reporting.ts`). Corrigido.
