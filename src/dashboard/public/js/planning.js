@@ -32,15 +32,19 @@ const itemOps = {
   comment_add: { label: "Comentar item", hint: "Comentário imutável no histórico do item.", template: (item) => ({ itemIdOrKey: item.key, body: "" }) },
   work_item_estimate: { label: "Propor estimativa", hint: "points para PBI, hours para tarefa; a confirmação é uma operação separada.", template: (item) => ({ itemIdOrKey: item.key, unit: item.type === "task" ? "hours" : "points", value: 1, rationale: "", expectedVersion: item.version }) },
   work_item_estimate_confirm: { label: "Confirmar estimativa", hint: "proposalId vem da proposta registrada.", template: (item) => ({ itemIdOrKey: item.key, proposalId: "", expectedVersion: item.version }) },
+  test_run_certify: { label: "Certificar execução QA", hint: "Só QA humano, PBI em validação, execução aprovada da revisão exata da baseline; o gate do MCP explica a recusa.", template: (item, extra) => ({ itemIdOrKey: item.key, runId: extra?.runId ?? "", expectedVersion: item.version, reason: "" }) },
   trace_link_add: { label: "Criar vínculo", hint: "type: depends_on, relates_to ou implements.", template: (item) => ({ sourceIdOrKey: item.key, targetIdOrKey: "", type: "relates_to" }) },
   trace_link_remove: { label: "Remover vínculo", hint: "linkId do vínculo ativo (consulte o rastro do item).", template: () => ({ linkId: "" }) },
 };
 let backlogItem = null;
+let backlogExtra = null;
 
-export function openBacklogOperations(item) {
+export function openBacklogOperations(item, operation, extra) {
   backlogItem = item;
+  backlogExtra = extra ?? null;
   elements.planningOperation.innerHTML = Object.entries(itemOps).map(([key, value]) => `<option value="${key}">${value.label}</option>`).join("");
   elements.planningTitle.textContent = `Operações de ${item.key}`;
+  if (operation !== undefined) elements.planningOperation.value = operation;
   applyPlanningTemplate();
   elements.planningDialog.showModal();
 }
@@ -54,7 +58,7 @@ export function applyPlanningTemplate() {
   const key = elements.planningOperation.value;
   const operation = backlogItem !== null && key in itemOps ? itemOps[key] : planningOperations[key];
   elements.planningHint.textContent = operation.hint;
-  elements.planningPayload.value = JSON.stringify(typeof operation.template === "function" ? operation.template(backlogItem) : operation.template, null, 2);
+  elements.planningPayload.value = JSON.stringify(typeof operation.template === "function" ? operation.template(backlogItem, backlogExtra) : operation.template, null, 2);
 }
 
 export function openPlanningDialog() {

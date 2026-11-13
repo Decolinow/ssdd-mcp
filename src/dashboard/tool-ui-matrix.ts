@@ -117,7 +117,7 @@ export const toolUiMatrix: Readonly<Record<string, ToolUiEntry>> = {
   template_apply: gap("Templates de item (SSDD-949) sem UI."),
   template_list: gap("Templates de item (SSDD-949) sem UI."),
   template_set: gap("Templates de item (SSDD-949) sem UI."),
-  test_run_certify: gap("Certificação QA pela UI planejada em SSDD-96."),
+  test_run_certify: ui("detalhe do PBI, botão Certificar em cada execução aprovada; diálogo Operações (`POST …/backlog/test_run_certify`)"),
   test_run_list: ui(`${qa}; \`GET …/test-runs\``),
   test_run_record: ui(`${qa} → Registrar execução; \`POST …/scenarios/:key/test-runs\``),
   trace_link_add: ui(`diálogo Operações do item (\`POST …/backlog/:operation\`): trace_link_add`),

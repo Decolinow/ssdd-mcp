@@ -22,6 +22,13 @@ export async function loadSelectedRetrospective(revisionNumber) {
   }
 }
 
+function certifyControl(run) {
+  const item = model.currentItem;
+  if (run.result !== "passed") return `<span>Sem certificação: só execuções aprovadas são certificáveis (${escapeHtml(run.result)}).</span>`;
+  if (item?.state !== "in_validation") return "<span>Sem certificação: o PBI precisa estar em validação.</span>";
+  return `<button class="button button-secondary" type="button" data-certify-run="${escapeHtml(run.id)}">Certificar (QA)</button>`;
+}
+
 export function renderQualityDetail(report) {
   const baseline = report.baseline
     ? `Baseline ${report.baseline.sequence} · fixada para este fluxo`
@@ -35,7 +42,7 @@ export function renderQualityDetail(report) {
         <div class="quality-run"><span class="run-result ${escapeHtml(run.result)}">${escapeHtml(run.result)}</span>
           <span>Build ${escapeHtml(run.buildId)}</span><span>Execução ${escapeHtml(run.id.slice(0, 8))}</span>
           <span>${escapeHtml(formatDate(run.executedAt))}</span>
-          ${certification ? `<span class="certified-mark">Certificado por QA · ${escapeHtml(formatDate(certification.certifiedAt))}</span>` : "<span>Sem certificação para esta baseline</span>"}
+          ${certification ? `<span class="certified-mark">Certificado por QA · ${escapeHtml(formatDate(certification.certifiedAt))}</span>` : certifyControl(run)}
           ${run.notes ? `<span>${escapeHtml(run.notes)}</span>` : ""}
         </div>`).join("") : "<div class=\"quality-run\">Nenhuma execução registrada.</div>";
       return `<div class="quality-scenario"><strong>${escapeHtml(scenario.scenario.key)}@${escapeHtml(scenario.revision.revisionNumber)} · ${escapeHtml(scenario.scenario.title)}</strong>${runs}</div>`;

@@ -402,6 +402,10 @@ document.querySelectorAll(".close-dialog").forEach((button) => {
 });
 elements.createSpecification.addEventListener("click", () => openSpecificationForm("create"));
 elements.openPlanning.addEventListener("click", openPlanningDialog);
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target.closest("[data-certify-run]") : null;
+  if (target && model.currentItem) openBacklogOperations(model.currentItem, "test_run_certify", { runId: target.getAttribute("data-certify-run") });
+});
 elements.detailOperations.addEventListener("click", () => { if (model.currentItem) openBacklogOperations(model.currentItem); });
 elements.planningOperation.addEventListener("change", applyPlanningTemplate);
 elements.planningForm.addEventListener("submit", (event) => { void submitPlanning(event); });

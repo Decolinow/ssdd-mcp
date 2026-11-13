@@ -58,4 +58,13 @@ test("dashboard backlog operations reuse MCP commands: assign, comment, estimate
   assert.equal((await call("trace_link_remove", { requestId: "t2", linkId })).status, 200);
   assert.equal((await call("trace_link_remove", { requestId: "t3", linkId: randomUUID() })).status, 404);
   assert.equal((await call("work_item_assign", { requestId: "a-bad", itemIdOrKey: story.key, assigneeId: "nao-uuid", expectedVersion: 1 })).status, 400);
+
+  // SSDD-93: QA certification goes through the same MCP gate and explains the refusal.
+  const noCsrf = await call("test_run_certify", { requestId: "q0", itemIdOrKey: story.key, runId: randomUUID(), expectedVersion: 1, reason: "x" }, { Cookie: cookie, Origin: address.origin, "Content-Type": "application/json" });
+  assert.equal(noCsrf.status, 403);
+  assert.equal((await call("test_run_certify", { requestId: "q-bad", itemIdOrKey: story.key, runId: "nao-uuid", expectedVersion: 1, reason: "x" })).status, 400);
+  const refused = await call("test_run_certify", { requestId: "q1", itemIdOrKey: story.key, runId: randomUUID(), expectedVersion: (await getItem(story.key)).version, reason: "Tentativa sem execução" });
+  assert.ok(refused.status >= 400 && refused.status < 500, "an unknown run or a PBI outside validation is refused with a client error");
+  const refusal = await refused.json() as { code?: string; message?: string };
+  assert.ok(refusal.code, "the refusal carries a code the dashboard can show");
 });

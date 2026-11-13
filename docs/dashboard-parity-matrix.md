@@ -2,7 +2,7 @@
 
 Gerado de `src/dashboard/tool-ui-matrix.ts` (`UPDATE_UI_MATRIX=1 npm test` regenera). Cada ferramenta do MCP tem uma operação de UI, cobertura parcial ou uma lacuna futura explícita; `tests/dashboard/tool-ui-matrix.test.ts` falha se uma ferramenta nova ficar sem classificação.
 
-Resumo: 64 com UI, 8 parciais, 50 lacunas futuras (122 ferramentas).
+Resumo: 65 com UI, 8 parciais, 49 lacunas futuras (122 ferramentas).
 
 | Tool | Cobertura | Operação da UI ou motivo da lacuna |
 | --- | --- | --- |
@@ -102,7 +102,7 @@ Resumo: 64 com UI, 8 parciais, 50 lacunas futuras (122 ferramentas).
 | `template_apply` | Lacuna futura | Templates de item (SSDD-949) sem UI. |
 | `template_list` | Lacuna futura | Templates de item (SSDD-949) sem UI. |
 | `template_set` | Lacuna futura | Templates de item (SSDD-949) sem UI. |
-| `test_run_certify` | Lacuna futura | Certificação QA pela UI planejada em SSDD-96. |
+| `test_run_certify` | UI | detalhe do PBI, botão Certificar em cada execução aprovada; diálogo Operações (`POST …/backlog/test_run_certify`) |
 | `test_run_list` | UI | aba Qualidade; `GET …/test-runs` |
 | `test_run_record` | UI | aba Qualidade → Registrar execução; `POST …/scenarios/:key/test-runs` |
 | `trace_link_add` | UI | diálogo Operações do item (`POST …/backlog/:operation`): trace_link_add |

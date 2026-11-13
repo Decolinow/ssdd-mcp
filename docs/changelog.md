@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Certificação QA pelo dashboard (2026-11-13, SSDD-93)
+
+- Botão Certificar (QA) nas execuções aprovadas do detalhe do PBI, via `backlog/test_run_certify` sobre `certifyTestRun`; execuções não certificáveis explicam o motivo. Teste HTTP cobre CSRF, validação e recusa com código; o caminho positivo continua coberto por `tests/application/work-item-workflow.test.ts`.
+
 ## Operações de backlog pelo dashboard (2026-11-13, SSDD-89)
 
 - Rota `backlog/:operation`, leituras de comentários e rastro e botão Operações no detalhe do item cobrem atribuição, ordenação, comentários, estimativas e vínculos pelos comandos do MCP. `tests/dashboard/backlog-operations.test.ts` cobre CSRF, validação, 409 e 404; o smoke comenta um item. A matriz tool→UI passou a mostrar essas 9 tools com UI.

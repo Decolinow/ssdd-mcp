@@ -30,7 +30,7 @@ import { createScenario, proposeScenarioRevision, publishScenarioRevision, recor
 import type { ListTestRunsInput } from "../application/scenario-queries.js";
 import { getScenario, listScenarioRevisionWorkItems, listScenarios, listTestRunPage } from "../application/scenario-queries.js";
 import { getSpecification, listSpecifications } from "../application/specification-queries.js";
-import { getTaskStartReadiness, transitionWorkItem } from "../application/work-item-workflow.js";
+import { certifyTestRun, getTaskStartReadiness, transitionWorkItem } from "../application/work-item-workflow.js";
 import { scenarioKinds, testRunResults } from "../domain/scenarios.js";
 import { specificationKinds } from "../domain/specifications.js";
 import { linkTaskToAdr } from "../application/adr-commands.js";
@@ -1107,6 +1107,11 @@ const backlogOperations: Record<string, PlanningHandler> = {
     const input = z.object({ requestId: requestIdField, itemIdOrKey: itemRef, proposalId: z.string().uuid(), expectedVersion: z.number().int().positive() }).strict().parse(body);
     const receipt = confirmWorkItemEstimate(database, { projectId, principalId, ...input });
     return { ...receipt.value, auditEventIds: receipt.auditEventIds };
+  },
+  test_run_certify: (database, projectId, principalId, body) => {
+    const input = z.object({ requestId: requestIdField, itemIdOrKey: itemRef, runId: z.string().uuid(), expectedVersion: z.number().int().positive(), reason: reasonField }).strict().parse(body);
+    const receipt = certifyTestRun(database, { projectId, principalId, ...input });
+    return receiptJson(receipt.value, "certification", receipt.auditEventIds);
   },
   trace_link_add: (database, projectId, principalId, body) => {
     const input = z.object({ requestId: requestIdField, sourceIdOrKey: itemRef, targetIdOrKey: itemRef, type: z.enum(traceLinkTypes) }).strict().parse(body);
