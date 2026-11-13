@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { createWorkItem } from "../../src/application/create-work-item.js";
 import { ApplicationError } from "../../src/application/errors.js";
 import { initializeProject } from "../../src/application/initialize-project.js";
-import { listDeliveryReports, submitDeliveryReport } from "../../src/application/task-delivery-reports.js";
+import { getTaskContext } from "../../src/application/task-context.js";
+import { listDeliveryReports, submitDeliveryReport, unattestedDefinitionOfDone } from "../../src/application/task-delivery-reports.js";
 import { transitionWorkItem } from "../../src/application/work-item-workflow.js";
 import { openSqliteDatabase, type SqliteDatabase } from "../../src/storage-sqlite/database.js";
 import { applyMigrations } from "../../src/storage-sqlite/migrations.js";
@@ -76,5 +77,32 @@ describe("delivery report per criterion (SSDD-940)", () => {
     assert.throws(() => toReview("strict"), (error: unknown) => error instanceof ApplicationError && error.code === "GATE_BLOCKED");
     delete process.env["SSDD_REQUIRE_DELIVERY_REPORT"];
     assert.equal(toReview("lenient").value.transition.toState, "in_review");
+  });
+
+  it("pins the Definition of Done, requires the report to attest it and warns when it is revised later (SSDD-943)", () => {
+    const insertDod = database.prepare(
+      "INSERT INTO dod_revisions (project_id, revision_number, criteria_json, reason, created_by_principal_id, created_at) VALUES (?, ?, ?, 'teste', ?, '2026-01-01T00:00:00.000Z')",
+    );
+    insertDod.run(projectId, 1, JSON.stringify([{ id: "dod-a", description: "Testes passam" }, { id: "dod-b", description: "Docs atualizadas" }]), principalId);
+    database.prepare("INSERT INTO task_dod_pins (project_id, item_id, dod_revision, pinned_at) VALUES (?, ?, 1, '2026-01-02T00:00:00.000Z')").run(projectId, taskId);
+
+    assert.deepEqual(listDeliveryReports(database, { projectId, principalId, itemIdOrKey: taskId }).expected.filter((entry) => entry.scope === "dod").map((entry) => entry.key), ["dod-a", "dod-b"]);
+    assert.throws(() => submit("without-dod", "met"), (error: unknown) => error instanceof ApplicationError && error.code === "VALIDATION_FAILED");
+
+    const entries = (second: "met" | "partial") => [
+      { criterionKey: "AC-1", scope: "pbi" as const, status: "met" as const, evidence: "teste X" },
+      { criterionKey: "AC-2", scope: "pbi" as const, status: "met" as const, evidence: "teste Y" },
+      { criterionKey: "dod-a", scope: "dod" as const, status: "met" as const, evidence: "npm test verde" },
+      { criterionKey: "dod-b", scope: "dod" as const, status: second, evidence: "docs parciais" },
+    ];
+    submitDeliveryReport(database, { projectId, principalId, requestId: "dod-partial", itemIdOrKey: taskId, entries: entries("partial") });
+    assert.deepEqual(unattestedDefinitionOfDone(database, projectId, taskId), ["dod-b"]);
+    submitDeliveryReport(database, { projectId, principalId, requestId: "dod-met", itemIdOrKey: taskId, entries: entries("met") });
+    assert.deepEqual(unattestedDefinitionOfDone(database, projectId, taskId), []);
+
+    insertDod.run(projectId, 2, JSON.stringify([{ id: "dod-c", description: "Nova regra" }]), principalId);
+    const context = getTaskContext(database, { projectId, principalId, taskIdOrKey: taskId, include: ["definitionOfDone"] });
+    assert.deepEqual(context.sections.definitionOfDone.map((entry) => entry.key), ["DoD-r1:1", "DoD-r1:2"]);
+    assert.ok(context.warnings.some((warning) => warning.code === "DOD_REVISED_AFTER_PIN"));
   });
 });

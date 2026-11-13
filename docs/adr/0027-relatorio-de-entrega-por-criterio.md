@@ -9,7 +9,8 @@
 1. `task_delivery_report_submit` grava um relatório por tarefa em `in_progress`, com uma entrada para **cada** critério do PBI pai e **cada** item do checklist da própria tarefa: `status` (`met`, `partial`, `not_met`, `not_applicable`), `evidence`, `assumptions` e `deviations`. `met` e `partial` exigem evidência; `not_applicable` exige a suposição que o justifica.
 2. Relatórios são imutáveis (triggers de `UPDATE`/`DELETE`) e numerados por tarefa (`report_number`). Reenviar cria o próximo número; o último vale.
 3. `in_progress → in_review` é bloqueado (`GATE_BLOCKED`) quando o último relatório tem `not_met` ou não cobre mais os critérios vigentes. **Sem relatório**, a transição é permitida por padrão para não quebrar fluxos existentes; o host pode exigir o relatório com `SSDD_REQUIRE_DELIVERY_REPORT=1` (política de adoção gradual, sem mudar o contrato).
-4. `task_delivery_report_get` devolve o esperado e os relatórios para comparar esperado × entregue.
+4. A Definition of Done vigente no `task_start` é pinada por tarefa (SSDD-943) e entra no relatório como entradas `scope: dod` (chave = ID do critério da DoD). O gate Done do PBI `definition-of-done-attested` exige `met` ou `not_applicable` nelas; revisão posterior da DoD gera apenas aviso no contexto.
+5. `task_delivery_report_get` devolve o esperado e os relatórios para comparar esperado × entregue.
 
 ## Consequências
 

@@ -127,6 +127,11 @@ export function startTaskDevelopment(
         ...(sessionReference === undefined ? {} : { sessionReference }),
       });
       operationAuditEventIds.push(...sessionReceipt.auditEventIds);
+      // SSDD-943: pin the Definition of Done in force when work starts; later revisions only warn.
+      database.prepare(
+        `INSERT OR IGNORE INTO task_dod_pins (project_id, item_id, dod_revision, pinned_at)
+         SELECT ?, ?, MAX(revision_number), ? FROM dod_revisions WHERE project_id = ? HAVING MAX(revision_number) IS NOT NULL`,
+      ).run(input.projectId, current.id, new Date().toISOString(), input.projectId);
       return {
         task: { id: current.id, key: current.key, state: "in_progress" as const, version: sessionTaskVersion },
         transition,

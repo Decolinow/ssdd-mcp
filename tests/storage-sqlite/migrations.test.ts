@@ -68,7 +68,7 @@ describe("schema migrations", () => {
       "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'team_config_versions'",
     ).get() as { name: string } | undefined;
 
-    assert.equal(version.version, 37);
+    assert.equal(version.version, 38);
     assert.deepEqual(preserved, { project_key: "MIG12", name: "Migration owner" });
     assert.ok(sequenceColumn.some((column) => column.name === "sequence" && column.pk === 1));
     assert.match(evidenceSql.sql, /AUTOINCREMENT/);

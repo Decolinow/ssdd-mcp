@@ -2690,6 +2690,20 @@ export const initialMigrations: readonly SqliteMigration[] = [
       BEGIN SELECT RAISE(ABORT, 'task reviews are immutable'); END;
     `,
   },
+  {
+    version: 38,
+    name: "task-dod-pins",
+    sql: `
+      CREATE TABLE task_dod_pins (
+        project_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        dod_revision INTEGER NOT NULL CHECK (dod_revision > 0),
+        pinned_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, item_id),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id)
+      ) STRICT;
+    `,
+  },
 ];
 
 export function applyMigrations(

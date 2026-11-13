@@ -996,6 +996,7 @@ const taskContextSchema = z.object({
     scenarios: z.array(taskContextEntrySchema),
     testRuns: z.array(taskContextEntrySchema),
     baseline: z.array(taskContextEntrySchema),
+    definitionOfDone: z.array(taskContextEntrySchema),
   }),
   warnings: z.array(z.object({ code: z.string(), message: z.string(), key: z.string().optional() })),
   truncated: z.boolean(),
@@ -3125,7 +3126,7 @@ export function createMcpServer(
   };
 
   const deliveryEntrySchema = z.object({
-    criterionKey: z.string().trim().min(1).max(40), scope: z.enum(["pbi", "task"]),
+    criterionKey: z.string().trim().min(1).max(40), scope: z.enum(["pbi", "task", "dod"]),
     status: z.enum(["met", "partial", "not_met", "not_applicable"]),
     evidence: z.string().trim().min(1).max(2_000).optional(), assumptions: z.string().trim().min(1).max(2_000).optional(),
     deviations: z.string().trim().min(1).max(2_000).optional(),
@@ -3219,7 +3220,7 @@ export function createMcpServer(
       description: "Devolve o esperado (critérios do PBI e checklist da tarefa) e os relatórios de entrega enviados, do mais recente ao mais antigo, para comparar esperado × entregue.",
       inputSchema: z.object({ projectId: z.string().uuid(), taskIdOrKey: z.string().trim().min(1).max(120), latestOnly: z.boolean().optional() }),
       outputSchema: z.object({
-        expected: z.array(z.object({ key: z.string(), scope: z.enum(["pbi", "task"]), required: z.boolean() })),
+        expected: z.array(z.object({ key: z.string(), scope: z.enum(["pbi", "task", "dod"]), required: z.boolean() })),
         reports: z.array(deliveryReportSchema),
       }),
     },

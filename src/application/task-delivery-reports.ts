@@ -15,7 +15,7 @@ export type DeliveryStatus = (typeof deliveryStatuses)[number];
 
 export interface DeliveryReportEntry {
   readonly criterionKey: string;
-  readonly scope: "pbi" | "task";
+  readonly scope: "pbi" | "task" | "dod";
   readonly status: DeliveryStatus;
   readonly evidence?: string;
   readonly assumptions?: string;
@@ -52,7 +52,7 @@ function toReport(row: ReportRow): DeliveryReport {
 
 /** Criteria the report must cover: the parent PBI's criteria and the task's own checklist. */
 export function expectedDeliveryCriteria(database: SqliteDatabase, projectId: string, principalId: string, taskIdOrKey: string): {
-  readonly taskId: string; readonly expected: ReadonlyArray<{ readonly key: string; readonly scope: "pbi" | "task"; readonly required: boolean }>;
+  readonly taskId: string; readonly expected: ReadonlyArray<{ readonly key: string; readonly scope: "pbi" | "task" | "dod"; readonly required: boolean }>;
 } {
   const task = getWorkItem(database, projectId, principalId, taskIdOrKey);
   if (task.type !== "task") throw new ApplicationError("VALIDATION_FAILED", "Delivery reports belong to tasks.");
@@ -60,6 +60,7 @@ export function expectedDeliveryCriteria(database: SqliteDatabase, projectId: st
   const expected = [
     ...(parent?.criteria ?? []).map((criterion) => ({ key: criterion.key, scope: "pbi" as const, required: criterion.required })),
     ...task.criteria.map((criterion) => ({ key: criterion.key, scope: "task" as const, required: criterion.required })),
+    ...(pinnedDefinitionOfDone(database, projectId, task.id)?.criteria ?? []).map((criterion) => ({ key: criterion.id, scope: "dod" as const, required: true })),
   ];
   return { taskId: task.id, expected };
 }
@@ -111,7 +112,7 @@ export function submitDeliveryReport(database: SqliteDatabase, input: {
 
 function normalizeEntry(entry: DeliveryReportEntry): DeliveryReportEntry {
   if (!deliveryStatuses.includes(entry.status)) throw new ApplicationError("VALIDATION_FAILED", "Status must be met, partial, not_met or not_applicable.");
-  if (entry.scope !== "pbi" && entry.scope !== "task") throw new ApplicationError("VALIDATION_FAILED", "Scope must be pbi or task.");
+  if (entry.scope !== "pbi" && entry.scope !== "task" && entry.scope !== "dod") throw new ApplicationError("VALIDATION_FAILED", "Scope must be pbi, task or dod.");
   const text = (value: string | undefined, name: string): string | undefined => {
     const trimmed = value?.trim();
     if (trimmed === undefined || trimmed.length === 0) return undefined;
@@ -136,7 +137,7 @@ function normalizeEntry(entry: DeliveryReportEntry): DeliveryReportEntry {
 
 export function listDeliveryReports(database: SqliteDatabase, input: {
   readonly projectId: string; readonly principalId: string; readonly itemIdOrKey: string; readonly latestOnly?: boolean;
-}): { reports: DeliveryReport[]; expected: Array<{ key: string; scope: "pbi" | "task"; required: boolean }> } {
+}): { reports: DeliveryReport[]; expected: Array<{ key: string; scope: "pbi" | "task" | "dod"; required: boolean }> } {
   assertProjectAuthorization(database, input.projectId, input.principalId);
   const { taskId, expected } = expectedDeliveryCriteria(database, input.projectId, input.principalId, input.itemIdOrKey.trim());
   const rows = database.prepare(`${selectReports} ORDER BY r.report_number DESC`).all(input.projectId, taskId) as unknown as ReportRow[];
@@ -166,4 +167,28 @@ export function assertDeliveryReportForReview(database: SqliteDatabase, projectI
   if (notMet.length > 0) {
     throw new ApplicationError("GATE_BLOCKED", "The delivery report has criteria marked not_met; fix them or submit a new report.", { details: { notMet, reportNumber: report.reportNumber } });
   }
+}
+
+/** The Definition of Done revision pinned when the task started (SSDD-943), or null when none existed. */
+export function pinnedDefinitionOfDone(database: SqliteDatabase, projectId: string, itemId: string): {
+  readonly revision: number; readonly criteria: ReadonlyArray<{ readonly id: string; readonly description: string }>;
+} | null {
+  const row = database.prepare(
+    `SELECT p.dod_revision, d.criteria_json FROM task_dod_pins p
+     INNER JOIN dod_revisions d ON d.project_id = p.project_id AND d.revision_number = p.dod_revision
+     WHERE p.project_id = ? AND p.item_id = ?`,
+  ).get(projectId, itemId) as { dod_revision: number; criteria_json: string } | undefined;
+  return row === undefined ? null : { revision: row.dod_revision, criteria: JSON.parse(row.criteria_json) as Array<{ id: string; description: string }> };
+}
+
+/** Pinned DoD criteria that the latest delivery report did not attest as met or not_applicable. */
+export function unattestedDefinitionOfDone(database: SqliteDatabase, projectId: string, itemId: string): string[] {
+  const pin = pinnedDefinitionOfDone(database, projectId, itemId);
+  if (pin === null || pin.criteria.length === 0) return [];
+  const latest = database.prepare(`${selectReports} ORDER BY r.report_number DESC LIMIT 1`).get(projectId, itemId) as ReportRow | undefined;
+  if (latest === undefined) return process.env["SSDD_REQUIRE_DELIVERY_REPORT"] === "1" ? pin.criteria.map((criterion) => criterion.id) : [];
+  const attested = new Set(toReport(latest).entries
+    .filter((entry) => entry.scope === "dod" && (entry.status === "met" || entry.status === "not_applicable"))
+    .map((entry) => entry.criterionKey));
+  return pin.criteria.map((criterion) => criterion.id).filter((id) => !attested.has(id));
 }

@@ -1,4 +1,5 @@
 import type { WorkBaseline } from "../domain/baselines.js";
+import { pinnedDefinitionOfDone } from "./task-delivery-reports.js";
 import { openBlockingQuestions } from "./work-item-questions.js";
 import type { ScenarioSnapshot } from "../domain/scenarios.js";
 import type { SpecificationKind } from "../domain/specifications.js";
@@ -22,6 +23,7 @@ export const taskContextSections = [
   "scenarios",
   "testRuns",
   "baseline",
+  "definitionOfDone",
 ] as const;
 export type TaskContextSection = (typeof taskContextSections)[number];
 
@@ -108,13 +110,13 @@ interface ScenarioReferenceRow {
 }
 
 const profileSections: Readonly<Record<TaskContextProfile, readonly TaskContextSection[]>> = {
-  dev: ["hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios"],
-  qa: ["hierarchy", "acceptanceCriteria", "businessRules", "scenarios", "testRuns"],
-  po: ["hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "testRuns", "baseline"],
+  dev: ["hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "definitionOfDone"],
+  qa: ["hierarchy", "acceptanceCriteria", "businessRules", "scenarios", "testRuns", "definitionOfDone"],
+  po: ["hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "testRuns", "baseline", "definitionOfDone"],
 };
 
 const sectionOrder: readonly TaskContextSection[] = [
-  "hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "testRuns", "baseline",
+  "hierarchy", "acceptanceCriteria", "businessRules", "technicalDecisions", "scenarios", "testRuns", "baseline", "definitionOfDone",
 ];
 
 export function getTaskContext(database: SqliteDatabase, input: TaskContextInput): TaskContextResult {
@@ -183,6 +185,23 @@ export function getTaskContext(database: SqliteDatabase, input: TaskContextInput
         ...(item.verification === undefined ? {} : { verification: item.verification }),
       },
     });
+  }
+
+  const dodPin = pinnedDefinitionOfDone(database, input.projectId, task.id);
+  if (dodPin !== null) {
+    dodPin.criteria.forEach((criterion, index) => {
+      entries.push({
+        section: "definitionOfDone",
+        key: `DoD-r${dodPin.revision}:${index + 1}`,
+        title: `Definition of Done r${dodPin.revision} #${index + 1}`,
+        source: workItemSource(input.projectId, task, task.revision, "current"),
+        content: { id: criterion.id, description: criterion.description, revision: dodPin.revision },
+      });
+    });
+    const latestDod = database.prepare("SELECT MAX(revision_number) AS latest FROM dod_revisions WHERE project_id = ?").get(input.projectId) as { latest: number | null };
+    if (latestDod.latest !== null && latestDod.latest > dodPin.revision) {
+      warnings.push({ code: "DOD_REVISED_AFTER_PIN", message: `A Definition of Done r${latestDod.latest} foi publicada depois do início da tarefa; vale a r${dodPin.revision} pinada e itens concluídos não são reprocessados.` });
+    }
   }
 
   const linkedSpecs = findLinkedSpecifications(database, input.projectId, hierarchy.map((item) => item.id));
@@ -900,7 +919,7 @@ function createResult(
 
 function emptySections(): Record<TaskContextSection, TaskContextEntry[]> {
   return {
-    hierarchy: [], acceptanceCriteria: [], businessRules: [], technicalDecisions: [], scenarios: [], testRuns: [], baseline: [],
+    hierarchy: [], acceptanceCriteria: [], businessRules: [], technicalDecisions: [], scenarios: [], testRuns: [], baseline: [], definitionOfDone: [],
   };
 }
 

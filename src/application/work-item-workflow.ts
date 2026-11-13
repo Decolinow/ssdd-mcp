@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { unattestedDefinitionOfDone } from "./task-delivery-reports.js";
 import { assertIndependentReviewForValidation } from "./task-reviews.js";
 import { assertDeliveryReportForReview } from "./task-delivery-reports.js";
 import { openBlockingQuestions } from "./work-item-questions.js";
@@ -857,6 +858,16 @@ function evaluateDoneGates(
     addGate(gates, "required-tasks", incompleteTasks.length === 0,
       incompleteTasks.length === 0 ? "All non-cancelled child tasks are done." : "Complete every active child task before Done.",
       { incompleteTasks });
+
+    const childTasks = database.prepare(
+      "SELECT item_id, item_key FROM work_items WHERE project_id = ? AND parent_id = ? AND type = 'task' AND state = 'done' ORDER BY item_key COLLATE NOCASE",
+    ).all(item.projectId, item.id) as Array<{ item_id: string; item_key: string }>;
+    const unattested = childTasks
+      .map((task) => ({ task: task.item_key, criteria: unattestedDefinitionOfDone(database, item.projectId, task.item_id) }))
+      .filter((entry) => entry.criteria.length > 0);
+    addGate(gates, "definition-of-done-attested", unattested.length === 0,
+      unattested.length === 0 ? "Every done task attests its pinned Definition of Done." : "Attest every pinned Definition of Done criterion in the tasks' delivery reports.",
+      { unattested });
 
     if (buildId === null) {
       addGate(gates, "candidate-build", false, "Supply the candidate build ID for the final QA gate.");

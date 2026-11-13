@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Definition of Done aplicada por item (2026-11-13, SSDD-943 / MCP SSDD-146)
+
+- Migração 38 cria `task_dod_pins`; `task_start` pina a DoD vigente. A seção `definitionOfDone` entra em `task_context_get`, o relatório de entrega atesta cada critério (`scope: dod`) e o gate Done do PBI falha com critério não atestado. Revisão posterior da DoD só gera aviso.
+
 ## Revisão independente como gate (2026-11-13, SSDD-942 / MCP SSDD-145)
 
 - Migração 37 cria `task_reviews` imutável. `review_record/review_list` registram a decisão de quem não trabalhou na tarefa; `changes_requested` bloqueia `in_review → in_validation`, e `SSDD_REQUIRE_INDEPENDENT_REVIEW=1` exige aprovação humana do relatório vigente. Revisão por principal não humano é consultiva. ADR 0028.
