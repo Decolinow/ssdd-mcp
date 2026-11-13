@@ -129,6 +129,6 @@ test("dashboard exposes authenticated workflow history, editing, publication and
   assert.equal(listed.items[0]?.taskWorkflowProgressPercent, 65);
   assert.equal(listed.items[0]?.taskWorkflowCompletedSteps, 1);
 
-  const workflowScript = await fetch(`${address.origin}/dashboard.js`);
+  const workflowScript = await fetch(`${address.origin}/js/task-workflow.js`);
   assert.match(await workflowScript.text(), /workflowEditorRow/u);
 });

@@ -1,0 +1,79 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { chromium } from "playwright-core";
+import { createDashboardApiServer, listenDashboardApiServer } from "../../src/dashboard/api.js";
+import { createWorkItem } from "../../src/application/create-work-item.js";
+import { initializeProject } from "../../src/application/initialize-project.js";
+import { createManagedUser, ensureBootstrapAdministrator } from "../../src/application/user-management.js";
+import { openSqliteDatabase } from "../../src/storage-sqlite/database.js";
+
+/**
+ * Browser smoke for the modular dashboard (SSDD-954). Not part of `npm test`: run with `npm run test:browser`
+ * (needs Chrome; set SSDD_BROWSER_CHANNEL to override the `chrome` channel, e.g. `msedge`).
+ */
+test("dashboard smoke: login, backlog and board, gate-refused transition and PBI form", async (context) => {
+  const workspace = mkdtempSync(join(tmpdir(), "ssdd-dashboard-smoke-"));
+  const initialized = initializeProject({ workspace, key: "SMK", name: "Smoke", productGoal: "Exercitar o dashboard", timezone: "UTC" });
+  const projectId = initialized.project.id;
+  const database = openSqliteDatabase(initialized.databasePath);
+  const adminId = (database.prepare("SELECT created_by_principal_id FROM projects WHERE project_id = ?").get(projectId) as { created_by_principal_id: string }).created_by_principal_id;
+  ensureBootstrapAdministrator(database, adminId);
+  const user = createManagedUser(database, {
+    actorPrincipalId: adminId, requestId: "smoke-user", displayName: "Smoke PO", principalType: "human",
+    projects: [{ projectId, roles: ["po", "developer"] }], reason: "Usuário do smoke do dashboard.",
+  });
+  assert.ok(user.authKey);
+  const epic = createWorkItem(database, { projectId, principalId: adminId, requestId: "smoke-epic", type: "epic", title: "Épico do smoke" }).value;
+  const feature = createWorkItem(database, { projectId, principalId: adminId, requestId: "smoke-feature", type: "feature", title: "Feature do smoke", parentId: epic.id }).value;
+  createWorkItem(database, { projectId, principalId: adminId, requestId: "smoke-story", type: "story", title: "História sem critérios", parentId: feature.id });
+  database.close();
+
+  const dashboard = createDashboardApiServer(workspace);
+  const address = await listenDashboardApiServer(dashboard, 0);
+  const browser = await chromium.launch({ channel: process.env.SSDD_BROWSER_CHANNEL ?? "chrome", headless: true });
+  context.after(async () => {
+    await browser.close();
+    await dashboard.close();
+    rmSync(workspace, { recursive: true, force: true });
+  });
+  const page = await browser.newPage();
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  page.on("console", (message) => { if (message.type() === "error") pageErrors.push(message.text()); });
+
+  await page.goto(address.origin);
+  await page.locator("#login-screen").waitFor({ state: "visible" });
+  await page.fill("#auth-key", user.authKey!);
+  await page.click("#login-submit");
+  await page.locator("#app-shell").waitFor({ state: "visible" });
+
+  await page.click("#backlog-tab");
+  const storyRow = page.locator("#backlog-list").getByText("História sem critérios").first();
+  await storyRow.waitFor({ state: "visible" });
+  await page.click("#board-tab");
+  await page.locator("#board").waitFor({ state: "visible" });
+
+  await page.click("#backlog-tab");
+  await page.locator("#backlog-list .backlog-row").filter({ hasText: "História sem critérios" }).locator(".row-open").click();
+  await page.locator("#item-dialog[open]").waitFor();
+  await page.click("#detail-move-button");
+  await page.locator("#transition-dialog[open]").waitFor();
+  await page.selectOption("#target-state", "ready");
+  await page.fill("#transition-reason", "Tentar promover sem critérios para exercitar o gate.");
+  await page.click("#submit-transition");
+  await page.locator("#transition-dialog[open], #toast:not([hidden]), #error:not([hidden])").first().waitFor();
+  assert.equal(await page.locator("#toast.is-error:not([hidden])").count() + await page.locator("#transition-dialog[open]").count() > 0, true, "the gate refusal must stay visible");
+  await page.keyboard.press("Escape");
+
+  await page.click("#create-work-item");
+  await page.locator("#work-item-form-dialog[open]").waitFor();
+  await page.selectOption("#work-item-type", "epic");
+  await page.fill("#work-item-title", "Épico criado pelo smoke");
+  await page.click("#submit-work-item");
+  await page.locator("#toast:not([hidden])").filter({ hasText: "criado como rascunho" }).waitFor();
+
+  assert.deepEqual(pageErrors.filter((message) => !/ERR_|Failed to load resource/u.test(message)), [], "the browser console must stay free of script errors");
+});

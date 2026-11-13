@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Dashboard modular e smoke de navegador (2026-11-13, SSDD-954 / MCP SSDD-157)
+
+- Dashboard dividido em módulos ES e teste de fumaça com `playwright-core` (Chrome do sistema). Job de CI adicionado, sem execução remota ainda.
+
 ## Divisão de src/mcp/server.ts (2026-11-13, SSDD-953 / MCP SSDD-156)
 
 - Registro de tools em módulos por área com helper único `toolResult`/`toToolError`; nenhuma mudança de contrato.

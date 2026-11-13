@@ -113,6 +113,11 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
         await sendStaticFile(response, "dashboard.js", "text/javascript; charset=utf-8");
         return;
       }
+      const moduleMatch = request.method === "GET" ? /^\/js\/([a-z][a-z-]*)\.js$/u.exec(route) : null;
+      if (moduleMatch !== null) {
+        await sendStaticFile(response, `js/${moduleMatch[1]}.js`, "text/javascript; charset=utf-8");
+        return;
+      }
       if (request.method === "GET" && route === "/dashboard.css") {
         await sendStaticFile(response, "dashboard.css", "text/css; charset=utf-8");
         return;
