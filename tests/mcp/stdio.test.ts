@@ -105,6 +105,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "sprint_retrospective_set",
       "sprint_scope_change",
       "sprint_start",
+      "task_accept",
       "task_context_get",
       "task_execution_queue_get",
       "task_start",

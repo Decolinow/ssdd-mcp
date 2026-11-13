@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Tool composta `task_accept` (2026-11-12, findings U11/U17/U18)
+
+Novo `src/application/task-accept.ts` e a tool `task_accept`: fecha uma tarefa Draft/Ready pelos mesmos serviços e gates (atribuir, estimar em horas, Ready, `task_start`, evidência, concluir sessão, `in_review`, `in_validation`, `done`) numa única transação, com `requestId` derivado por etapa (retry idempotente; tarefa já Done devolve `alreadyDone`) e saída resumida. Aprovável como unidade, perfil `dev`. Testes em `tests/application/task-accept.test.ts`; `npm run check` com 214 testes verdes.
+
 ## Observabilidade e políticas operacionais do servidor HTTP (2026-11-12, SSDD-915 / MCP SSDD-116)
 
 Novo `src/mcp/http-observability.ts`, ligado ao servidor Streamable HTTP: log de acesso JSON (`SSDD_MCP_ACCESS_LOG=1`), `GET /metrics` Prometheus em loopback (`SSDD_MCP_METRICS=1`), rate limit por endereço (`SSDD_MCP_RATE_LIMIT_PER_MINUTE`) e `X-Correlation-Id`. Rotas agrupadas em cinco classes para limitar cardinalidade; query string, cabeçalhos e corpos nunca entram. Runbook de retenção e alertas em `docs/team-server.md`. Também: `task_execution_queue_get` ficou enxuta por padrão (U18) e SSDD-909 recebeu aceite retroativo.

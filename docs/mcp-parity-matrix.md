@@ -67,6 +67,7 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `sprint_retrospective_set` | escrita (aprovável) | — | facilitator | chamada direta (sem skill dedicada) |
 | `sprint_scope_change` | escrita (aprovável) | — | po, facilitator | chamada direta (sem skill dedicada) |
 | `sprint_start` | escrita (aprovável) | — | po, facilitator | chamada direta (sem skill dedicada) |
+| `task_accept` | escrita (aprovável) | — | dev, tech_lead | chamada direta (sem skill dedicada) |
 | `task_context_get` | leitura | cursor | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, admin | ssdd-developer, ssdd-quality-assurance, ssdd-technical-lead, ssdd-test-designer |
 | `task_execution_queue_get` | leitura | — | dev, tech_lead, po | ssdd-developer, ssdd-product-owner |
 | `task_start` | escrita (aprovável) | — | dev, tech_lead | ssdd-developer |

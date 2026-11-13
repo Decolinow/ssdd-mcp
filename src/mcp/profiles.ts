@@ -101,7 +101,7 @@ const securityReviewReadTools = [
 
 const developerTools = [
   "work_item_create", "work_item_assign", "comment_add", "work_item_estimate", "work_item_estimate_confirm",
-  "development_session_start", "development_session_transition", "task_start_check", "task_start", "task_workflow_propose",
+  "development_session_start", "development_session_transition", "task_start_check", "task_start", "task_accept", "task_workflow_propose",
   "task_workflow_step_transition", "work_item_transition", "evidence_add",
 ] as const;
 

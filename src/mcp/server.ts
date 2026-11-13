@@ -129,6 +129,7 @@ import { createTeamCapacityConfiguration, getTeamCapacity, setTeamCapacityConfig
 import { listProjectTeams } from "../application/team-directory.js";
 import { changeMilestoneScope, createMilestone, getMilestone, listMilestones } from "../application/milestones.js";
 import { evidenceKinds } from "../domain/workflow.js";
+import { acceptTask } from "../application/task-accept.js";
 import { getDefinitionOfDone, setDefinitionOfDone } from "../application/definition-of-done.js";
 import { cancelSprint, changeSprintScope, closeSprint, createSprintDraft, startSprint } from "../application/sprint-commands.js";
 import { getSprint, listSprints } from "../application/sprint-queries.js";
@@ -2924,6 +2925,42 @@ export function createMcpServer(
         const { operationAuditEventIds, ...started } = receipt.value;
         const result = { ...started, auditEventIds: [...operationAuditEventIds, ...receipt.auditEventIds] };
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "task_accept",
+    {
+      title: "Aceitar tarefa em uma chamada",
+      description: "Fecha uma tarefa Draft/Ready pelos mesmos gates (atribuir, estimar, Ready, task_start, evidência, sessão, in_review, in_validation, done) numa única transação idempotente e devolve só o resumo. Falha em qualquer gate reverte tudo; repetir com o mesmo requestId reexecuta sem duplicar.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        requestId: z.string().trim().min(1).max(90),
+        taskIdOrKey: z.string().trim().min(1).max(120),
+        expectedVersion: z.number().int().positive().optional(),
+        reason: z.string().trim().min(1).max(500),
+        estimateHours: z.number().int().min(1).max(10_000).optional(),
+        evidence: z.object({
+          kind: z.enum(evidenceKinds), uri: z.string().trim().min(1).max(2_048),
+          description: z.string().trim().min(1).max(2_000), buildId: z.string().trim().min(1).max(128).optional(),
+        }),
+      }),
+      outputSchema: z.object({
+        key: z.string(), state: z.literal("done"), version: z.number().int().positive(), steps: z.array(z.string()),
+        evidenceId: z.string().uuid().nullable(), sessionId: z.string().uuid().nullable(), alreadyDone: z.boolean(),
+        auditEventIds: z.array(z.string().uuid()),
+      }),
+    },
+    ({ projectId, requestId, taskIdOrKey, expectedVersion, reason, estimateHours, evidence }) => {
+      try {
+        const receipt = acceptTask(database, {
+          projectId, principalId, requestId, itemIdOrKey: taskIdOrKey, reason,
+          ...(expectedVersion === undefined ? {} : { expectedVersion }),
+          ...(estimateHours === undefined ? {} : { estimateHours }),
+          evidence: { kind: evidence.kind, uri: evidence.uri, description: evidence.description, ...(evidence.buildId === undefined ? {} : { buildId: evidence.buildId }) },
+        });
+        return { content: [{ type: "text", text: JSON.stringify(receipt.value) }], structuredContent: receipt.value };
       } catch (error) { return toToolError(error); }
     },
   );

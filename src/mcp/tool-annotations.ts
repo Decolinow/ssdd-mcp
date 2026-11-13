@@ -59,7 +59,7 @@ const additiveMutationTools = [
   "scenario_create", "scenario_revision_propose", "scenario_revision_publish",
   "test_run_record", "test_run_certify",
   "task_workflow_propose", "task_workflow_publish", "task_workflow_step_transition",
-  "task_start", "development_session_start", "development_session_transition",
+  "task_start", "task_accept", "development_session_start", "development_session_transition",
   "deployment_event_record",
   "milestone_create", "milestone_scope_change",
   "team_create", "team_capacity_set", "definition_of_done_set",
