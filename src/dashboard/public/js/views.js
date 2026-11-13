@@ -72,7 +72,7 @@ export function renderQuality() {
   elements.qualityList.innerHTML = items.map((item) => {
     const percent = item.coveragePercent;
     const ratio = percent === null ? "Sem critério obrigatório" : `${item.coveredRequiredCriteria}/${item.requiredCriteria} critérios obrigatórios · ${percent}%`;
-    const baselineLabel = item.baselineSequence === null ? "Preview · sem baseline" : `Baseline ${item.baselineSequence}`;
+    const baselineLabel = item.baselineSequence === null ? "Preview · sem baseline" : `Baseline ${item.baselineSequence}${item.staleBaseline ? " (desatualizada)" : ""}${item.certifiedRuns > 0 && !item.staleBaseline ? " · validado por QA" : " · sem validação"}`;
     const coverageClass = percent === null ? "coverage-unknown" : `coverage-${Math.floor(percent / 10) * 10}`;
     const statusClass = percent === 100 ? "is-current" : item.baselineSequence === null ? "is-missing" : "";
     return `<article class="quality-row">

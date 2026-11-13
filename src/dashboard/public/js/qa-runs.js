@@ -34,14 +34,21 @@ export function aggregateRuns(runs) {
 
 /** Coverage counts from quality summaries: covered, uncovered, no required criteria, and preview-only (no baseline). */
 export function aggregateCoverage(summaries) {
-  const result = { covered: 0, uncovered: 0, noCriteria: 0, withoutBaseline: 0, total: summaries.length };
+  const result = { covered: 0, uncovered: 0, noCriteria: 0, withoutBaseline: 0, staleBaseline: 0, notValidated: 0, total: summaries.length };
   for (const item of summaries) {
     if (item.coveragePercent === null) result.noCriteria += 1;
     else if (item.coveragePercent === 100) result.covered += 1;
     else result.uncovered += 1;
     if (item.baselineSequence === null) result.withoutBaseline += 1;
+    if (item.staleBaseline === true) result.staleBaseline += 1;
+    if (isNotValidated(item)) result.notValidated += 1;
   }
   return result;
+}
+
+/** A PBI is validated only with a certified QA run on the current baseline (BR-QA-001); without baseline it cannot be. */
+function isNotValidated(item) {
+  return !((item.certifiedRuns ?? 0) > 0 && item.staleBaseline !== true);
 }
 
 export const coverageBuckets = {
@@ -49,12 +56,16 @@ export const coverageBuckets = {
   uncovered: "Com critérios descobertos",
   noCriteria: "Sem critério obrigatório",
   withoutBaseline: "Sem baseline (apenas preview)",
+  staleBaseline: "Baseline desatualizada (revisão mais nova do PBI)",
+  notValidated: "Sem validação (nenhuma execução certificada na baseline vigente)",
 };
 
-/** True when the quality summary belongs to the coverage bucket (withoutBaseline overlaps the other three). */
+/** True when the quality summary belongs to the coverage bucket (withoutBaseline, staleBaseline and notValidated overlap the other buckets). */
 export function inCoverageBucket(item, bucket) {
   if (!bucket) return true;
   if (bucket === "withoutBaseline") return item.baselineSequence === null;
+  if (bucket === "staleBaseline") return item.staleBaseline === true;
+  if (bucket === "notValidated") return isNotValidated(item);
   if (bucket === "noCriteria") return item.coveragePercent === null;
   if (bucket === "covered") return item.coveragePercent === 100;
   if (bucket === "uncovered") return item.coveragePercent !== null && item.coveragePercent < 100;

@@ -4,11 +4,12 @@ import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 
 interface Run { result: string; scenarioKey: string; buildId: string; executedAt: string; workItemKeys: string[] }
+interface Summary { coveragePercent: number | null; baselineSequence: number | null; staleBaseline?: boolean; certifiedRuns?: number }
 interface QaRuns {
   filterRuns(runs: Run[], filters?: Record<string, string>): Run[];
   aggregateRuns(runs: Run[]): { counts: Record<string, number>; other: number; total: number };
-  inCoverageBucket(item: { coveragePercent: number | null; baselineSequence: number | null }, bucket: string): boolean;
-  aggregateCoverage(items: { coveragePercent: number | null; baselineSequence: number | null }[]): Record<string, number>;
+  inCoverageBucket(item: Summary, bucket: string): boolean;
+  aggregateCoverage(items: Summary[]): Record<string, number>;
 }
 
 test("QA chart aggregation reconciles with filtered runs and coverage buckets (SSDD-95)", async () => {
@@ -34,11 +35,23 @@ test("QA chart aggregation reconciles with filtered runs and coverage buckets (S
   assert.equal(qa.filterRuns(runs, { build: "nenhum" }).length, 0);
   assert.deepEqual(qa.aggregateCoverage([
     { coveragePercent: 100, baselineSequence: 1 }, { coveragePercent: 50, baselineSequence: null }, { coveragePercent: null, baselineSequence: null },
-  ]), { covered: 1, uncovered: 1, noCriteria: 1, withoutBaseline: 2, total: 3 });
+  ]), { covered: 1, uncovered: 1, noCriteria: 1, withoutBaseline: 2, staleBaseline: 0, notValidated: 3, total: 3 });
   const items = [{ coveragePercent: 100, baselineSequence: 1 }, { coveragePercent: 50, baselineSequence: null }, { coveragePercent: null, baselineSequence: null }];
   const agg = qa.aggregateCoverage(items);
   for (const [bucket, key] of [["covered", "covered"], ["uncovered", "uncovered"], ["noCriteria", "noCriteria"], ["withoutBaseline", "withoutBaseline"]] as const) {
     assert.equal(items.filter((item) => qa.inCoverageBucket(item, bucket)).length, agg[key], `drill-down of ${bucket} reconciles with the aggregate`);
   }
   assert.equal(items.filter((item) => qa.inCoverageBucket(item, "")).length, items.length);
+  const validity: Summary[] = [
+    { coveragePercent: 100, baselineSequence: 2, staleBaseline: false, certifiedRuns: 1 },
+    { coveragePercent: 100, baselineSequence: 1, staleBaseline: true, certifiedRuns: 2 },
+    { coveragePercent: 50, baselineSequence: 1, staleBaseline: false, certifiedRuns: 0 },
+    { coveragePercent: 100, baselineSequence: null, staleBaseline: false, certifiedRuns: 0 },
+  ];
+  const validityAgg = qa.aggregateCoverage(validity);
+  assert.equal(validityAgg.staleBaseline, 1, "a newer PBI revision than the baseline is stale");
+  assert.equal(validityAgg.notValidated, 3, "only a certified run on a current baseline validates");
+  for (const bucket of ["staleBaseline", "notValidated"] as const) {
+    assert.equal(validity.filter((item) => qa.inCoverageBucket(item, bucket)).length, validityAgg[bucket], `drill-down of ${bucket} reconciles with the aggregate`);
+  }
 });

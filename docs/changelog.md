@@ -6,6 +6,10 @@ Histórico datado das entregas, verificações e auditorias do projeto, movido d
 
 - Botão Certificar (QA) nas execuções aprovadas do detalhe do PBI, via `backlog/test_run_certify` sobre `certifyTestRun`; execuções não certificáveis explicam o motivo. Teste HTTP cobre CSRF, validação e recusa com código; o caminho positivo continua coberto por `tests/application/work-item-workflow.test.ts`.
 
+## Validade e baseline desatualizada na cobertura (2026-11-13, SSDD-94)
+
+- `GET …/quality` ganha `staleBaseline` (existe revisão publicada do PBI mais nova que a fixada na baseline; rascunhos não contam) e `certifiedRuns` (certificações na baseline vigente). O painel de cobertura ganha as situações "Baseline desatualizada" e "Sem validação", com drill-down, e a linha do PBI mostra baseline desatualizada/validado por QA. Motivo: o cenário SCN-94-AC2 tinha sido registrado como reprovado por essa lacuna. Testes em `tests/application/work-item-workflow.test.ts` e `tests/dashboard/qa-runs.test.ts`.
+
 ## Operações de backlog pelo dashboard (2026-11-13, SSDD-89)
 
 - Rota `backlog/:operation`, leituras de comentários e rastro e botão Operações no detalhe do item cobrem atribuição, ordenação, comentários, estimativas e vínculos pelos comandos do MCP. `tests/dashboard/backlog-operations.test.ts` cobre CSRF, validação, 409 e 404; o smoke comenta um item. A matriz tool→UI passou a mostrar essas 9 tools com UI.

@@ -13,6 +13,7 @@ import { getWorkItemQualityReport, listProjectQualitySummaries } from "../../src
 import { assignWorkItem, confirmWorkItemEstimate, proposeWorkItemEstimate } from "../../src/application/work-item-commands.js";
 import { transitionDevelopmentSession } from "../../src/application/development-lifecycle.js";
 import { getWorkItem } from "../../src/application/work-item-queries.js";
+import { proposeWorkItemRevision, publishWorkItemRevision } from "../../src/application/work-item-revisions.js";
 import { startTaskDevelopment } from "../../src/application/task-development-start.js";
 import { createScenario, publishScenarioRevision, recordTestRun } from "../../src/application/scenario-commands.js";
 import { applyMigrations } from "../../src/storage-sqlite/migrations.js";
@@ -166,6 +167,8 @@ describe("work item workflow, evidence and QA gates", () => {
         version: getWorkItem(database, projectId, principalId, storyId).version,
         baselineId: ready.baseline?.id,
         baselineSequence: 1,
+        staleBaseline: false,
+        certifiedRuns: 1,
         requiredCriteria: 1,
         coveredRequiredCriteria: 1,
         coveragePercent: 100,
@@ -197,6 +200,20 @@ describe("work item workflow, evidence and QA gates", () => {
       }),
       (error: unknown) => error instanceof ApplicationError && error.code === "STALE_CURSOR",
     );
+    // A newer PBI revision than the one pinned by the baseline makes the baseline stale (SSDD-94 AC-2).
+    const draftRevision = proposeWorkItemRevision(database, {
+      projectId, principalId, requestId: requestId("stale-propose"), itemIdOrKey: storyId,
+      expectedVersion: getWorkItem(database, projectId, principalId, storyId).version, title: "Confirmar pedido v2",
+    });
+    const stillCurrent = listProjectQualitySummaries(database, { projectId, principalId }).items.find(({ itemId }) => itemId === storyId);
+    assert.equal(stillCurrent?.staleBaseline, false, "an unpublished proposal does not make the baseline stale");
+    publishWorkItemRevision(database, {
+      projectId, principalId, requestId: requestId("stale-publish"), itemIdOrKey: storyId,
+      revisionNumber: draftRevision.value.revisionNumber, expectedVersion: getWorkItem(database, projectId, principalId, storyId).version,
+    });
+    const stale = listProjectQualitySummaries(database, { projectId, principalId }).items.find(({ itemId }) => itemId === storyId);
+    assert.equal(stale?.staleBaseline, true);
+    assert.equal(stale?.certifiedRuns, 1, "certifications stay tied to the baseline, which the dashboard shows as not validated while stale");
   });
 
   it("paginates quality summaries and invalidates a cursor after a project change", () => {

@@ -134,6 +134,10 @@ export interface QualitySummaryPage {
     readonly version: number;
     readonly baselineId: string | null;
     readonly baselineSequence: number | null;
+    /** True when a newer PBI revision exists than the one pinned by the current baseline. */
+    readonly staleBaseline: boolean;
+    /** Certified QA runs recorded against the current baseline; zero means not validated (BR-QA-001). */
+    readonly certifiedRuns: number;
     readonly requiredCriteria: number;
     readonly coveredRequiredCriteria: number;
     readonly coveragePercent: number | null;
@@ -215,6 +219,16 @@ export function listProjectQualitySummaries(
        SELECT ci.item_id, ci.item_key, ci.type, ci.title, ci.state, ci.version, ci.baseline_id,
             (SELECT b.sequence FROM work_baselines b WHERE b.project_id = ci.project_id
              AND b.baseline_id = ci.baseline_id) AS baseline_sequence,
+            CASE WHEN ci.baseline_id IS NULL THEN 0 ELSE
+              (SELECT MAX(r.revision_number) FROM work_item_revisions r
+               WHERE r.project_id = ci.project_id AND r.item_id = ci.item_id AND r.status IN ('published', 'superseded')) >
+              COALESCE((SELECT ref.revision_number FROM baseline_refs ref
+                WHERE ref.project_id = ci.project_id AND ref.baseline_id = ci.baseline_id
+                  AND ref.entity_type = 'work_item_revision' AND ref.entity_id = ci.item_id), 0)
+            END AS stale_baseline,
+            (SELECT COUNT(*) FROM test_run_certifications cert
+             WHERE cert.project_id = ci.project_id AND cert.item_id = ci.item_id
+               AND cert.baseline_id = ci.baseline_id) AS certified_runs,
             SUM(CASE WHEN cq.is_required = 1 THEN 1 ELSE 0 END) AS required_criteria,
             SUM(CASE WHEN cq.is_required = 1 AND cq.is_covered THEN 1 ELSE 0 END) AS covered_required_criteria
        FROM current_items ci LEFT JOIN criterion_quality cq
@@ -227,7 +241,7 @@ export function listProjectQualitySummaries(
     const result = row as {
       item_id: string; item_key: string; type: "story" | "bug"; title: string; state: string; version: number;
       baseline_id: string | null; baseline_sequence: number | null; required_criteria: number | null;
-      covered_required_criteria: number | null;
+      covered_required_criteria: number | null; stale_baseline: number; certified_runs: number;
     };
     const requiredCriteria = result.required_criteria ?? 0;
     const coveredRequiredCriteria = result.covered_required_criteria ?? 0;
@@ -240,6 +254,8 @@ export function listProjectQualitySummaries(
       version: result.version,
       baselineId: result.baseline_id,
       baselineSequence: result.baseline_sequence,
+      staleBaseline: result.stale_baseline === 1,
+      certifiedRuns: result.certified_runs,
       requiredCriteria,
       coveredRequiredCriteria,
       coveragePercent: requiredCriteria === 0 ? null : Math.round(coveredRequiredCriteria / requiredCriteria * 100),
