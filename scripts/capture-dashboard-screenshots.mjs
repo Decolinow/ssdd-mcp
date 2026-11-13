@@ -45,5 +45,6 @@ await page.click("#quality-tab");
 await snapDialog("novo-cenario", () => page.click("#create-scenario"));
 await page.click("#specifications-tab");
 await snapDialog("nova-especificacao", () => page.click("#create-specification, #new-specification"));
-await snapDialog("planejamento", () => page.click("#open-planning"));
+await snapDialog("planejamento", async () => { await page.click("#open-planning"); await page.selectOption("#planning-operation", "sprint_draft"); });
+await snapDialog("planejamento-capacidade", async () => { await page.click("#open-planning"); await page.selectOption("#planning-operation", "team_create"); });
 await browser.close();

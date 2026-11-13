@@ -162,6 +162,8 @@ export const elements = {
   planningOperation: document.querySelector("#planning-operation"),
   planningHint: document.querySelector("#planning-hint"),
   planningPayload: document.querySelector("#planning-payload"),
+  planningFields: document.querySelector("#planning-fields"),
+  planningAdvanced: document.querySelector("#planning-advanced"),
   submitPlanning: document.querySelector("#submit-planning"),
   qaCoverage: document.querySelector("#qa-coverage"),
   qaFilterBuild: document.querySelector("#qa-filter-build"),

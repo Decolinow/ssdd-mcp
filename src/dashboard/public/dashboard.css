@@ -781,3 +781,14 @@ footer { display: flex; justify-content: space-between; padding: 15px 4.5vw 20px
 .quick-access-actions > .quick-panel:last-child:nth-child(odd) { grid-column: 1 / -1; }
 @media (max-width: 900px) { .activity-event, .timeline-event, .run-history-row, .quality-row { grid-template-columns: 1fr; } }
 .activity-event > button { justify-self: stretch; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.planning-fields { display: grid; gap: 4px; }
+.planning-fields .form-field small { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.planning-fields textarea { min-height: 60px; }
+.planning-weekdays { display: flex; flex-wrap: wrap; gap: 6px 14px; border: 0; padding: 0; margin: 0 0 12px; }
+.planning-weekdays legend { padding: 0; margin-bottom: 6px; font-weight: 650; color: #43536d; font-size: 13px; }
+.planning-weekdays label { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; }
+.required-mark { color: #b3392e; }
+.planning-advanced { margin: 10px 0 4px; font-size: 13px; }
+.planning-advanced summary { cursor: pointer; color: #40536f; font-weight: 700; }
+.planning-fields input[readonly] { background: #f3f5f8; color: #52627a; }
+.editor-modal .modal-actions { position: sticky; bottom: 0; padding: 12px 0 2px; background: #fff; }

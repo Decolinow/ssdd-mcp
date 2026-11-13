@@ -69,6 +69,7 @@ Auditoria da interface inteira com capturas reais (ver [manual do usuário](manu
 - **Rótulos:** "Backlog do produto" substitui "Itens fora da sprint ativa"; as marcas H/B/F/E/T têm nome acessível e tooltip; o título da janela acompanha a aba; a seção "Qualidade por PBI" ganhou título e explicação; prioridades do formulário descrevem P1–P4.
 - **Detalhe do item:** o item pai mostra chave e título (não o UUID) e responsáveis aparecem como o seu nome ("você") ou um identificador curto.
 - **Alinhamento:** linhas de Atividade, Qualidade por PBI e histórico de execuções usam colunas fixas (antes o botão ›, o ator e o resultado deslocavam de linha para linha); o painel de impedimentos da home ocupa a largura toda quando está sozinho; as abas Atividade e Retrospectiva não exibem mais a busca e o filtro de tipo, que não se aplicam a elas.
+- **Planejamento:** o diálogo deixou de pedir JSON cru. Cada operação (equipe, capacidade, DoD, marcos, sprint e as operações de item) tem formulário guiado com campos rotulados, obrigatórios marcados, listas por linha, dias úteis em caixas e validação local antes do envio; o JSON continua disponível em **Modo avançado** e, quando aberto, é o que vale. As rotas `/planning/:operation` e `/backlog/:operation` não mudaram.
 - **Acessibilidade:** foco visível padronizado e respeito a `prefers-reduced-motion`.
 - `scripts/capture-dashboard-screenshots.mjs` regenera as imagens de `docs/images/`.
 
@@ -180,7 +181,7 @@ O detalhe de histórias e bugs ganha o painel **Baseline e impactos**: baseline 
 
 ## Operações de planejamento (SSDD-99)
 
-O botão **Planejamento** abre um diálogo com as dez operações de times e sprint: `team_create`, `team_capacity_set`, `definition_of_done_set`, `milestone_create`, `milestone_scope_change`, `sprint_draft`, `sprint_scope_change`, `sprint_start`, `sprint_close` e `sprint_cancel`. Cada uma chama `POST /api/v1/projects/:id/planning/:operation` (CSRF e origem obrigatórios), que valida o corpo e executa o mesmo comando de aplicação da tool MCP homônima: versão esperada (409), gates, snapshots de capacidade/DoD e auditoria vêm da camada de aplicação, não do formulário. O diálogo usa um payload JSON pré-preenchido por operação (mesmos campos da tool, `requestId` gerado pelo cliente); formulários campo a campo, seleção de times e confirmação explícita antes de iniciar/encerrar sprint continuam como evolução.
+O botão **Planejamento** abre um diálogo com as dez operações de times e sprint: `team_create`, `team_capacity_set`, `definition_of_done_set`, `milestone_create`, `milestone_scope_change`, `sprint_draft`, `sprint_scope_change`, `sprint_start`, `sprint_close` e `sprint_cancel`. Cada uma chama `POST /api/v1/projects/:id/planning/:operation` (CSRF e origem obrigatórios), que valida o corpo e executa o mesmo comando de aplicação da tool MCP homônima: versão esperada (409), gates, snapshots de capacidade/DoD e auditoria vêm da camada de aplicação, não do formulário. O diálogo mostra um formulário guiado por operação (campos rotulados, obrigatórios, listas por linha e validação local); o `requestId` é gerado pelo cliente e o JSON equivalente fica em **Modo avançado**. Seleção de times/sprints por lista (hoje chave ou UUID digitados) e confirmação explícita antes de iniciar/encerrar sprint continuam como evolução.
 
 ## Qualidade e atividade
 

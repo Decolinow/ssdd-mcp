@@ -355,11 +355,14 @@
     </dialog>
 
     <dialog id="planning-dialog" class="modal editor-modal" aria-labelledby="planning-title">
-      <form id="planning-form">
+      <form id="planning-form" novalidate>
         <div class="modal-header"><div><p class="eyebrow">PLANEJAMENTO</p><h2 id="planning-title">Operação de planejamento</h2></div><button class="icon-button close-dialog" type="button" aria-label="Fechar">×</button></div>
         <label class="form-field" for="planning-operation">Operação<select id="planning-operation"></select></label>
         <p id="planning-hint" class="form-hint"></p>
-        <label class="form-field" for="planning-payload">Parâmetros (objeto JSON, mesmos campos da tool do MCP)<textarea id="planning-payload" rows="14" spellcheck="false"></textarea></label>
+        <div id="planning-fields" class="planning-fields"></div>
+        <details id="planning-advanced" class="planning-advanced"><summary>Modo avançado (JSON)</summary>
+          <label class="form-field" for="planning-payload">Parâmetros (objeto JSON, mesmos campos da tool do MCP; quando esta seção está aberta, ela vale no lugar do formulário)<textarea id="planning-payload" rows="12" spellcheck="false"></textarea></label>
+        </details>
         <div class="modal-actions"><button class="button button-secondary close-dialog" type="button">Cancelar</button><button id="submit-planning" class="button button-primary" type="submit">Executar</button></div>
       </form>
     </dialog>

@@ -131,11 +131,20 @@ Escolha uma data (no fuso do projeto) para reconstruir itens, revisões publicad
 
 **Retrospectiva:** aprendizados e ações acordadas de cada sprint fechada. A gravação e as revisões são feitas pelo MCP.
 
-## 13. Planejamento
+## 13. Planejamento e operações do item
 
-![Diálogo Planejamento](images/dialogo-planejamento.png)
+![Diálogo Planejamento: planejar sprint](images/dialogo-planejamento.png)
 
-Reúne as operações de sprint, capacidade e marcos disponíveis para o seu papel. Cada operação é idempotente, versionada e auditada. **Atenção:** nesta versão o formulário pede os parâmetros como um objeto JSON com os mesmos campos da tool MCP correspondente (um modelo é preenchido ao escolher a operação); formulários guiados por campo ainda não existem.
+O botão **Planejamento** (e **Operações** no detalhe de um item) abre um formulário guiado para a operação escolhida: criar time, nova versão de capacidade, Definition of Done, criar marco e alterar escopo, planejar, iniciar, encerrar, cancelar e alterar escopo de sprint; no item, atribuir, reordenar, comentar, estimar, confirmar estimativa, revalidar/fixar baseline, certificar execução e criar/remover vínculos.
+
+![Diálogo Planejamento: criar time](images/dialogo-planejamento-capacidade.png)
+
+- Campos com ***** são obrigatórios; o **Motivo** de cada operação fica na auditoria.
+- Campos de lista (itens, critérios, membros) usam **uma linha por valor**; membros: `UUID do principal;percentual`.
+- A **Versão atual** protege contra edição concorrente: use a que o item, a sprint ou o marco mostra. Em conflito o dashboard recusa e você recarrega.
+- Se faltar um campo, o aviso diz qual; nada é enviado ao servidor.
+- **Modo avançado (JSON):** a seção recolhida no fim do formulário mostra os mesmos parâmetros da tool MCP. Enquanto estiver aberta, ela vale no lugar dos campos; serve para automação e diagnóstico.
+- Cada operação é idempotente, versionada e auditada, e o servidor valida papel e gates (por exemplo, só PO fixa baseline e só QA humano certifica).
 
 ## 14. Mensagens e erros comuns
 
