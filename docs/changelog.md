@@ -6,6 +6,9 @@ Histórico datado das entregas, verificações e auditorias do projeto, movido d
 
 - SSDD-127 (matriz de rastreabilidade: 32 vínculos novos, [matriz-rastreabilidade.md](matriz-rastreabilidade.md)) e SSDD-139 (reverificação do catálogo) foram para Done pelo fluxo normal, com evidência de build e sem revisão independente (self_validation registrado).
 - SSDD-144 foi reduzida à fatia 1 por revisão publicada: origem de execução e hash de evidência, `ci` aceito só com workflow_run de sucesso do mesmo commit (migração 43, ADR 0030). JUnit/Cucumber, política `ci` por projeto e evidência `verified` direta ficaram como backlog; nada disso foi exercitado por webhook real nem CI remota.
+- SSDD-102 foi para Done na build `git-08680ce`: 3 critérios obrigatórios certificados por delegação do QA. A verificação do AC-1 achou uma lacuna real (SSDD-128 declarava SSDD-405 sem `depends_on`), corrigida antes do run.
+- As 14 features e os 4 épicos, agrupadores sem critério ou cenário próprios, foram fechados por rollup depois que todos os filhos ficaram em Done. Estado final no banco: 4 épicos, 14 features, 19 histórias e 122 tarefas em Done; 3 tarefas canceladas; 0 impactos abertos; 46/46 critérios obrigatórios certificados.
+- Fica em aberto, fora do MCP: JUnit/Cucumber por tag, política `ci` por projeto e evidência `verified` direta (fatia 2 de SSDD-941), CI remota e execução em macOS.
 - SSDD-102 ganhou critérios obrigatórios, cenários SCN-102-AC1..AC3 e baseline revalidada antes de entrar em andamento (a lição da SSDD-6).
 
 ## Certificação delegada e histórias em Done (2026-11-13)
