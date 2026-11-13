@@ -1,11 +1,10 @@
-/* global crypto, document, window */
+/* global crypto */
 import { transitions } from "./constants.js";
 import { elements } from "./elements.js";
 import { model } from "./model.js";
 import { escapeHtml, stateLabel, api, toast } from "./ui.js";
 import { loadSpecifications, loadProjectData, loadDashboardMetrics, loadProjectRoadmap } from "./data.js";
-import { scheduleRefresh, submitLogin, logout } from "./session.js";
-import { syncWorkProfileOptions, storeWorkProfile, renderQuickAccess, render } from "./quick-access.js";
+import { renderQuickAccess } from "./quick-access.js";
 import { loadProjectHistory } from "./history.js";
 
 export function openTransition(item, preferredState = null) {
@@ -136,95 +135,3 @@ export function setView(view) {
   if (view === "history") void loadProjectHistory();
   if (view === "specifications") void loadSpecifications();
 }
-
-elements.loginForm.addEventListener("submit", (event) => { void submitLogin(event); });
-document.addEventListener("visibilitychange", () => {
-  scheduleRefresh();
-  if (!document.hidden && model.session !== null) void loadProjectData();
-});
-elements.logout.addEventListener("click", () => { void logout(); });
-elements.projectSelect.addEventListener("change", () => {
-  model.projectId = elements.projectSelect.value;
-  model.project = null;
-  model.quickAccess = null;
-  model.workProfile = null;
-  model.teams = [];
-  model.selectedTeamId = null;
-  model.items = [];
-  model.sprint = null;
-  model.dashboardMetrics = null;
-  model.projectRoadmap = null;
-  model.historySnapshot = null;
-  model.historyDate = null;
-  model.historyCursor = null;
-  model.specifications = [];
-  model.specificationKind = "";
-  model.specificationSearch = "";
-  model.currentSpecification = null;
-  model.selectedSpecificationRevisionNumber = null;
-  elements.specificationKind.value = "";
-  elements.specificationSearch.value = "";
-  model.selectedMetricsMilestoneId = null;
-  model.selectedMetricsSprintId = null;
-  model.selectedMetricsDate = null;
-  model.metricsFiltersInitialized = false;
-  model.developerMetricsFrom = null;
-  model.developerMetricsTo = null;
-  model.developerMetricsRangeCustomized = false;
-  model.selectedMetricsDeveloperId = null;
-  elements.loading.hidden = false;
-  syncWorkProfileOptions();
-  void loadProjectData();
-});
-elements.homeProfile.addEventListener("change", () => {
-  model.workProfile = elements.homeProfile.value;
-  storeWorkProfile(`ssdd-dashboard-work-profile:${model.projectId}`, model.workProfile);
-  renderQuickAccess();
-});
-elements.teamSelect.addEventListener("change", () => {
-  model.selectedTeamId = elements.teamSelect.value || null;
-  model.sprint = null;
-  model.closedSprints = [];
-  model.selectedRetrospectiveSprintId = null;
-  model.retrospective = null;
-  model.dashboardMetrics = null;
-  model.projectRoadmap = null;
-  model.selectedMetricsSprintId = null;
-  model.metricsFiltersInitialized = false;
-  void loadProjectData();
-});
-elements.refresh.addEventListener("click", () => {
-  void loadProjectData();
-  if (document.querySelector('[role="tab"][aria-selected="true"]')?.id === "metrics-tab") void loadDashboardMetrics();
-});
-elements.retry.addEventListener("click", () => { void loadProjectData(); });
-elements.search.addEventListener("input", render);
-elements.typeFilter.addEventListener("change", render);
-elements.homeTab.addEventListener("click", () => setView("home"));
-elements.metricsTab.addEventListener("click", () => setView("metrics"));
-elements.roadmapTab.addEventListener("click", () => setView("roadmap"));
-elements.roadmapDate.addEventListener("change", () => { void loadProjectRoadmap(); });
-elements.historyTab.addEventListener("click", () => setView("history"));
-elements.specificationsTab.addEventListener("click", () => setView("specifications"));
-elements.specificationKind.addEventListener("change", () => {
-  model.specificationKind = elements.specificationKind.value;
-  void loadSpecifications();
-});
-elements.specificationSearch.addEventListener("input", () => {
-  model.specificationSearch = elements.specificationSearch.value;
-  if (model.specificationSearchTimer !== null) window.clearTimeout(model.specificationSearchTimer);
-  model.specificationSearchTimer = window.setTimeout(() => {
-    model.specificationSearchTimer = null;
-    void loadSpecifications();
-  }, 300);
-});
-elements.applySpecificationFilter.addEventListener("click", () => {
-  model.specificationKind = elements.specificationKind.value;
-  model.specificationSearch = elements.specificationSearch.value;
-  void loadSpecifications();
-});
-elements.backlogTab.addEventListener("click", () => setView("backlog"));
-elements.boardTab.addEventListener("click", () => setView("board"));
-elements.qualityTab.addEventListener("click", () => setView("quality"));
-elements.activityTab.addEventListener("click", () => setView("activity"));
-elements.retrospectiveTab.addEventListener("click", () => setView("retrospective"));

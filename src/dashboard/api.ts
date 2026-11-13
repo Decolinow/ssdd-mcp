@@ -33,6 +33,8 @@ import { getSpecification, listSpecifications } from "../application/specificati
 import { getTaskStartReadiness, transitionWorkItem } from "../application/work-item-workflow.js";
 import { scenarioKinds, testRunResults } from "../domain/scenarios.js";
 import { specificationKinds } from "../domain/specifications.js";
+import { linkTaskToAdr } from "../application/adr-commands.js";
+import { createSpecification, proposeSpecificationRevision, publishSpecificationRevision, withdrawSpecificationRevision } from "../application/specification-commands.js";
 import { sprintStates } from "../domain/sprints.js";
 import { workItemStates, workItemTypes } from "../domain/work-items.js";
 import { applyMigrations } from "../storage-sqlite/migrations.js";
@@ -289,6 +291,51 @@ export function createDashboardApiServer(workspace: string): DashboardApiServer 
         const projectId = parseUuid(decodePathSegment(projectSpecificationMatch[1]));
         const specIdOrKey = decodePathSegment(projectSpecificationMatch[2]);
         sendJson(response, 200, { specification: getSpecification(database, projectId, principal.id, specIdOrKey) });
+        return;
+      }
+
+      if (request.method === "POST" && projectSpecificationsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(projectSpecificationsMatch[1]));
+        assertSameOriginMutation(request, origin, session);
+        const input = createSpecificationBodySchema.parse(await readJsonBody(request));
+        const receipt = createSpecification(database, { projectId, principalId: principal.id, ...input });
+        sendJson(response, 201, { revision: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
+      const specificationRevisionsMatch = /^\/api\/v1\/projects\/([^/]+)\/specifications\/([^/]+)\/revisions$/.exec(route);
+      if (request.method === "POST" && specificationRevisionsMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(specificationRevisionsMatch[1]));
+        const specIdOrKey = decodePathSegment(specificationRevisionsMatch[2]);
+        assertSameOriginMutation(request, origin, session);
+        const input = proposeSpecificationBodySchema.parse(await readJsonBody(request));
+        const receipt = proposeSpecificationRevision(database, { projectId, principalId: principal.id, specIdOrKey, ...input });
+        sendJson(response, 200, { revision: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
+      const specificationRevisionActionMatch = /^\/api\/v1\/projects\/([^/]+)\/specifications\/([^/]+)\/revisions\/(\d+)\/(publish|withdraw)$/.exec(route);
+      if (request.method === "POST" && specificationRevisionActionMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(specificationRevisionActionMatch[1]));
+        const specIdOrKey = decodePathSegment(specificationRevisionActionMatch[2]);
+        const revisionNumber = Number(specificationRevisionActionMatch[3]);
+        assertSameOriginMutation(request, origin, session);
+        const body = await readJsonBody(request);
+        const receipt = specificationRevisionActionMatch[4] === "publish"
+          ? publishSpecificationRevision(database, { projectId, principalId: principal.id, specIdOrKey, revisionNumber, ...publishWorkItemRevisionBodySchema.parse(body) })
+          : withdrawSpecificationRevision(database, { projectId, principalId: principal.id, specIdOrKey, revisionNumber, ...withdrawSpecificationBodySchema.parse(body) });
+        sendJson(response, 200, { revision: receipt.value, auditEventIds: receipt.auditEventIds });
+        return;
+      }
+
+      const adrLinkMatch = /^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)\/adr-links$/.exec(route);
+      if (request.method === "POST" && adrLinkMatch !== null) {
+        const projectId = parseUuid(decodePathSegment(adrLinkMatch[1]));
+        const taskIdOrKey = decodePathSegment(adrLinkMatch[2]);
+        assertSameOriginMutation(request, origin, session);
+        const input = linkAdrBodySchema.parse(await readJsonBody(request));
+        const receipt = linkTaskToAdr(database, { projectId, principalId: principal.id, taskIdOrKey, ...input });
+        sendJson(response, 201, { ...receipt.value, auditEventIds: receipt.auditEventIds });
         return;
       }
 
@@ -869,6 +916,30 @@ const proposeWorkItemRevisionBodySchema = z.object({
   businessValueScore: z.number().int().min(0).max(100).nullable().optional(),
   businessValueRationale: z.string().trim().max(1000).nullable().optional(),
   criteria: workItemCriteriaBodySchema.optional(),
+});
+
+const specificationContentBodySchema = z.record(z.string(), z.json()).refine((content) => Object.keys(content).length > 0, "Specification content must be a non-empty JSON object.");
+const createSpecificationBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(128),
+  key: z.string().trim().min(1).max(32),
+  kind: z.enum(specificationKinds),
+  title: z.string().trim().min(1).max(200),
+  content: specificationContentBodySchema,
+});
+const proposeSpecificationBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(128),
+  expectedVersion: z.number().int().positive(),
+  content: specificationContentBodySchema,
+});
+const withdrawSpecificationBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(128),
+  expectedVersion: z.number().int().positive(),
+  reason: z.string().trim().min(1).max(1000),
+});
+const linkAdrBodySchema = z.object({
+  requestId: z.string().trim().min(1).max(128),
+  adrIdOrKey: z.string().trim().min(1).max(80),
+  relationship: z.enum(["implements", "relates_to"]).default("implements"),
 });
 
 const publishWorkItemRevisionBodySchema = z.object({

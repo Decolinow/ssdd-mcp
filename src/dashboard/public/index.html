@@ -192,8 +192,8 @@
 
           <section id="specifications-view" class="view specifications-view" role="tabpanel" aria-labelledby="specifications-tab" hidden>
             <div class="view-heading">
-              <div><h2>Especificações e decisões</h2><p>Catálogo somente leitura de regras, glossários, contratos, ADRs e requisitos não funcionais. A autoria e a publicação continuam no MCP.</p></div>
-              <span id="specifications-count" class="count-label">0 itens</span>
+              <div><h2>Especificações e decisões</h2><p>Regras, glossários, contratos, ADRs e requisitos não funcionais. Rascunhos e revisões são propostos aqui; a publicação segue a regra de papel do MCP.</p></div>
+              <div class="view-heading-actions"><span id="specifications-count" class="count-label">0 itens</span><button id="create-specification" class="button button-primary" type="button">Nova especificação</button></div>
             </div>
             <div class="specification-filters">
               <label for="specification-kind">Tipo
@@ -324,6 +324,20 @@
         <label class="form-field" id="work-item-rationale-field" for="work-item-business-rationale">Justificativa do valor<textarea id="work-item-business-rationale" rows="2" maxlength="1000" placeholder="Benefício esperado e motivo da nota"></textarea></label>
         <label class="form-field" id="work-item-criteria-field" for="work-item-criteria">Critérios de aceite<textarea id="work-item-criteria" rows="5" placeholder="Um critério por linha"></textarea><small>Na edição, use a chave existente no início, por exemplo AC-1: resultado visível, para preservar o vínculo.</small></label>
         <div class="modal-actions"><button class="button button-secondary close-dialog" type="button">Cancelar</button><button id="submit-work-item" class="button button-primary" type="submit">Criar PBI</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="specification-form-dialog" class="modal editor-modal" aria-labelledby="specification-form-title">
+      <form id="specification-form">
+        <div class="modal-header"><div><p class="eyebrow">ESPECIFICAÇÕES</p><h2 id="specification-form-title">Nova especificação</h2></div><button class="icon-button close-dialog" type="button" aria-label="Fechar">×</button></div>
+        <div id="specification-identity-fields">
+          <label class="form-field" for="specification-form-key">Chave<input id="specification-form-key" maxlength="32"></label>
+          <label class="form-field" for="specification-form-kind">Tipo<select id="specification-form-kind"><option value="business_rule">Regra de negócio</option><option value="glossary">Glossário</option><option value="api_contract">Contrato de API</option><option value="adr">Decisão de arquitetura</option><option value="non_functional">Requisito não funcional</option></select></label>
+          <label class="form-field" for="specification-form-title-input">Título<input id="specification-form-title-input" maxlength="200"></label>
+        </div>
+        <label class="form-field" id="specification-content-field" for="specification-content">Conteúdo (objeto JSON)<textarea id="specification-content" rows="10" spellcheck="false"></textarea></label>
+        <label class="form-field" id="specification-reason-field" for="specification-reason" hidden>Motivo da retirada<textarea id="specification-reason" rows="3" maxlength="1000"></textarea></label>
+        <div class="modal-actions"><button class="button button-secondary close-dialog" type="button">Cancelar</button><button id="submit-specification" class="button button-primary" type="submit">Salvar</button></div>
       </form>
     </dialog>
 

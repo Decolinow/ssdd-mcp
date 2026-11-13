@@ -342,7 +342,8 @@ test("dashboard API sessions and project authorization match MCP access", async 
   assert.match(dashboardHtml, /specifications-view/u);
   assert.match(dashboardHtml, /id="specification-kind"/u);
   assert.match(dashboardHtml, /id="specification-search"/u);
-  assert.match(dashboardHtml, /Catálogo somente leitura/u);
+  assert.match(dashboardHtml, /id="create-specification"/u);
+  assert.match(dashboardHtml, /id="specification-form-dialog"/u);
   const dashboardScript = await fetch(`${address.origin}/dashboard.js`);
   assert.equal(dashboardScript.status, 200);
   assert.match(dashboardScript.headers.get("content-type") ?? "", /javascript/u);
@@ -350,6 +351,9 @@ test("dashboard API sessions and project authorization match MCP access", async 
   const served = await Promise.all(moduleNames.map(async (name) => (await fetch(`${address.origin}/js/${name}`)).text()));
   const dashboardJavascript = [await dashboardScript.text(), ...served].join("\n");
   assert.match(dashboardJavascript, /initialize/u);
+  for (const listener of ["elements.createWorkItem.addEventListener", "elements.transitionForm.addEventListener", "elements.specificationForm.addEventListener"]) {
+    assert.equal(dashboardJavascript.split(listener).length - 1, 1, `${listener} must be registered exactly once across the dashboard modules`);
+  }
   const sessionModule = await fetch(`${address.origin}/js/session.js`);
   assert.equal(sessionModule.status, 200);
   assert.match(await sessionModule.text(), /X-SSDD-CSRF/u);

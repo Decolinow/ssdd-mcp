@@ -20,6 +20,8 @@ export const model = {
   specificationRequestId: 0,
   specificationSearchTimer: null,
   currentSpecification: null,
+  specificationFormMode: null,
+  specificationFormRevision: null,
   selectedSpecificationRevisionNumber: null,
   items: [],
   qualitySummaries: [],

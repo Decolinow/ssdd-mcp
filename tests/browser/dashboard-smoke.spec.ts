@@ -75,5 +75,18 @@ test("dashboard smoke: login, backlog and board, gate-refused transition and PBI
   await page.click("#submit-work-item");
   await page.locator("#toast:not([hidden])").filter({ hasText: "criado como rascunho" }).waitFor();
 
+  await page.locator("#item-dialog[open]").waitFor();
+  await page.keyboard.press("Escape");
+  await page.click("#specifications-tab");
+  await page.click("#create-specification");
+  await page.locator("#specification-form-dialog[open]").waitFor();
+  await page.fill("#specification-form-key", "SMK-RULE-1");
+  await page.selectOption("#specification-form-kind", "business_rule");
+  await page.fill("#specification-form-title-input", "Regra criada pelo smoke");
+  await page.fill("#specification-content", '{"rule": "O smoke cria uma regra em rascunho."}');
+  await page.click("#submit-specification");
+  await page.locator("#specification-detail").getByText("SMK-RULE-1").first().waitFor({ state: "visible" });
+  await page.locator('[data-spec-action="publish"]').waitFor({ state: "visible" });
+
   assert.deepEqual(pageErrors.filter((message) => !/ERR_|Failed to load resource/u.test(message)), [], "the browser console must stay free of script errors");
 });

@@ -7,7 +7,7 @@ import { loadSpecifications, loadProjectData, loadDashboardMetrics, loadProjectR
 import { claimQuickAccessTask, scheduleRefresh, submitLogin, logout } from "./session.js";
 import { syncWorkProfileOptions, storeWorkProfile, renderQuickAccess, render } from "./quick-access.js";
 import { projectLocalDate, isHistoryDateSelectable, historyDateBoundsMessage, loadProjectHistory } from "./history.js";
-import { renderSpecifications, renderSpecificationDetail, openSpecification } from "./specifications.js";
+import { renderSpecifications, renderSpecificationDetail, openSpecification, runSpecificationAction, openSpecificationForm, submitSpecificationForm } from "./specifications.js";
 import { renderMetrics } from "./metrics.js";
 import { loadSelectedRetrospective, loadMoreTaskContext, loadMoreEvidence, loadMoreActivity, applyActivityFilters, openItem } from "./details.js";
 import { workflowEditorRow, updateWorkflowEditorOrder, updateWorkflowEditorState, openTaskWorkflowEditor, submitTaskWorkflowForm, publishTaskWorkflowDraft, changeTaskWorkflowStep, loadTaskWorkflowRevision } from "./task-workflow.js";
@@ -334,6 +334,11 @@ document.addEventListener("click", (event) => {
     renderSpecificationDetail();
     return;
   }
+  const specificationAction = event.target.closest("[data-spec-action]");
+  if (specificationAction) {
+    void runSpecificationAction(specificationAction);
+    return;
+  }
   if (event.target.closest("[data-close-specification]")) {
     model.currentSpecification = null;
     model.selectedSpecificationRevisionNumber = null;
@@ -355,7 +360,9 @@ document.addEventListener("click", (event) => {
 document.querySelectorAll(".close-dialog").forEach((button) => {
   button.addEventListener("click", () => button.closest("dialog").close());
 });
-for (const dialog of [elements.itemDialog, elements.transitionDialog, elements.workItemDialog, elements.scenarioDialog, elements.taskWorkflowDialog]) {
+elements.createSpecification.addEventListener("click", () => openSpecificationForm("create"));
+elements.specificationForm.addEventListener("submit", (event) => { void submitSpecificationForm(event); });
+for (const dialog of [elements.specificationDialog, elements.itemDialog, elements.transitionDialog, elements.workItemDialog, elements.scenarioDialog, elements.taskWorkflowDialog]) {
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) dialog.close();
   });

@@ -1,7 +1,9 @@
+/* global crypto, document */
 import { elements } from "./elements.js";
 import { model } from "./model.js";
-import { escapeHtml, specificationKindLabel, api } from "./ui.js";
+import { escapeHtml, specificationKindLabel, api, toast } from "./ui.js";
 import { formatDate } from "./views.js";
+import { loadSpecifications } from "./data.js";
 
 export const specificationRevisionStatusLabels = {
   draft: "Rascunho",
@@ -201,6 +203,7 @@ export function renderSpecificationDetail() {
       <button class="icon-button" type="button" data-close-specification aria-label="Fechar detalhe da especificação">×</button>
     </div>
     ${renderSpecificationNotice(specification, selectedRevision)}
+    ${renderSpecificationActions(specification)}
     <div class="specification-content">${renderSpecificationValue(selectedRevision?.content ?? {})}</div>
     <section class="specification-revisions-list" aria-label="Revisões da especificação"><h4>Revisões (${revisions.length})</h4><ul>${revisionRows}</ul></section>`;
 }
@@ -224,5 +227,127 @@ export async function openSpecification(key) {
     renderSpecifications();
     elements.specificationDetail.hidden = false;
     elements.specificationDetail.innerHTML = `<div class="empty-state error-state"><strong>Não foi possível abrir ${escapeHtml(key)}.</strong><p>${escapeHtml(error.code ?? "ERRO")}: ${escapeHtml(error.message)}</p></div>`;
+  }
+}
+
+function renderSpecificationActions(specification) {
+  const latest = (specification.revisions ?? []).at(-1) ?? null;
+  const hasDraft = latest?.status === "draft";
+  const buttons = hasDraft
+    ? `<button class="button button-primary" type="button" data-spec-action="publish">Publicar r${escapeHtml(latest.revisionNumber)}</button><button class="button button-secondary" type="button" data-spec-action="withdraw">Retirar rascunho</button>`
+    : '<button class="button button-secondary" type="button" data-spec-action="propose">Propor revisão</button>';
+  const adrLink = specification.kind === "adr" && specification.publishedRevision !== null
+    ? `<div class="specification-adr-link"><label for="adr-link-task">Tarefa<input id="adr-link-task" placeholder="Chave da tarefa" autocomplete="off"></label><label for="adr-link-relationship">Relação<select id="adr-link-relationship"><option value="implements">Implementa</option><option value="relates_to">Relaciona-se</option></select></label><button class="button button-secondary" type="button" data-spec-action="link-adr">Vincular tarefa</button></div>`
+    : "";
+  return `<div class="specification-actions">${buttons}</div>${adrLink}`;
+}
+
+function specificationErrorToast(error) {
+  const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
+  toast(`${error.code ?? "ERRO"}: ${error.message}${details}`, true);
+}
+
+function specificationHeaders() {
+  return { "Content-Type": "application/json", "X-SSDD-CSRF": model.session.csrfToken };
+}
+
+export function openSpecificationForm(mode) {
+  const specification = model.currentSpecification;
+  model.specificationFormMode = mode;
+  const creating = mode === "create";
+  const withdrawing = mode === "withdraw";
+  elements.specificationFormTitle.textContent = creating ? "Nova especificação" : withdrawing ? `Retirar rascunho de ${specification.key}` : `Propor revisão de ${specification.key}`;
+  elements.specificationIdentityFields.hidden = !creating;
+  elements.specificationContentField.hidden = withdrawing;
+  elements.specificationReasonField.hidden = !withdrawing;
+  for (const field of [elements.specificationFormKey, elements.specificationFormName]) field.required = creating;
+  elements.specificationContent.required = !withdrawing;
+  elements.specificationReason.required = withdrawing;
+  elements.specificationFormKey.value = "";
+  elements.specificationFormName.value = "";
+  elements.specificationReason.value = "";
+  const selected = specification?.revisions?.find((revision) => revision.revisionNumber === model.selectedSpecificationRevisionNumber) ?? specification?.revisions?.at(-1);
+  elements.specificationContent.value = creating ? "{\n  \"\": \"\"\n}" : JSON.stringify(selected?.content ?? {}, null, 2);
+  elements.specificationDialog.showModal();
+}
+
+export async function submitSpecificationForm(event) {
+  event.preventDefault();
+  const mode = model.specificationFormMode;
+  const specification = model.currentSpecification;
+  const projectBase = `/api/v1/projects/${encodeURIComponent(model.projectId)}/specifications`;
+  elements.submitSpecification.disabled = true;
+  try {
+    let key = specification?.key;
+    if (mode === "withdraw") {
+      const draft = specification.revisions.at(-1);
+      await api(`${projectBase}/${encodeURIComponent(key)}/revisions/${draft.revisionNumber}/withdraw`, {
+        method: "POST", headers: specificationHeaders(),
+        body: JSON.stringify({ requestId: crypto.randomUUID(), expectedVersion: specification.version, reason: elements.specificationReason.value.trim() }),
+      });
+      toast(`Rascunho r${draft.revisionNumber} retirado.`);
+    } else {
+      let content;
+      try { content = JSON.parse(elements.specificationContent.value); } catch { throw Object.assign(new Error("O conteúdo precisa ser um objeto JSON válido."), { code: "VALIDATION_FAILED" }); }
+      if (mode === "create") {
+        const result = await api(projectBase, {
+          method: "POST", headers: specificationHeaders(),
+          body: JSON.stringify({
+            requestId: crypto.randomUUID(), key: elements.specificationFormKey.value.trim(), kind: elements.specificationFormKind.value,
+            title: elements.specificationFormName.value.trim(), content,
+          }),
+        });
+        key = result.revision.key;
+        toast(`${key} criada como rascunho.`);
+      } else {
+        const result = await api(`${projectBase}/${encodeURIComponent(key)}/revisions`, {
+          method: "POST", headers: specificationHeaders(),
+          body: JSON.stringify({ requestId: crypto.randomUUID(), expectedVersion: specification.version, content }),
+        });
+        toast(`Revisão r${result.revision.revisionNumber} proposta. Publique para torná-la vigente.`);
+      }
+    }
+    elements.specificationDialog.close();
+    await loadSpecifications();
+    await openSpecification(key);
+  } catch (error) {
+    specificationErrorToast(error);
+    if (error.code === "VERSION_CONFLICT" && specification) await openSpecification(specification.key);
+  } finally {
+    elements.submitSpecification.disabled = false;
+  }
+}
+
+export async function runSpecificationAction(button) {
+  const specification = model.currentSpecification;
+  if (!specification) return;
+  const action = button.getAttribute("data-spec-action");
+  if (action === "propose" || action === "withdraw") { openSpecificationForm(action); return; }
+  button.disabled = true;
+  try {
+    const projectBase = `/api/v1/projects/${encodeURIComponent(model.projectId)}/specifications`;
+    if (action === "publish") {
+      const draft = specification.revisions.at(-1);
+      await api(`${projectBase}/${encodeURIComponent(specification.key)}/revisions/${draft.revisionNumber}/publish`, {
+        method: "POST", headers: specificationHeaders(),
+        body: JSON.stringify({ requestId: crypto.randomUUID(), expectedVersion: specification.version }),
+      });
+      toast(`${specification.key} r${draft.revisionNumber} publicada.`);
+    } else if (action === "link-adr") {
+      const task = document.querySelector("#adr-link-task").value.trim();
+      if (!task) { toast("Informe a chave da tarefa.", true); return; }
+      await api(`/api/v1/projects/${encodeURIComponent(model.projectId)}/work-items/${encodeURIComponent(task)}/adr-links`, {
+        method: "POST", headers: specificationHeaders(),
+        body: JSON.stringify({ requestId: crypto.randomUUID(), adrIdOrKey: specification.key, relationship: document.querySelector("#adr-link-relationship").value }),
+      });
+      toast(`${task} vinculada a ${specification.key}.`);
+    }
+    await loadSpecifications();
+    await openSpecification(specification.key);
+  } catch (error) {
+    specificationErrorToast(error);
+    if (error.code === "VERSION_CONFLICT") await openSpecification(specification.key);
+  } finally {
+    button.disabled = false;
   }
 }

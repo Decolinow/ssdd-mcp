@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Gestão de especificações no dashboard (2026-11-13, SSDD-98)
+
+- Aba Especificações deixa de ser somente leitura: criar, propor revisão, publicar, retirar rascunho e vincular ADR a tarefa. Bug corrigido: a modularização (SSDD-954) havia duplicado os listeners de eventos em `transitions.js`, registrando-os duas vezes; agora há teste que exige um único registro.
+
 ## Gates de tarefa nomeiam o PBI pai (2026-11-13)
 
 - `parent-pbi-ready` e `parent-baseline` agora informam a chave e o estado do PBI pai (mensagem e `details`), para que `task_accept`/`work_item_gate_check` apontem o que destravar. Achado ao tentar aceitar SSDD-87/91: o bloqueio real é a cobertura de cenários publicados dos critérios de SSDD-86 e do PBI pai de SSDD-91, que depende de curadoria do PO/QA.
