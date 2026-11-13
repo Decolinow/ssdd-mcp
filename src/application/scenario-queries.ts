@@ -400,27 +400,94 @@ export function searchScenariosByCriterion(
         AND lr.revision_number = m.revision_number AND lr.run_rank = 1
        ORDER BY m.scenario_key COLLATE NOCASE, m.revision_number, lr.build_id`,
     )
-    .all(projectId, criterionId, projectId, projectId) as Array<{
-    scenario_id: string;
-    scenario_key: string;
-    kind: ScenarioKind;
-    title: string;
-    revision_id: string;
-    revision_number: number;
-    status: ScenarioRevisionStatus;
-    snapshot_json: string;
-    created_by_principal_id: string;
-    created_at: string;
-    published_by_principal_id: string | null;
-    published_at: string | null;
-    run_id: string | null;
-    build_id: string | null;
-    result: TestRunResult | null;
-    notes: string | null;
-    evidence_uri: string | null;
-    executed_by_principal_id: string | null;
-    executed_at: string | null;
-  }>;
+    .all(projectId, criterionId, projectId, projectId) as CoverageRow[];
+  return collectCoverageMatches(rows, projectId);
+}
+
+/**
+ * Batch variant of {@link searchScenariosByCriterion}: one query for every criterion id
+ * (already resolved). Result per criterion is identical to the single-criterion search.
+ */
+export function searchScenariosByCriteria(
+  database: SqliteDatabase,
+  projectId: string,
+  principalId: string,
+  criterionIds: readonly string[],
+): ReadonlyMap<string, readonly ScenarioCoverageMatch[]> {
+  assertProjectAuthorization(database, projectId, principalId);
+  const result = new Map<string, readonly ScenarioCoverageMatch[]>();
+  if (criterionIds.length === 0) return result;
+  const rows = database
+    .prepare(
+      `WITH matching AS (
+         SELECT c.target_id AS criterion_id, s.scenario_id, s.scenario_key, s.kind, s.title, r.revision_id,
+                r.revision_number, r.status, r.snapshot_json,
+                r.created_by_principal_id, r.created_at,
+                r.published_by_principal_id, r.published_at
+         FROM scenario_revision_coverage c
+         INNER JOIN scenarios s ON s.project_id = c.project_id AND s.scenario_id = c.scenario_id
+         INNER JOIN scenario_revisions r
+           ON r.project_id = c.project_id AND r.scenario_id = c.scenario_id
+          AND r.revision_number = c.revision_number
+         WHERE c.project_id = ? AND c.target_type = 'criterion'
+           AND c.target_id IN (SELECT value FROM json_each(?))
+           AND r.status IN ('published', 'superseded')
+       ), latest_runs AS (
+         SELECT tr.*, ROW_NUMBER() OVER (
+           PARTITION BY tr.project_id, tr.scenario_id, tr.revision_number, tr.build_id
+           ORDER BY tr.sequence DESC
+         ) AS run_rank
+         FROM test_runs tr
+         WHERE tr.project_id = ?
+           AND EXISTS (SELECT 1 FROM matching m
+                       WHERE m.scenario_id = tr.scenario_id AND m.revision_number = tr.revision_number)
+       )
+       SELECT m.criterion_id, m.scenario_id, m.scenario_key, m.kind, m.title, m.revision_id, m.revision_number,
+              m.status, m.snapshot_json, m.created_by_principal_id, m.created_at,
+              m.published_by_principal_id, m.published_at,
+              lr.run_id, lr.build_id, lr.result, lr.notes, lr.evidence_uri,
+              lr.executed_by_principal_id, lr.executed_at
+       FROM matching m LEFT JOIN latest_runs lr
+         ON lr.project_id = ? AND lr.scenario_id = m.scenario_id
+        AND lr.revision_number = m.revision_number AND lr.run_rank = 1
+       ORDER BY m.criterion_id, m.scenario_key COLLATE NOCASE, m.revision_number, lr.build_id`,
+    )
+    .all(projectId, JSON.stringify([...new Set(criterionIds)]), projectId, projectId) as Array<CoverageRow & { criterion_id: string }>;
+  const byCriterion = new Map<string, CoverageRow[]>();
+  for (const row of rows) {
+    const group = byCriterion.get(row.criterion_id);
+    if (group === undefined) byCriterion.set(row.criterion_id, [row]);
+    else group.push(row);
+  }
+  for (const criterionId of criterionIds) {
+    result.set(criterionId, collectCoverageMatches(byCriterion.get(criterionId) ?? [], projectId));
+  }
+  return result;
+}
+
+interface CoverageRow {
+  scenario_id: string;
+  scenario_key: string;
+  kind: ScenarioKind;
+  title: string;
+  revision_id: string;
+  revision_number: number;
+  status: ScenarioRevisionStatus;
+  snapshot_json: string;
+  created_by_principal_id: string;
+  created_at: string;
+  published_by_principal_id: string | null;
+  published_at: string | null;
+  run_id: string | null;
+  build_id: string | null;
+  result: TestRunResult | null;
+  notes: string | null;
+  evidence_uri: string | null;
+  executed_by_principal_id: string | null;
+  executed_at: string | null;
+}
+
+function collectCoverageMatches(rows: readonly CoverageRow[], projectId: string): ScenarioCoverageMatch[] {
   const matches = new Map<string, {
     scenario: ScenarioCoverageMatch["scenario"];
     revision: ScenarioRevision;

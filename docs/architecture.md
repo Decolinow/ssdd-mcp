@@ -36,7 +36,7 @@ Monólito modular em Node.js 24 ou 26 e TypeScript estrito. O runtime recomendad
 | `integrations/azure-devops-work-items` | Cliente read-only de WIQL e batch no host oficial, token por projeto, limite de resposta e mapeamento explícito de tipos |
 | `operations/workspace-maintenance` | Backup online SQLite, manifesto SHA-256, restore validado, diagnóstico somente leitura e exportação redigida |
 | `Dockerfile` / `compose.yaml` | Runtime de produção sem privilégios para MCP stdio; volume nomeado persistente e sem porta publicada |
-| `application/quality-queries` | Projeção de critérios da baseline, cenários, execuções/builds, certificações e evidências |
+| `application/quality-queries` | Projeção de critérios da baseline, cenários (busca em lote por critérios), execuções/builds, certificações e evidências |
 | `application/scenario-queries` | Consulta autorizada de cenários e histórico de QA com filtros, paginação keyset e cursores por watermark |
 | `application/audit-queries` | Timeline autorizada, filtros, páginas decrescentes e cursores por watermark |
 | `application/project-history` | Retrato somente leitura por data local do projeto; reconstitui conteúdo versionado, transições, escopos e observações imutáveis com totais e watermarks |

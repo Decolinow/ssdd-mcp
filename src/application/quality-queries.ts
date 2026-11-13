@@ -7,7 +7,7 @@ import { ApplicationError } from "./errors.js";
 import { assertProjectAuthorization } from "./local-identity.js";
 import { listWorkItemEvidence } from "./work-item-workflow.js";
 import { getWorkItem } from "./work-item-queries.js";
-import { searchScenariosByCriterion } from "./scenario-queries.js";
+import { searchScenariosByCriteria } from "./scenario-queries.js";
 import { decodeStableListCursor, encodeStableListCursor, hashListFilters } from "./stable-list-cursor.js";
 
 export interface WorkItemQualityScenario {
@@ -86,8 +86,11 @@ export function getWorkItemQualityReport(
   );
   const certifications = readCertifications(database, input.projectId, item.id, baseline?.id ?? null);
 
+  const matchesByCriterion = searchScenariosByCriteria(
+    database, input.projectId, input.principalId, criteria.map((criterion) => criterion.id),
+  );
   const qualityCriteria = criteria.map((criterion): WorkItemQualityCriterion => {
-    const matches = searchScenariosByCriterion(database, input.projectId, input.principalId, criterion.id)
+    const matches = (matchesByCriterion.get(criterion.id) ?? [])
       .filter((match) => baseline === null
         ? match.revision.status === "published"
         : pinnedScenarioRevisions.has(`${match.scenario.id}:${match.revision.revisionNumber}`))
