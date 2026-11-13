@@ -165,8 +165,11 @@ export function revalidateWorkItemBaseline(
         specification_id: string;
         published_revision: number;
       }>;
-      if (openImpacts.length === 0) {
-        throw new ApplicationError("VALIDATION_FAILED", "There are no open impact flags to revalidate.");
+      if (openImpacts.length === 0 && !baselineHasDrifted(database, input.projectId, target.item_id)) {
+        throw new ApplicationError(
+          "VALIDATION_FAILED",
+          "Nothing to revalidate: there are no open impact flags and the published content, specifications and scenario coverage still match the latest baseline.",
+        );
       }
       const principal = database.prepare("SELECT principal_type FROM principals WHERE principal_id = ?")
         .get(input.principalId) as { principal_type: string } | undefined;
@@ -443,6 +446,25 @@ function createBaseline(
     insertRef.run(input.projectId, id, ref.entityType, ref.entityId, ref.revisionNumber);
   }
   return getWorkBaseline(database, input.projectId, input.principalId, input.target.item_id, sequence);
+}
+
+/**
+ * True when the item's currently published revision, linked specifications or published scenario coverage differ
+ * from the latest baseline, e.g. a criterion became required or a scenario was published after the baseline was fixed.
+ */
+function baselineHasDrifted(database: SqliteDatabase, projectId: string, itemId: string): boolean {
+  const latest = database.prepare(
+    "SELECT baseline_id FROM work_baselines WHERE project_id = ? AND item_id = ? ORDER BY sequence DESC LIMIT 1",
+  ).get(projectId, itemId) as { baseline_id: string } | undefined;
+  if (latest === undefined) return false;
+  const stored = database.prepare(
+    "SELECT entity_type, entity_id, revision_number FROM baseline_refs WHERE project_id = ? AND baseline_id = ?",
+  ).all(projectId, latest.baseline_id) as Array<{ entity_type: string; entity_id: string; revision_number: number }>;
+  const signature = (type: string, id: string, revision: number): string => `${type}:${id}:${revision}`;
+  const storedSet = new Set(stored.map((ref) => signature(ref.entity_type, ref.entity_id, ref.revision_number)));
+  const current = captureReferences(database, projectId, itemId)
+    .map((ref) => signature(ref.entityType, ref.entityId, ref.revisionNumber));
+  return current.length !== storedSet.size || current.some((entry) => !storedSet.has(entry));
 }
 
 function captureReferences(database: SqliteDatabase, projectId: string, itemId: string): CapturedReference[] {

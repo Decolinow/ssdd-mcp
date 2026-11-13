@@ -337,7 +337,7 @@ A busca considera chave, título e conteúdo da revisão atual e respeita cursor
 
 Ao publicar uma revisão de especificação, o servidor procura itens `ready`, `in_progress`, `in_review`, `in_validation` ou `done` cuja baseline mais recente inclua uma versão anterior dessa regra. Para cada item cria impacto auditado e incrementa a versão do item, tornando comandos lidos antes da publicação obsoletos. Se não existe baseline fixada para o item, a publicação não cria impacto ainda.
 
-`impact_list` filtra pelo item e status `open`/`revalidated`. `baseline_revalidate` exige impacto aberto, nova versão esperada, justificativa e uma pessoa PO ou Tech Lead; cria uma baseline nova com as revisões atuais e resolve os impactos capturados nela. A baseline anterior e seus snapshots continuam consultáveis.
+`impact_list` filtra pelo item e status `open`/`revalidated`. `baseline_revalidate` exige impacto aberto **ou deriva da baseline** (revisão publicada do PBI, specs ligadas ou cenários publicados cobrindo seus critérios diferem da última baseline; ex.: critério que virou obrigatório ou cenário publicado depois), nova versão esperada, justificativa e uma pessoa PO ou Tech Lead; cria uma baseline nova com as revisões atuais e resolve os impactos capturados nela. A baseline anterior e seus snapshots continuam consultáveis.
 
 ### Workflow, evidências e certificação
 

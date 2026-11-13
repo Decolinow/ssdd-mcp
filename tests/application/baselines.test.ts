@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { fixWorkItemBaseline, getWorkBaseline, listImpactFlags, revalidateWorkItemBaseline } from "../../src/application/baseline-commands.js";
 import { createWorkItem } from "../../src/application/create-work-item.js";
 import { ApplicationError } from "../../src/application/errors.js";
+import { proposeWorkItemRevision, publishWorkItemRevision } from "../../src/application/work-item-revisions.js";
 import { initializeProject } from "../../src/application/initialize-project.js";
 import { publishSpecificationRevision, createSpecification, proposeSpecificationRevision } from "../../src/application/specification-commands.js";
 import { addTraceLink } from "../../src/application/trace-commands.js";
@@ -140,6 +141,52 @@ describe("work item baselines and specification impacts", () => {
     assert.throws(
       () => database.prepare("UPDATE work_baselines SET reason = 'alterado' WHERE baseline_id = ?").run(oldBaseline.id),
       /immutable/,
+    );
+  });
+
+  it("revalidates a baseline that drifted from newly published content without any open impact", () => {
+    const version = (): number => (database
+      .prepare("SELECT version FROM work_items WHERE project_id = ? AND item_id = ?")
+      .get(projectId, storyId) as { version: number }).version;
+    fixWorkItemBaseline(database, {
+      projectId, principalId, requestId: "drift-fix", itemIdOrKey: storyId,
+      expectedVersion: version(), reason: "Baseline inicial",
+    });
+    assert.throws(
+      () => revalidateWorkItemBaseline(database, {
+        projectId, principalId, requestId: "drift-none", itemIdOrKey: storyId,
+        expectedVersion: version(), reason: "Nada mudou",
+      }),
+      (error: unknown) => error instanceof ApplicationError && /Nothing to revalidate/u.test(error.message),
+    );
+
+    proposeWorkItemRevision(database, {
+      projectId, principalId, requestId: "drift-propose", itemIdOrKey: storyId, expectedVersion: version(),
+      criteria: [{ description: "Pedido confirmado recebe identificador", required: true }],
+    });
+    publishWorkItemRevision(database, {
+      projectId, principalId, requestId: "drift-publish", itemIdOrKey: storyId,
+      revisionNumber: 2, expectedVersion: version(),
+    });
+    assert.equal(listImpactFlags(database, projectId, principalId, storyId, "open").length, 0);
+
+    const revalidated = revalidateWorkItemBaseline(database, {
+      projectId, principalId, requestId: "drift-revalidate", itemIdOrKey: storyId,
+      expectedVersion: version(), reason: "Critério obrigatório adicionado após a baseline",
+    }).value;
+    assert.equal(revalidated.baseline.sequence, 2);
+    assert.equal(revalidated.baseline.kind, "revalidation");
+    assert.deepEqual(revalidated.resolvedImpactIds, []);
+    assert.equal(
+      revalidated.baseline.references.find((reference) => reference.entityType === "work_item_revision")?.revisionNumber,
+      2,
+    );
+    assert.throws(
+      () => revalidateWorkItemBaseline(database, {
+        projectId, principalId, requestId: "drift-again", itemIdOrKey: storyId,
+        expectedVersion: version(), reason: "Repetir",
+      }),
+      (error: unknown) => error instanceof ApplicationError && /Nothing to revalidate/u.test(error.message),
     );
   });
 });

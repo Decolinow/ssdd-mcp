@@ -419,7 +419,7 @@ export function registerProjectAdminTools(context: McpToolContext): void {
     "baseline_revalidate",
     {
       title: "Revalidar baseline",
-      description: "Cria nova baseline com revisões vigentes e resolve os impactos cobertos por ela.",
+      description: "Cria nova baseline com revisões vigentes. Use quando há impacto aberto (resolve-o) ou quando o conteúdo publicado do PBI, specs ou cenários cobertos mudou depois da baseline (ex.: critério virou obrigatório, cenário publicado). Falha com 'Nothing to revalidate' se nada mudou.",
       inputSchema: z.object({
         projectId: z.string().uuid(),
         requestId: z.string().trim().min(1).max(128),

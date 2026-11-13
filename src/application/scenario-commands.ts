@@ -518,7 +518,7 @@ function normalizeWorkItemReferences(references: readonly string[]): readonly st
 function resolveTaskReferences(database: SqliteDatabase, projectId: string, principalId: string, references: readonly string[]): string[] {
   return references.map((reference) => {
     const item = getWorkItem(database, projectId, principalId, reference);
-    if (item.type !== "task") throw new ApplicationError("VALIDATION_FAILED", `Work item '${reference}' is not a task.`);
+    if (item.type !== "task") throw new ApplicationError("VALIDATION_FAILED", `Work item '${reference}' is a ${item.type}, but scenario task links accept only tasks. Cover a story or bug through its criteria (coverage: targetType "criterion") instead.`);
     return item.id;
   });
 }

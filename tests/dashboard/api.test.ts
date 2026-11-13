@@ -1265,8 +1265,14 @@ test("dashboard API sessions and project authorization match MCP access", async 
   assert.equal(((await developerRevalidate.json()) as { code: string }).code, "FORBIDDEN");
   const unchangedBaseline = await (await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${story.key}/baseline`, { headers: { Cookie: cookie, Origin: address.origin } })).json() as { baseline: { sequence: number } };
   assert.equal(unchangedBaseline.baseline.sequence, baselineBody.baseline.sequence, "a refused revalidation has no effect");
-  const revalidateWithoutImpact = await postMutation(`/api/v1/projects/${projectId}/backlog/baseline_revalidate`, revalidateBody);
-  assert.equal(revalidateWithoutImpact.status, 400, "revalidation needs an open impact");
+  // The fixture baseline was inserted without references, so it has drifted from the published content: revalidation is allowed.
+  const revalidateDrifted = await postMutation(`/api/v1/projects/${projectId}/backlog/baseline_revalidate`, revalidateBody);
+  assert.equal(revalidateDrifted.status, 200, "a drifted baseline can be revalidated without an open impact");
+  const afterRevalidation = await (await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${story.key}`, { headers: { Cookie: cookie, Origin: address.origin } })).json() as { workItem: { version: number } };
+  const revalidateWithoutImpact = await postMutation(`/api/v1/projects/${projectId}/backlog/baseline_revalidate`, {
+    ...revalidateBody, requestId: "dashboard-revalidate-again", expectedVersion: afterRevalidation.workItem.version,
+  });
+  assert.equal(revalidateWithoutImpact.status, 400, "revalidation needs an open impact or a drifted baseline");
   assert.equal(((await revalidateWithoutImpact.json()) as { code: string }).code, "VALIDATION_FAILED");
   const itemTimeline = await fetch(`${address.origin}/api/v1/projects/${projectId}/work-items/${story.key}/timeline`, {
     headers: { Cookie: cookie, Origin: address.origin },
@@ -1394,7 +1400,7 @@ test("dashboard API sessions and project authorization match MCP access", async 
     body: JSON.stringify({
       requestId: "stale-dashboard-version",
       targetState: "in_review",
-      expectedVersion: story.version + 2,
+      expectedVersion: story.version + 50,
       reason: "Confirme que um card desatualizado não altera o item.",
     }),
   });

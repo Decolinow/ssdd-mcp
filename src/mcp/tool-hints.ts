@@ -23,7 +23,7 @@ export const mcpToolHints: Readonly<Record<string, ToolHint>> = {
   user_create: { precondition: "administrador do host", commonError: "FORBIDDEN" },
   roadmap_id_bind: { precondition: "alias SSDD-### livre e item existente", commonError: "CONFLICT" },
   baseline_fix: { precondition: "PBI Ready e papel tech_lead", commonError: "GATE_BLOCKED" },
-  baseline_revalidate: { precondition: "baseline existente", commonError: "NOT_FOUND" },
+  baseline_revalidate: { precondition: "baseline existente com impacto aberto ou conteúdo/cenários publicados depois dela", commonError: "VALIDATION_FAILED" },
   work_item_create: { precondition: "pai do tipo correto (tarefa só sob história/bug)", commonError: "VALIDATION_FAILED" },
   work_item_revision_propose: { precondition: "expectedVersion atual", commonError: "VERSION_CONFLICT" },
   work_item_revision_publish: { precondition: "revisão em draft e papel adequado", commonError: "VERSION_CONFLICT" },
