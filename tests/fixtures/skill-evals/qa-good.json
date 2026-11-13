@@ -1,0 +1,6 @@
+[
+  { "tool": "work_item_quality_get" },
+  { "tool": "local:run_tests" },
+  { "tool": "test_run_record" },
+  { "tool": "assistant:report_outcome" }
+]

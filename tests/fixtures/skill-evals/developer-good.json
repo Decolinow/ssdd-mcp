@@ -1,0 +1,11 @@
+[
+  { "tool": "task_execution_queue_get" },
+  { "tool": "work_item_get" },
+  { "tool": "task_briefing_get" },
+  { "tool": "task_start_check" },
+  { "tool": "task_start" },
+  { "tool": "local:run_tests" },
+  { "tool": "task_delivery_report_submit" },
+  { "tool": "evidence_add" },
+  { "tool": "review_record" }
+]

@@ -1,0 +1,6 @@
+[
+  { "tool": "task_briefing_get" },
+  { "tool": "task_start_check", "isError": true, "args": { "taskIdOrKey": "SSDD-1" } },
+  { "tool": "assistant:report_error" },
+  { "tool": "task_start_check", "args": { "taskIdOrKey": "SSDD-1", "retryAfterFix": true } }
+]

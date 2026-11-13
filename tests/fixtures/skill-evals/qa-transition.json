@@ -1,0 +1,4 @@
+[
+  { "tool": "work_item_quality_get" },
+  { "tool": "work_item_transition" }
+]

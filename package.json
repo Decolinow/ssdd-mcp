@@ -27,6 +27,7 @@
     "agents:install": "node scripts/install-agent-stack.mjs",
     "benchmark:metrics": "npm run build && node scripts/benchmark-metrics.mjs",
     "lint": "eslint .",
+    "skills:eval": "node scripts/skill-eval.mjs",
     "start": "node dist/src/cli.js stdio",
     "test": "npm run build && node --test \"dist/tests/**/*.test.js\"",
     "typecheck": "tsc --project tsconfig.json --noEmit"
