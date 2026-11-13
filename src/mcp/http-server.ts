@@ -10,6 +10,7 @@ import {
   type AuthInfo,
 } from "@modelcontextprotocol/server";
 import { randomUUID } from "node:crypto";
+import { createHttpObservability, type McpHttpObservabilityOptions } from "./http-observability.js";
 import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { Readable } from "node:stream";
@@ -80,6 +81,7 @@ export interface McpHttpServerOptions extends Partial<Pick<OidcHttpAuthOptions, 
   readonly githubIssueTokens?: GithubIssueTokens;
   readonly azureDevOpsConnections?: AzureDevOpsConnections;
   readonly embeddingProvider?: TextEmbeddingProvider;
+  readonly observability?: McpHttpObservabilityOptions;
 }
 
 export function createMcpHttpServer(workspace: string, options: McpHttpServerOptions = {}): McpHttpServer {
@@ -108,6 +110,7 @@ export function createMcpHttpServer(workspace: string, options: McpHttpServerOpt
     azureDevOpsConnections,
     ...(embeddingProvider === undefined ? {} : { embeddingProvider }),
   };
+  const observability = createHttpObservability(options.observability);
   const allowedOrigins = normalizeAllowedOrigins(options.allowedOrigins ?? []);
   const databasePath = join(resolve(workspace), ".ssdd", "ssdd.sqlite");
   if (!existsSync(databasePath)) {
@@ -137,6 +140,7 @@ export function createMcpHttpServer(workspace: string, options: McpHttpServerOpt
       },
     );
     const server = createServer((request, response) => {
+      if (observability.intercept(request, response)) return;
       void handleRequest(
         request,
         response,

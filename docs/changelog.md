@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Observabilidade e políticas operacionais do servidor HTTP (2026-11-12, SSDD-915 / MCP SSDD-116)
+
+Novo `src/mcp/http-observability.ts`, ligado ao servidor Streamable HTTP: log de acesso JSON (`SSDD_MCP_ACCESS_LOG=1`), `GET /metrics` Prometheus em loopback (`SSDD_MCP_METRICS=1`), rate limit por endereço (`SSDD_MCP_RATE_LIMIT_PER_MINUTE`) e `X-Correlation-Id`. Rotas agrupadas em cinco classes para limitar cardinalidade; query string, cabeçalhos e corpos nunca entram. Runbook de retenção e alertas em `docs/team-server.md`. Também: `task_execution_queue_get` ficou enxuta por padrão (U18) e SSDD-909 recebeu aceite retroativo.
+
 ## Ciclo e faixa de previsão individual (2026-11-12, SSDD-912 / MCP SSDD-113)
 
 `getDeveloperExecutionMetrics` passa a devolver `cycleTimeHours` (mediana e P85 do tempo de relógio da primeira sessão até Done) e `effortRatioRange` (P15–P85 do fator real/estimado por tarefa, com esforço dividido em tarefas colaborativas). Ambos exigem cinco tarefas e são `null` abaixo disso; expostos em `developer_execution_metrics_get` e na tabela de esforço do dashboard. Story points continuam só na velocidade do time. Aceite retroativo prévio de SSDD-803, 910, 911 e da cadeia SSDD-501/502/503/801/802.

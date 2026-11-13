@@ -5,6 +5,7 @@ import { grantExternalIdentity, revokeExternalIdentityRoles } from "./applicatio
 import { getOrCreateLocalPrincipal, projectRoles, type ProjectRole } from "./application/local-identity.js";
 import { startMcpServer } from "./mcp/server.js";
 import { startMcpHttpServer } from "./mcp/http-server.js";
+import type { McpHttpObservabilityOptions } from "./mcp/http-observability.js";
 import { packageVersion } from "./package-version.js";
 import { readWebhookSecretsFromEnvironment } from "./mcp/webhook-receiver.js";
 import { readGithubRepositoriesFromEnvironment } from "./application/github-webhooks.js";
@@ -328,6 +329,17 @@ interface ServeOptions {
   readonly githubRepositories: ReturnType<typeof readGithubRepositoriesFromEnvironment>;
   readonly githubIssueTokens: ReturnType<typeof readGithubIssueTokensFromEnvironment>;
   readonly azureDevOpsConnections: ReturnType<typeof readAzureDevOpsConnectionsFromEnvironment>;
+  readonly observability: McpHttpObservabilityOptions;
+}
+
+function readObservabilityFromEnvironment(): McpHttpObservabilityOptions {
+  const rateLimit = process.env["SSDD_MCP_RATE_LIMIT_PER_MINUTE"]?.trim();
+  return {
+    ...(process.env["SSDD_MCP_ACCESS_LOG"] === "1" ? { accessLog: (entry) => { process.stderr.write(`${JSON.stringify(entry)}
+`); } } : {}),
+    ...(process.env["SSDD_MCP_METRICS"] === "1" ? { metrics: true } : {}),
+    ...(rateLimit ? { rateLimit: { requestsPerMinute: Number(rateLimit) } } : {}),
+  };
 }
 
 function parseHttpOptions(args: readonly string[], defaultPort: number): { readonly workspace: string; readonly port: number } {
@@ -417,6 +429,7 @@ function parseServeOptions(args: readonly string[]): ServeOptions {
     githubRepositories: readGithubRepositoriesFromEnvironment(),
     githubIssueTokens: readGithubIssueTokensFromEnvironment(),
     azureDevOpsConnections: readAzureDevOpsConnectionsFromEnvironment(),
+    observability: readObservabilityFromEnvironment(),
   };
 }
 
