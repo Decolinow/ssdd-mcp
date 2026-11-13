@@ -88,5 +88,11 @@ test("dashboard smoke: login, backlog and board, gate-refused transition and PBI
   await page.locator("#specification-detail").getByText("SMK-RULE-1").first().waitFor({ state: "visible" });
   await page.locator('[data-spec-action="publish"]').waitFor({ state: "visible" });
 
+  await page.click("#quality-tab");
+  await page.locator("#qa-coverage table").waitFor({ state: "visible" });
+  await page.locator("#qa-run-chart .empty-state").waitFor({ state: "visible" });
+  await page.fill("#qa-filter-build", "build-inexistente");
+  await page.locator("#qa-run-chart .empty-state").waitFor({ state: "visible" });
+
   assert.deepEqual(pageErrors.filter((message) => !/ERR_|Failed to load resource/u.test(message)), [], "the browser console must stay free of script errors");
 });

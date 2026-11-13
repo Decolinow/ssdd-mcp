@@ -240,7 +240,16 @@
               <div><h2>Qualidade e cenários</h2><p>Cobertura de critérios, cenários versionados e execuções vinculadas à revisão publicada e ao build.</p></div>
               <span id="quality-count" class="count-label">0 itens</span>
             </div>
-            <section class="qa-panel" aria-labelledby="qa-chart-title"><div class="qa-panel-heading"><div><h3 id="qa-chart-title">Resultados de execução</h3><p>Até 100 execuções recentes, agrupadas pelo resultado registrado.</p></div></div><div id="qa-run-chart"></div></section>
+            <section class="qa-panel" aria-labelledby="qa-chart-title"><div class="qa-panel-heading"><div><h3 id="qa-chart-title">Resultados de execução</h3><p>Até 100 execuções recentes, agrupadas pelo resultado registrado.</p></div></div>
+              <form id="qa-filter-form" class="qa-filter-form" aria-label="Filtros dos resultados de execução">
+                <label class="form-field" for="qa-filter-build">Build<input id="qa-filter-build" type="search" maxlength="128" placeholder="Parte do build"></label>
+                <label class="form-field" for="qa-filter-scenario">Cenário<select id="qa-filter-scenario"><option value="">Todos</option></select></label>
+                <label class="form-field" for="qa-filter-item">Tarefa/PBI<input id="qa-filter-item" type="search" maxlength="80" placeholder="Ex.: SSDD-95"></label>
+                <label class="form-field" for="qa-filter-from">De<input id="qa-filter-from" type="date"></label>
+                <label class="form-field" for="qa-filter-to">Até<input id="qa-filter-to" type="date"></label>
+              </form>
+              <div id="qa-run-chart"></div></section>
+            <section class="qa-panel" aria-labelledby="qa-coverage-title"><div class="qa-panel-heading"><div><h3 id="qa-coverage-title">Cobertura de critérios</h3><p>PBIs com todos os critérios obrigatórios cobertos, com lacunas ou sem baseline.</p></div></div><div id="qa-coverage"></div></section>
             <section class="qa-panel" aria-labelledby="scenario-list-title"><div class="qa-panel-heading"><div><h3 id="scenario-list-title">Cenários</h3><p>Rascunhos precisam ser publicados antes de receber execuções.</p></div><button id="create-scenario" class="button button-primary" type="button">Novo cenário</button></div><div id="scenario-list" class="scenario-list"></div></section>
             <section class="qa-panel" aria-labelledby="test-run-title"><div class="qa-panel-heading"><div><h3 id="test-run-title">Registrar execução</h3><p>Selecione a revisão publicada exata que foi executada e vincule as tarefas verificadas.</p></div></div>
               <form id="test-run-form" class="qa-run-form">

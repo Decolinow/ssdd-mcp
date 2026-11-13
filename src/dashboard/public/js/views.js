@@ -5,6 +5,7 @@ import { model } from "./model.js";
 import { escapeHtml, scenarioKindLabel, stateLabel } from "./ui.js";
 import { filteredQualitySummaries, visibleBoardItems, backlogItems } from "./quick-access.js";
 import { renderCard } from "./details.js";
+import { aggregateCoverage, aggregateRuns, filterRuns, qaResultLabels, qaResultOrder } from "./qa-runs.js";
 
 export function renderSprintSummary() {
   if (!model.sprint) {
@@ -58,6 +59,15 @@ export function renderBoard() {
 
 export function renderQuality() {
   renderScenarioManager();
+  const coverage = aggregateCoverage(model.qualitySummaries);
+  elements.qaCoverage.innerHTML = coverage.total === 0
+    ? `<div class="empty-state"><strong>Ainda não há PBIs para analisar.</strong></div>`
+    : `<table class="qa-result-table"><caption class="visually-hidden">PBIs por situação de cobertura</caption><thead><tr><th scope="col">Situação</th><th scope="col">PBIs</th></tr></thead><tbody>${[
+      ["Cobertos (100% dos critérios obrigatórios)", coverage.covered],
+      ["Com critérios descobertos", coverage.uncovered],
+      ["Sem critério obrigatório", coverage.noCriteria],
+      ["Sem baseline (apenas preview)", coverage.withoutBaseline],
+    ].map(([label, count]) => `<tr><th scope="row">${escapeHtml(label)}</th><td>${count}</td></tr>`).join("")}</tbody></table><p class="qa-watermark">${coverage.total} PBIs considerados · sem execução certificada não há validação (BR-QA-001).</p>`;
   const items = filteredQualitySummaries();
   elements.qualityCount.textContent = `${items.length} ${items.length === 1 ? "PBI" : "PBIs"}`;
   if (!items.length) {
@@ -92,20 +102,32 @@ export function safeEvidenceUrl(value) {
 }
 
 export function renderScenarioManager() {
-  const resultOrder = ["passed", "failed", "blocked", "skipped"];
-  const resultLabels = { passed: "Aprovado", failed: "Reprovado", blocked: "Bloqueado", skipped: "Ignorado" };
+  const resultOrder = qaResultOrder;
+  const resultLabels = qaResultLabels;
   const resultColors = { passed: "#24815b", failed: "#c54b43", blocked: "#c3831d", skipped: "#8090a6" };
-  const counts = Object.fromEntries(resultOrder.map((result) => [result, 0]));
-  for (const run of model.testRuns) counts[run.result] = (counts[run.result] ?? 0) + 1;
-  const total = model.testRuns.length;
-  elements.qaRunChart.innerHTML = total === 0
+  const baseRuns = filterRuns(model.testRuns, { ...model.qaFilters, result: "" });
+  const runs = filterRuns(model.testRuns, model.qaFilters);
+  const { counts } = aggregateRuns(baseRuns);
+  const total = baseRuns.length;
+  const watermark = `${runs.length} de ${model.testRuns.length} execuções carregadas${model.testRuns.length >= 100 ? " (limite de 100 mais recentes)" : ""}${model.qaFilters.result ? ` · resultado: ${resultLabels[model.qaFilters.result]}` : ""}`;
+  const filtersActive = Object.values(model.qaFilters).some(Boolean);
+  const scenarioKeys = [...new Set(model.testRuns.map((run) => run.scenarioKey))].sort();
+  if (elements.qaFilterScenario) {
+    const selected = model.qaFilters.scenario;
+    elements.qaFilterScenario.innerHTML = `<option value="">Todos</option>${scenarioKeys.map((key) => `<option value="${escapeHtml(key)}"${key === selected ? " selected" : ""}>${escapeHtml(key)}</option>`).join("")}`;
+  }
+  elements.qaRunChart.innerHTML = model.testRuns.length === 0
     ? `<div class="empty-state"><strong>Sem execuções registradas.</strong><p>Crie e publique um cenário para registrar o primeiro resultado.</p></div>`
-    : `<svg class="qa-result-chart" viewBox="0 0 600 42" role="img" aria-label="${resultOrder.map((result) => `${resultLabels[result]}: ${counts[result]}`).join(", ")}">${resultOrder.map((result, index) => {
-      const prior = resultOrder.slice(0, index).reduce((sum, key) => sum + counts[key], 0);
-      const x = prior / total * 600;
-      const width = counts[result] / total * 600;
-      return counts[result] ? `<rect x="${x}" y="4" width="${Math.max(width, 1)}" height="34" fill="${resultColors[result]}" rx="${index === 0 || prior + counts[result] === total ? 5 : 0}"><title>${resultLabels[result]}: ${counts[result]}</title></rect>` : "";
-    }).join("")}</svg><div class="qa-chart-legend">${resultOrder.map((result) => `<span><i class="qa-swatch result-color-${result}" aria-hidden="true"></i>${resultLabels[result]} <strong>${counts[result]}</strong></span>`).join("")}</div>`;
+    : total === 0
+      ? `<div class="empty-state"><strong>Nenhuma execução corresponde aos filtros.</strong><p>Ajuste build, cenário, tarefa ou período.</p></div><p class="qa-watermark">${escapeHtml(watermark)}</p>`
+      : `<svg class="qa-result-chart" viewBox="0 0 600 42" role="img" aria-label="${resultOrder.map((result) => `${resultLabels[result]}: ${counts[result]}`).join(", ")}">${resultOrder.map((result, index) => {
+        const prior = resultOrder.slice(0, index).reduce((sum, key) => sum + counts[key], 0);
+        const x = prior / total * 600;
+        const width = counts[result] / total * 600;
+        return counts[result] ? `<rect x="${x}" y="4" width="${Math.max(width, 1)}" height="34" fill="${resultColors[result]}" rx="${index === 0 || prior + counts[result] === total ? 5 : 0}"><title>${resultLabels[result]}: ${counts[result]}</title></rect>` : "";
+      }).join("")}</svg>
+      <table class="qa-result-table"><caption class="visually-hidden">Execuções por resultado (use os botões para filtrar a lista abaixo)</caption><thead><tr><th scope="col">Resultado</th><th scope="col">Execuções</th><th scope="col">Detalhar</th></tr></thead><tbody>${resultOrder.map((result) => `<tr><th scope="row"><i class="qa-swatch result-color-${result}" aria-hidden="true"></i>${resultLabels[result]}</th><td>${counts[result]}</td><td><button type="button" class="button button-secondary" data-qa-result="${result}" aria-pressed="${model.qaFilters.result === result}"${counts[result] === 0 ? " disabled" : ""}>Ver ${counts[result]} ${counts[result] === 1 ? "execução" : "execuções"}</button></td></tr>`).join("")}</tbody></table>
+      <p class="qa-watermark" role="status">${escapeHtml(watermark)}</p>${filtersActive ? `<button type="button" class="button button-secondary" data-qa-clear>Limpar filtros</button>` : ""}`;
 
   elements.scenarioList.innerHTML = model.scenarios.length === 0
     ? `<div class="empty-state"><strong>Nenhum cenário cadastrado.</strong><p>Crie um cenário e publique a primeira revisão para habilitar execuções.</p></div>`
@@ -127,9 +149,9 @@ export function renderScenarioManager() {
     : `<option value="">Publique um cenário para continuar</option>`;
   elements.testRunScenario.disabled = publishedScenarios.length === 0;
   elements.submitTestRun.disabled = publishedScenarios.length === 0;
-  elements.testRunHistory.innerHTML = total === 0
+  elements.testRunHistory.innerHTML = runs.length === 0
     ? ""
-    : `<h4>Histórico recente</h4><div class="run-history-list">${model.testRuns.map((run) => {
+    : `<h4>Histórico recente (${runs.length})</h4><div class="run-history-list">${runs.map((run) => {
       const evidenceUrl = safeEvidenceUrl(run.evidenceUri);
       const evidence = evidenceUrl ? `<a href="${escapeHtml(evidenceUrl)}" target="_blank" rel="noreferrer">Evidência</a>` : "";
       return `<article class="run-history-row"><span class="run-result result-${escapeHtml(run.result)}">${escapeHtml(resultLabels[run.result] ?? run.result)}</span><strong>${escapeHtml(run.scenarioKey)} · r${run.revisionNumber}</strong><span>${escapeHtml(run.buildId)}</span><time datetime="${escapeHtml(run.executedAt)}">${escapeHtml(new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(run.executedAt)))}</time>${evidence}</article>`;

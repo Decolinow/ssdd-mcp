@@ -1,4 +1,4 @@
-/* global document, window */
+/* global document, window, Element */
 import { transitions } from "./constants.js";
 import { elements } from "./elements.js";
 import { model } from "./model.js";
@@ -9,12 +9,38 @@ import { syncWorkProfileOptions, storeWorkProfile, renderQuickAccess, render } f
 import { projectLocalDate, isHistoryDateSelectable, historyDateBoundsMessage, loadProjectHistory } from "./history.js";
 import { renderSpecifications, renderSpecificationDetail, openSpecification, runSpecificationAction, openSpecificationForm, submitSpecificationForm } from "./specifications.js";
 import { renderMetrics } from "./metrics.js";
+import { renderScenarioManager } from "./views.js";
 import { loadSelectedRetrospective, loadMoreTaskContext, loadMoreEvidence, loadMoreActivity, applyActivityFilters, openItem } from "./details.js";
 import { workflowEditorRow, updateWorkflowEditorOrder, updateWorkflowEditorState, openTaskWorkflowEditor, submitTaskWorkflowForm, publishTaskWorkflowDraft, changeTaskWorkflowStep, loadTaskWorkflowRevision } from "./task-workflow.js";
 import { openWorkItemEditor, updateWorkItemParentOptions, updateWorkItemValueFields, submitWorkItemForm, openScenarioEditor, submitScenarioForm, publishScenario, submitTestRun, publishWorkItemRevision } from "./editors.js";
 import { openTransition, updateTransitionStartHint, updateBuildField, submitTransition, setView } from "./transitions.js";
 
 elements.loginForm.addEventListener("submit", (event) => { void submitLogin(event); });
+
+const qaFilterFields = [
+  [elements.qaFilterBuild, "build"], [elements.qaFilterScenario, "scenario"], [elements.qaFilterItem, "item"],
+  [elements.qaFilterFrom, "from"], [elements.qaFilterTo, "to"],
+];
+for (const [field, name] of qaFilterFields) {
+  field.addEventListener("input", () => { model.qaFilters[name] = field.value; renderScenarioManager(); });
+}
+document.querySelector("#qa-filter-form").addEventListener("submit", (event) => event.preventDefault());
+elements.qaRunChart.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const resultButton = target?.closest("[data-qa-result]");
+  if (resultButton) {
+    const result = resultButton.getAttribute("data-qa-result");
+    model.qaFilters.result = model.qaFilters.result === result ? "" : result;
+    renderScenarioManager();
+    elements.qaRunChart.querySelector(`[data-qa-result="${result}"]`)?.focus();
+    return;
+  }
+  if (target?.closest("[data-qa-clear]")) {
+    model.qaFilters = { build: "", scenario: "", item: "", from: "", to: "", result: "" };
+    for (const [field] of qaFilterFields) field.value = "";
+    renderScenarioManager();
+  }
+});
 document.addEventListener("visibilitychange", () => {
   scheduleRefresh();
   if (!document.hidden && model.session !== null) void loadProjectData();

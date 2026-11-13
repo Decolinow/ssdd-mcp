@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Gráfico de resultados QA com tabela acessível (2026-11-13, SSDD-95)
+
+- Aba Qualidade: filtros de build, cenário, tarefa/PBI e período, drill-down por resultado por teclado, tabela acessível, estados vazios, watermark e painel de cobertura. Lógica pura em `src/dashboard/public/js/qa-runs.js` com `tests/dashboard/qa-runs.test.ts`; o smoke de navegador exercita a aba. `npm run check` 255/255.
+
 ## Gestão de especificações no dashboard (2026-11-13, SSDD-98)
 
 - Aba Especificações deixa de ser somente leitura: criar, propor revisão, publicar, retirar rascunho e vincular ADR a tarefa. Bug corrigido: a modularização (SSDD-954) havia duplicado os listeners de eventos em `transitions.js`, registrando-os duas vezes; agora há teste que exige um único registro.
