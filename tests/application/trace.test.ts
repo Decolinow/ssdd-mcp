@@ -76,6 +76,11 @@ describe("typed traceability graph", () => {
       { key: hierarchy.story.key, title: "Log in", label: hierarchy.story.key + " · Log in" },
       { key: specification.key, title: "Payment cut-off", label: specification.key + " · Payment cut-off" },
     ]);
+    const specificationAudit = listAuditEvents(database, {
+      projectId, principalId, entityType: "specification", entityId: specification.specId,
+    }).events[0]!;
+    assert.equal(specificationAudit.entityReference.key, specification.key);
+    assert.equal(specificationAudit.entityReference.label, specification.key + " · Payment cut-off");
     const missingEntityId = "external-record-removed";
     database.prepare(
       `INSERT INTO audit_events
