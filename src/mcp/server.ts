@@ -44,6 +44,7 @@ import {
 } from "../application/development-lifecycle.js";
 import { linkTaskToAdr } from "../application/adr-commands.js";
 import { startTaskDevelopment } from "../application/task-development-start.js";
+import { getTaskBriefing } from "../application/task-briefing.js";
 import { getTaskWorkflow } from "../application/task-workflow-queries.js";
 import { proposeTaskWorkflow, publishTaskWorkflow, transitionTaskWorkflowStep } from "../application/task-workflow-commands.js";
 import { listMilestoneForecastHistory, recalculateMilestoneForecast } from "../application/forecast-queries.js";
@@ -1318,6 +1319,47 @@ export function createMcpServer(
       } catch (error) {
         return toToolError(error);
       }
+    },
+  );
+
+  server.registerTool(
+    "task_briefing_get",
+    {
+      title: "Briefing da tarefa em uma chamada",
+      description: "Primeiro passo de uma tarefa: contexto (mesmo orçamento/cursor de task_context_get), gates de início, progresso do workflow, perguntas abertas, termos de glossário citados, DoD e a próxima ação recomendada.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        taskIdOrKey: z.string().trim().min(1).max(80),
+        profile: z.enum(taskContextProfiles).optional(),
+        include: z.array(z.enum(taskContextSections)).max(taskContextSections.length).optional(),
+        maxChars: z.number().int().min(2_000).max(30_000).optional(),
+        cursor: z.string().max(4_096).optional(),
+      }),
+      outputSchema: z.object({
+        context: taskContextSchema,
+        startReadiness: z.object({
+          canStart: z.boolean(),
+          blockers: z.array(z.object({ code: z.string(), message: z.string() })),
+          warnings: z.array(z.object({ code: z.string(), message: z.string() })),
+        }),
+        workflow: z.object({
+          published: z.boolean(), unpublishedDraft: z.boolean(), progressPercent: z.number().nullable(),
+          completedSteps: z.number().int().nonnegative(), totalSteps: z.number().int().nonnegative(),
+        }),
+        openQuestions: z.array(z.object({ key: z.string(), itemKey: z.string(), text: z.string(), blocking: z.boolean() })),
+        glossaryTerms: z.array(z.object({ key: z.string(), title: z.string() })),
+        nextAction: z.string(),
+      }),
+    },
+    ({ projectId, taskIdOrKey, profile, include, maxChars, cursor }) => {
+      try {
+        const result = getTaskBriefing(database, {
+          projectId, principalId, taskIdOrKey,
+          ...(profile === undefined ? {} : { profile }), ...(include === undefined ? {} : { include }),
+          ...(maxChars === undefined ? {} : { maxChars }), ...(cursor === undefined ? {} : { cursor }),
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
     },
   );
 

@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Briefing de tarefa em uma chamada (2026-11-13, SSDD-945 / MCP SSDD-148)
+
+- `task_briefing_get` devolve contexto, gates de início, progresso do workflow, perguntas abertas, termos de glossário citados e a próxima ação recomendada. A skill `ssdd-developer` passa a chamá-lo primeiro; `task_context_get` segue para paginação e outras seções.
+
 ## Definition of Done aplicada por item (2026-11-13, SSDD-943 / MCP SSDD-146)
 
 - Migração 38 cria `task_dod_pins`; `task_start` pina a DoD vigente. A seção `definitionOfDone` entra em `task_context_get`, o relatório de entrega atesta cada critério (`scope: dod`) e o gate Done do PBI falha com critério não atestado. Revisão posterior da DoD só gera aviso.

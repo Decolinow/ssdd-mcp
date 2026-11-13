@@ -43,7 +43,7 @@ const developerReadTools = [
   "scenario_get", "scenario_list", "scenario_criterion_search", "test_run_list",
   "development_session_list", "deployment_event_list", "github_reference_list",
   "work_item_gate_check", "work_item_quality_get", "evidence_list", "trace_query",
-  "question_list", "work_item_readiness_review", "task_delivery_report_get", "review_list",
+  "question_list", "work_item_readiness_review", "task_delivery_report_get", "review_list", "task_briefing_get",
 ] as const;
 
 const qaReadTools = [
