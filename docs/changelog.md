@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Análise de fluxo e caminho crítico (2026-11-12, SSDD-930 / MCP SSDD-133)
+
+Nova tool `flow_metrics_get` (`src/application/flow-metrics.ts`): distribuições de lead, ciclo, espera, trabalho e espera por dependência derivadas das transições imutáveis, WIP aberto como amostra censurada e caminho crítico apenas para DAG com estimativas em horas. Agregada, sem ranking individual, com `limitations` explícitas. Sem migração.
+
 ## Reservas de arquivos entre agentes paralelos (2026-11-12, SSDD-929 / MCP SSDD-132)
 
 Migração 33 (`file_claims`), `src/application/file-claims.ts` e as tools `file_claim_acquire`, `file_claim_renew`, `file_claim_release` e `file_claim_list`. Lease de 60 s a 4 h, detecção de sobreposição arquivo/diretório entre pessoas diferentes (atômica por chamada), conflito explícito `CLAIM_CONFLICT`, renovação restrita ao dono e liberação alheia só por Tech Lead/Admin com motivo. Coordenação apenas; o Git continua sendo a fonte de verdade. Schema 32→33.

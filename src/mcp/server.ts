@@ -130,6 +130,7 @@ import { listProjectTeams } from "../application/team-directory.js";
 import { changeMilestoneScope, createMilestone, getMilestone, listMilestones } from "../application/milestones.js";
 import { evidenceKinds } from "../domain/workflow.js";
 import { acceptTask } from "../application/task-accept.js";
+import { getFlowMetrics } from "../application/flow-metrics.js";
 import { acquireFileClaims, listFileClaims, releaseFileClaims, renewFileClaims } from "../application/file-claims.js";
 import { listStaleDevelopmentSessions, recoverDevelopmentSession } from "../application/session-recovery.js";
 import { getDefinitionOfDone, setDefinitionOfDone } from "../application/definition-of-done.js";
@@ -3196,6 +3197,35 @@ export function createMcpServer(
           projectId, principalId, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }),
           ...(developerPrincipalId === undefined ? {} : { developerPrincipalId }),
         });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "flow_metrics_get",
+    {
+      title: "Analisar fluxo de entrega",
+      description: "Tempo de ciclo, de lead, de espera e de trabalho das tarefas concluídas no período (mediana/P85 com amostra mínima), idade do WIP aberto como amostra censurada, espera por dependência e caminho crítico (só em DAG com horas estimadas). Agregado; sem ranking individual.",
+      inputSchema: z.object({ projectId: z.string().uuid(), from: z.string().datetime().optional(), to: z.string().datetime().optional() }),
+      outputSchema: z.object({
+        projectId: z.string().uuid(), asOf: z.string(), period: z.object({ from: z.string(), to: z.string() }), minimumSample: z.number().int(),
+        completed: z.object({ tasks: z.number().int(), leadTime: z.object({ sample: z.number().int(), medianHours: z.number(), p85Hours: z.number() }).nullable(), cycleTime: z.object({ sample: z.number().int(), medianHours: z.number(), p85Hours: z.number() }).nullable(), waitTime: z.object({ sample: z.number().int(), medianHours: z.number(), p85Hours: z.number() }).nullable(), workTime: z.object({ sample: z.number().int(), medianHours: z.number(), p85Hours: z.number() }).nullable(), dependencyWait: z.object({ sample: z.number().int(), medianHours: z.number(), p85Hours: z.number() }).nullable() }),
+        openWork: z.object({
+          byState: z.array(z.object({ state: z.string(), count: z.number().int(), medianAgeHours: z.number().nullable(), oldestAgeHours: z.number().nullable() })),
+          censored: z.literal(true),
+          oldest: z.array(z.object({ key: z.string(), state: z.string(), ageHours: z.number() })),
+        }),
+        criticalPath: z.object({
+          status: z.enum(["computed", "not_a_dag", "missing_estimates", "no_open_dependencies"]), totalHours: z.number().nullable(),
+          path: z.array(z.object({ key: z.string(), estimateHours: z.number() })), detail: z.string().nullable(),
+        }),
+        limitations: z.array(z.string()),
+      }),
+    },
+    ({ projectId, from, to }) => {
+      try {
+        const result = getFlowMetrics(database, { projectId, principalId, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) });
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) { return toToolError(error); }
     },

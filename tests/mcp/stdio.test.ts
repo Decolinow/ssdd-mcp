@@ -73,6 +73,7 @@ test("stdio exposes project and work item tools through a real MCP client", asyn
       "file_claim_list",
       "file_claim_release",
       "file_claim_renew",
+      "flow_metrics_get",
       "github_issue_import_apply",
       "github_issue_import_preview",
       "github_reference_list",

@@ -55,7 +55,7 @@ const qaReadTools = [
 const technicalLeadReadTools = [
   ...new Set([
     ...refinementReadTools, ...specificationReadTools, ...testDesignReadTools, ...developerReadTools,
-    "developer_execution_metrics_get",
+    "developer_execution_metrics_get", "flow_metrics_get",
     "project_feature_roadmap_get", "audit_event_list",
   ]),
 ] as const;
