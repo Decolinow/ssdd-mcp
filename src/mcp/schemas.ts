@@ -314,7 +314,7 @@ export const teamCapacityReportSchema = z.object({
     capacityLostToAbsenceHours: z.number().nonnegative(),
   })),
   daily: z.array(z.object({ date: z.string(), totalHours: z.number().nonnegative() })),
-});
+}).meta({ id: "TeamCapacityReport" });
 export const teamSummarySchema = z.object({
   projectId: z.string().uuid(),
   teamId: z.string().uuid(),
@@ -400,7 +400,7 @@ export const definitionOfDoneRevisionSchema = z.object({
   reason: z.string(),
   createdByPrincipalId: z.string().uuid(),
   createdAt: z.string().datetime(),
-});
+}).meta({ id: "DefinitionOfDoneRevision" });
 export const sprintScopeItemSchema = z.object({
   itemId: z.string().uuid(),
   itemKey: z.string(),
@@ -410,7 +410,7 @@ export const sprintScopeItemSchema = z.object({
   points: z.number().int().positive(),
   baselineId: z.string().uuid(),
   itemRevisionNumber: z.number().int().positive(),
-});
+}).meta({ id: "SprintScopeItem" });
 export const sprintStateTransitionSchema = z.object({
   id: z.string().uuid(),
   projectId: z.string().uuid(),
@@ -421,7 +421,7 @@ export const sprintStateTransitionSchema = z.object({
   reason: z.string(),
   transitionedByPrincipalId: z.string().uuid(),
   transitionedAt: z.string().datetime(),
-});
+}).meta({ id: "SprintStateTransition" });
 export const sprintRetrospectiveActionSchema = z.object({
   id: z.string().uuid(),
   position: z.number().int().positive(),
@@ -464,6 +464,7 @@ export const sprintRetrospectiveReadSchema = z.object({
     createdAt: z.string().datetime(),
   })),
 });
+const sprintSnapshotSchema = z.record(z.string(), z.unknown()).nullable();
 export const sprintSchema = z.object({
   id: z.string().uuid(),
   projectId: z.string().uuid(),
@@ -484,38 +485,12 @@ export const sprintSchema = z.object({
   cancelledAt: z.string().datetime().nullable(),
   reason: z.string(),
   reviewSummary: z.string().nullable(),
-  startedSnapshot: z.object({
-    startedAt: z.string().datetime(),
-    reason: z.string(),
-    capacity: teamCapacityReportSchema,
-    definitionOfDone: definitionOfDoneRevisionSchema,
-    commitments: z.array(sprintScopeItemSchema),
-  }).nullable(),
-  closedSnapshot: z.object({
-    closedAt: z.string().datetime(),
-    reviewSummary: z.string(),
-    acceptedItemIds: z.array(z.string().uuid()),
-    acceptedItems: z.array(sprintScopeItemSchema),
-    incompleteItems: z.array(sprintScopeItemSchema),
-    definitionOfDone: definitionOfDoneRevisionSchema,
-    start: z.object({
-      startedAt: z.string().datetime(),
-      reason: z.string(),
-      capacity: teamCapacityReportSchema,
-      definitionOfDone: definitionOfDoneRevisionSchema,
-      commitments: z.array(sprintScopeItemSchema),
-    }),
-  }).nullable(),
+  // Snapshots e histórico são imutáveis e volumosos; o contrato detalhado está em docs/mcp.md (mantê-los tipados custava ~11 KB por tool de sprint).
+  startedSnapshot: sprintSnapshotSchema.describe("Snapshot do início: startedAt, reason, capacity, definitionOfDone, commitments."),
+  closedSnapshot: sprintSnapshotSchema.describe("Snapshot do encerramento: closedAt, reviewSummary, acceptedItemIds, acceptedItems, incompleteItems, definitionOfDone, start."),
   scope: z.array(sprintScopeItemSchema),
-  scopeHistory: z.array(sprintScopeItemSchema.extend({
-    id: z.string().uuid(),
-    sequence: z.number().int().positive(),
-    action: z.enum(["add", "remove"]),
-    reason: z.string(),
-    changedByPrincipalId: z.string().uuid(),
-    changedAt: z.string().datetime(),
-  })),
-  transitions: z.array(sprintStateTransitionSchema),
+  scopeHistory: z.array(z.record(z.string(), z.unknown())).describe("Histórico imutável de inclusões/remoções de escopo (sequence, action, reason, changedAt)."),
+  transitions: z.array(z.record(z.string(), z.unknown())).describe("Transições de estado da sprint (fromState, toState, sprintVersion, reason)."),
 });
 export const scenarioCoverageMatchSchema = z.object({
   scenario: z.object({
@@ -607,7 +582,7 @@ export const taskWorkflowStepSchema = z.object({
   id: z.string().uuid(), position: z.number().int().positive(), title: z.string(), description: z.string(),
   effortPercent: z.number().positive().max(100), status: z.enum(taskWorkflowStepStatuses),
   statusChangedAt: z.string().datetime().nullable(), statusChangedByPrincipalId: z.string().uuid().nullable(), statusReason: z.string().nullable(),
-});
+}).meta({ id: "TaskWorkflowStep" });
 export const taskWorkflowRevisionSchema = z.object({
   id: z.string().uuid(), projectId: z.string().uuid(), taskId: z.string().uuid(), taskKey: z.string(),
   revisionNumber: z.number().int().positive(), status: z.enum(taskWorkflowRevisionStatuses), reason: z.string(),
@@ -616,7 +591,7 @@ export const taskWorkflowRevisionSchema = z.object({
   steps: z.array(taskWorkflowStepSchema), progressPercent: z.number().min(0).max(100).nullable(),
   completedEffortPercent: z.number().min(0).max(100).nullable(), remainingEffortPercent: z.number().min(0).max(100).nullable(),
   allStepsDone: z.boolean().nullable(),
-});
+}).meta({ id: "TaskWorkflowRevision" });
 export const taskWorkflowViewSchema = z.object({
   projectId: z.string().uuid(), taskId: z.string().uuid(), taskKey: z.string(), taskState: z.string(), taskVersion: z.number().int().positive(),
   latestRevisionNumber: z.number().int().nonnegative(),
@@ -788,7 +763,7 @@ export const taskContextEntrySchema = z.object({
     uri: z.string().nullable(),
   }),
   content: z.unknown(),
-});
+}).meta({ id: "TaskContextEntry" });
 export const taskContextSchema = z.object({
   task: z.object({
     id: z.string().uuid(),

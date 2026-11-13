@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Análise e redução do custo de contexto das tools (2026-11-13)
+
+- [analise-catalogo-tools.md](analise-catalogo-tools.md): schemas de saída reutilizados passam a usar `$ref` (`.meta({ id })`) e snapshots de sprint viram objetos abertos; `full` caiu 22% (646 → 502 KB). `scripts/mcp-context-cost.mjs` mede o custo por perfil e `tests/scripts/mcp-context-cost.test.ts` impõe a catraca. Consolidações de catálogo (adr/spec, get/list, métricas, importadores) ficam como candidatas na análise, sem aplicação.
+
 ## Matriz ferramenta MCP → UI (2026-11-13, SSDD-97 AC-4)
 
 - `docs/dashboard-parity-matrix.md` classifica as ferramentas do MCP em UI, parcial ou lacuna futura, gerada de `src/dashboard/tool-ui-matrix.ts` com teste de completude contra a matriz do catálogo. Mostra que a paridade ainda tem lacunas reais, listadas por ferramenta.
