@@ -77,6 +77,7 @@ export async function submitPlanning(event) {
     let payload;
     try { payload = JSON.parse(elements.planningPayload.value); } catch { throw Object.assign(new Error("O payload precisa ser um objeto JSON válido."), { code: "VALIDATION_FAILED" }); }
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw Object.assign(new Error("O payload precisa ser um objeto JSON."), { code: "VALIDATION_FAILED" });
+    if ("reason" in payload && (typeof payload.reason !== "string" || payload.reason.trim() === "")) throw Object.assign(new Error("Preencha o campo \"reason\" (motivo) no JSON antes de executar."), { code: "VALIDATION_FAILED" });
     for (const key of Object.keys(payload)) if (payload[key] === "" || (Array.isArray(payload[key]) && payload[key].length === 0 && key.startsWith("remove"))) delete payload[key];
     const operation = elements.planningOperation.value;
     const isBacklog = backlogItem !== null && operation in itemOps;

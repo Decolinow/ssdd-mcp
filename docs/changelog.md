@@ -433,3 +433,9 @@ Por decisão do usuário, as 13 tarefas históricas das Sprints 1 a 3 que bloque
 ## 2026-11-13 — SCN-81-AC3: guia do instalador
 
 - Revisão manual de `docs/agent-installer.md` contra o critério: run `failed` em `git-cbb9a79` (faltavam pré-requisitos e recuperação). O guia ganhou as seções "Pré-requisitos" e "Recuperação" (check com falha, apply com falha, cliente sem servidor, `doctor`/`backup`/`restore`). Revisão repetida e registrada em novo build.
+
+## 2026-11-13 — Dashboard: recusas dentro de diálogos ficavam invisíveis
+
+- Causa: o toast de erro ficava atrás do fundo escurecido de diálogos modais (camada superior). Ao certificar uma execução QA, o diálogo "Operações" abria com `reason` vazio; o envio falhava com `VALIDATION_FAILED` e a pessoa não via nada, achando que tinha certificado. Reproduzido numa cópia do banco real: a API e o gate funcionam (certificação gravada com sucesso), o defeito era só de interface.
+- Correção: o toast agora é um popover manual (camada superior, acima dos modais) e o diálogo de Operações valida `reason` antes de enviar, com mensagem clara. O smoke do navegador cobre a recusa visível.
+- Lição de processo: recusas de comando não deixam rastro no banco; a interface precisa ser o lugar onde elas aparecem.

@@ -134,6 +134,10 @@ test("dashboard smoke: login, backlog and board, gate-refused transition and PBI
   await page.click("#open-planning");
   await page.locator("#planning-dialog[open]").waitFor();
   await page.selectOption("#planning-operation", "definition_of_done_set");
+  // A refusal inside a modal must stay visible: the empty reason is caught before the request and the toast sits above the dialog backdrop.
+  await page.click("#submit-planning");
+  await page.locator("#toast:popover-open").filter({ hasText: "reason" }).waitFor({ state: "visible" });
+  assert.equal(await page.locator("#planning-dialog[open]").count(), 1, "the dialog stays open after the refusal");
   await page.fill("#planning-payload", '{"expectedVersion": 0, "criteria": [{"description": "Smoke verde"}], "reason": "DoD criada pelo smoke."}');
   await page.click("#submit-planning");
   await page.locator("#toast:not([hidden])").filter({ hasText: "concluído" }).waitFor();

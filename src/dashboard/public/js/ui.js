@@ -48,8 +48,15 @@ export function toast(message, isError = false) {
   elements.toast.textContent = message;
   elements.toast.classList.toggle("is-error", isError);
   elements.toast.hidden = false;
+  // A modal dialog sits in the top layer and would hide the toast behind its backdrop; a manual popover joins the top layer above it.
+  if (typeof elements.toast.showPopover === "function") {
+    try { if (elements.toast.matches(":popover-open")) elements.toast.hidePopover(); elements.toast.showPopover(); } catch { /* keep the in-page toast */ }
+  }
   if (model.toastTimer !== null) window.clearTimeout(model.toastTimer);
-  model.toastTimer = window.setTimeout(() => { elements.toast.hidden = true; }, isError ? 7_000 : 3_500);
+  model.toastTimer = window.setTimeout(() => {
+    elements.toast.hidden = true;
+    try { if (elements.toast.matches(":popover-open")) elements.toast.hidePopover(); } catch { /* already hidden */ }
+  }, isError ? 7_000 : 3_500);
 }
 
 export function showError(error) {
