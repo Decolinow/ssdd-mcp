@@ -42,6 +42,15 @@ describe("project gate policy (SSDD-947)", () => {
 
   const readyGate = () => getWorkItemGateReport(database, { projectId, principalId, itemIdOrKey: storyId, targetState: "ready" });
 
+  it("names the blocking parent PBI and its state in the task Ready gates", () => {
+    const report = getWorkItemGateReport(database, { projectId, principalId, itemIdOrKey: taskId, targetState: "ready" });
+    const parentGate = report.gates.find((gate) => gate.id === "parent-pbi-ready");
+    assert.equal(parentGate?.passed, false);
+    assert.match(parentGate?.message ?? "", /parent PBI .* is draft/u);
+    assert.deepEqual(parentGate?.details, { parentKey: "GP-3", parentState: "draft" });
+    assert.match(report.gates.find((gate) => gate.id === "parent-baseline")?.message ?? "", /GP-3/u);
+  });
+
   it("defaults to standard, versions revisions and rejects stale revisions, short reasons and non-humans", () => {
     assert.deepEqual(getGatePolicy(database, projectId), { level: "standard", revisionNumber: null, reason: null, setByPrincipalId: null, setAt: null });
     assert.throws(() => setGatePolicy(database, { projectId, principalId, requestId: "short", level: "lite", reason: "curto", expectedRevision: 0 }),

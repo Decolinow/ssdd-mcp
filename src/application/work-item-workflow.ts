@@ -812,11 +812,13 @@ function evaluateReadyGates(
     const parentReady = parent !== undefined && (parent.state === "ready" || parent.state === "in_progress");
     addGate(gates, "parent-pbi-ready", parentReady, parentReady
       ? "The parent PBI is Ready or in progress."
-      : "The parent PBI must be Ready before the task can be prepared.");
+      : `The parent PBI ${parent?.key ?? "(none)"} is ${parent?.state ?? "missing"}; it must be Ready before the task can be prepared.`,
+    parent === undefined ? undefined : { parentKey: parent.key, parentState: parent.state });
     const taskBaseline = parent === undefined ? null : baselineIdForItem(database, item.projectId, parent.id);
     addGate(gates, "parent-baseline", taskBaseline !== null, taskBaseline !== null
       ? "The task inherits its PBI baseline."
-      : "The parent PBI must have a fixed baseline.");
+      : `The parent PBI ${parent?.key ?? "(none)"} must have a fixed baseline (move it to Ready first).`,
+    parent === undefined ? undefined : { parentKey: parent.key, parentState: parent.state });
     addGate(gates, "task-assignee", item.assigneeId !== null, item.assigneeId !== null
       ? "The task has an eligible assignee."
       : "Assign a Developer or QA before Ready.");
