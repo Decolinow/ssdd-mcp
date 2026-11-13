@@ -10,6 +10,7 @@
 - **Código:** `npm run check` passou em 2026-11-12 com 199 testes em 31 suítes; a revisão está na branch `feat/quality-analysis-and-dashboard-specs`, ainda sem push e sem CI remota (a cobrança do GitHub Actions bloqueou as execuções anteriores).
 - **Backlog no MCP:** 158 itens, 152 deles Draft; as 18 propostas da [análise de qualidade](analise-qualidade-e-melhorias.md) são as tarefas `SSDD-141`–`SSDD-158` (aliases `SSDD-938`–`SSDD-955`), com 25 dependências gravadas.
 - **Em desenvolvimento local:** `SSDD-946` (anotações e descrições das tools) concluída localmente: toda escrita cita pré-condição e erro comum (`src/mcp/tool-hints.ts`), com teste de contrato; `SSDD-955` (esta reorganização) implementada.
+- **Progresso de roadmap (2026-11-13):** `progressPercent` de features e o rollup `epics` passam a seguir tarefas concluídas; `deliveredPercent` mantém a medida de PBIs Done/pontos (ver [changelog.md](changelog.md)).
 - **Não verificado:** CI remota, smoke visual das últimas alterações do dashboard, execução/certificação QA do cenário `SSDD-VEL-20261111`.
 - **Histórico:** entregas e auditorias anteriores estão em [changelog.md](changelog.md). A tabela abaixo é o registro por tarefa lido por `scripts/sync-roadmap-to-mcp.mjs`; mantenha o formato `| SSDD-### | Estado | Evidência |`.
 
