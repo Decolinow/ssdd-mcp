@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Ciclo e faixa de previsão individual (2026-11-12, SSDD-912 / MCP SSDD-113)
+
+`getDeveloperExecutionMetrics` passa a devolver `cycleTimeHours` (mediana e P85 do tempo de relógio da primeira sessão até Done) e `effortRatioRange` (P15–P85 do fator real/estimado por tarefa, com esforço dividido em tarefas colaborativas). Ambos exigem cinco tarefas e são `null` abaixo disso; expostos em `developer_execution_metrics_get` e na tabela de esforço do dashboard. Story points continuam só na velocidade do time. Aceite retroativo prévio de SSDD-803, 910, 911 e da cadeia SSDD-501/502/503/801/802.
+
 ## Matriz de paridade do catálogo MCP (2026-11-12, SSDD-906 / MCP SSDD-107)
 
 Novo teste `tests/mcp/catalog-parity.test.ts`: stdio e Streamable HTTP devem expor tools com nome, descrição, schemas e anotações idênticos; toda tool precisa constar em `docs/mcp.md`; `docs/mcp-parity-matrix.md` é gerada do catálogo vivo (mutabilidade/aprovação, paginação por cursor, perfis, skills consumidoras) e o check falha se estiver desatualizada. Regenerar com `UPDATE_PARITY_MATRIX=1 npm test`.

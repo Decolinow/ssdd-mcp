@@ -321,6 +321,10 @@ export interface DeveloperExecutionMetrics {
     readonly estimatedHoursOnCompletedTasks: number;
     readonly estimateVariancePercent: number | null;
     readonly effortCalibrationFactor: number | null;
+    /** Wall-clock hours from the developer's first session on a task to its Done transition (pauses included). Null below the minimum sample. */
+    readonly cycleTimeHours: { readonly sampleTasks: number; readonly medianHours: number; readonly p85Hours: number } | null;
+    /** P15–P85 range of per-task actual/estimated effort ratios, an empirical individual prediction interval. Null below the minimum sample. */
+    readonly effortRatioRange: { readonly sampleTasks: number; readonly lowFactor: number; readonly highFactor: number } | null;
     readonly sampleSufficient: boolean;
   }[];
 }
@@ -382,6 +386,43 @@ export function getDeveloperExecutionMetrics(database: SqliteDatabase, input: {
     developer_principal_id: string; display_name: string; completed_tasks: number; estimated_completed_tasks: number;
     estimated_hours: number; active_seconds_on_completed_tasks: number; active_seconds_on_estimated_completed_tasks: number;
   }>;
+  const taskRows = database.prepare(
+    `WITH latest_done AS (
+       SELECT t.item_id, t.transitioned_at,
+         ROW_NUMBER() OVER (PARTITION BY t.item_id ORDER BY t.item_version DESC) AS done_rank
+       FROM work_item_state_transitions t
+       WHERE t.project_id = ? AND t.to_state = 'done' AND t.transitioned_at >= ? AND t.transitioned_at < ?
+     ), session_effort AS (
+       SELECT ds.item_id, ds.developer_principal_id, SUM(ds.active_seconds) AS seconds,
+              MIN(ds.started_at) AS first_started_at, d.transitioned_at AS done_at
+       FROM development_sessions ds INNER JOIN latest_done d ON d.item_id = ds.item_id AND d.done_rank = 1
+         AND ds.ended_at <= d.transitioned_at
+       WHERE ds.project_id = ? AND ds.status = 'completed'
+       GROUP BY ds.item_id, ds.developer_principal_id, d.transitioned_at
+     )
+     SELECT e.item_id, e.developer_principal_id, e.seconds, e.first_started_at, e.done_at,
+            e.seconds * 1.0 / NULLIF(SUM(e.seconds) OVER (PARTITION BY e.item_id), 0) AS effort_share,
+            (SELECT est.value FROM work_item_estimates est
+             WHERE est.project_id = ? AND est.item_id = e.item_id AND est.unit = 'hours') AS estimate_hours
+     FROM session_effort e
+     WHERE (? IS NULL OR e.developer_principal_id = ?)`,
+  ).all(input.projectId, startsAt, endsBefore, input.projectId, input.projectId,
+    input.developerPrincipalId ?? null, input.developerPrincipalId ?? null) as Array<{
+    item_id: string; developer_principal_id: string; seconds: number; first_started_at: string; done_at: string;
+    effort_share: number | null; estimate_hours: number | null;
+  }>;
+  const cycleHoursByDeveloper = new Map<string, number[]>();
+  const effortRatiosByDeveloper = new Map<string, number[]>();
+  for (const task of taskRows) {
+    const cycleHours = (Date.parse(task.done_at) - Date.parse(task.first_started_at)) / 3_600_000;
+    if (Number.isFinite(cycleHours) && cycleHours >= 0) {
+      (cycleHoursByDeveloper.get(task.developer_principal_id) ?? cycleHoursByDeveloper.set(task.developer_principal_id, []).get(task.developer_principal_id)!).push(cycleHours);
+    }
+    if (task.estimate_hours !== null && task.estimate_hours > 0 && task.effort_share !== null && task.effort_share > 0) {
+      const ratio = (task.seconds / 3_600) / (task.estimate_hours * task.effort_share);
+      (effortRatiosByDeveloper.get(task.developer_principal_id) ?? effortRatiosByDeveloper.set(task.developer_principal_id, []).get(task.developer_principal_id)!).push(ratio);
+    }
+  }
   const doneByDeveloper = new Map(doneRows.map((row) => [row.developer_principal_id, row]));
   const sessionByDeveloper = new Map(rows.map((row) => [row.developer_principal_id, row]));
   const developerIds = [...new Set([...sessionByDeveloper.keys(), ...doneByDeveloper.keys()])];
@@ -406,10 +447,30 @@ export function getDeveloperExecutionMetrics(database: SqliteDatabase, input: {
       estimatedHoursOnCompletedTasks: round2(estimatedHours),
       estimateVariancePercent: estimatedHours > 0 ? round2(((actualEstimatedCompletedHours - estimatedHours) / estimatedHours) * 100) : null,
       effortCalibrationFactor: estimatedCompletedTasks >= 5 && estimatedHours > 0 ? round2(actualEstimatedCompletedHours / estimatedHours) : null,
+      cycleTimeHours: summarizeCycleTime(cycleHoursByDeveloper.get(principalId) ?? []),
+      effortRatioRange: summarizeEffortRatios(effortRatiosByDeveloper.get(principalId) ?? []),
       sampleSufficient: estimatedCompletedTasks >= 5,
     };
   });
   return { projectId: input.projectId, period: { from, to }, minimumSampleTasks: 5, developers };
+}
+
+const minimumDeveloperSample = 5;
+
+function percentile(sorted: readonly number[], fraction: number): number {
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * fraction) - 1))]!;
+}
+
+function summarizeCycleTime(hours: readonly number[]): { sampleTasks: number; medianHours: number; p85Hours: number } | null {
+  if (hours.length < minimumDeveloperSample) return null;
+  const sorted = [...hours].sort((left, right) => left - right);
+  return { sampleTasks: sorted.length, medianHours: round2(percentile(sorted, 0.5)), p85Hours: round2(percentile(sorted, 0.85)) };
+}
+
+function summarizeEffortRatios(ratios: readonly number[]): { sampleTasks: number; lowFactor: number; highFactor: number } | null {
+  if (ratios.length < minimumDeveloperSample) return null;
+  const sorted = [...ratios].sort((left, right) => left - right);
+  return { sampleTasks: sorted.length, lowFactor: round2(percentile(sorted, 0.15)), highFactor: round2(percentile(sorted, 0.85)) };
 }
 
 export function recordDeployment(database: SqliteDatabase, input: RecordDeploymentInput): CommandReceipt<DeploymentEvent> {

@@ -244,6 +244,9 @@ describe("development sessions, task QA links, release events and developer metr
     assert.equal(metrics.developers[0]?.activeHours, 5);
     assert.equal(metrics.developers[0]?.estimateVariancePercent, 0);
     assert.equal(metrics.developers[0]?.effortCalibrationFactor, 1);
+    assert.equal(metrics.developers[0]?.cycleTimeHours?.sampleTasks, 5);
+    assert.ok((metrics.developers[0]?.cycleTimeHours?.p85Hours ?? -1) >= (metrics.developers[0]?.cycleTimeHours?.medianHours ?? 0));
+    assert.deepEqual(metrics.developers[0]?.effortRatioRange, { sampleTasks: 5, lowFactor: 1, highFactor: 1 });
 
     database.prepare("DELETE FROM work_item_estimates WHERE project_id = ? AND item_id IN (?, ?, ?, ?)")
       .run(projectId, ...completedTasks.slice(1).map((task) => task.id));
@@ -254,6 +257,8 @@ describe("development sessions, task QA links, release events and developer metr
     assert.equal(partialEstimateSample?.estimatedHoursOnCompletedTasks, 1);
     assert.equal(partialEstimateSample?.sampleSufficient, false);
     assert.equal(partialEstimateSample?.effortCalibrationFactor, null);
+    assert.equal(partialEstimateSample?.effortRatioRange, null);
+    assert.equal(partialEstimateSample?.cycleTimeHours?.sampleTasks, 5);
 
     const lowSample = getDeveloperExecutionMetrics(database, { projectId, principalId, from: date, to: date, developerPrincipalId: principalId });
     assert.equal(lowSample.developers.length, 1);
@@ -288,6 +293,8 @@ describe("development sessions, task QA links, release events and developer metr
     assert.equal(oneTaskSample?.sampleSufficient, false);
     assert.equal(oneTaskSample?.estimateVariancePercent, null);
     assert.equal(oneTaskSample?.effortCalibrationFactor, null);
+    assert.equal(oneTaskSample?.cycleTimeHours, null);
+    assert.equal(oneTaskSample?.effortRatioRange, null);
   });
 
   it("interprets effort metric dates in the project timezone", () => {
