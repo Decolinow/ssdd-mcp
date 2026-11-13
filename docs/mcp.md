@@ -12,6 +12,8 @@ Para a versão moderna `2026-07-28`, o transporte é sem sessão e serve cada re
 
 ## Ferramentas e autorizações
 
+A matriz gerada `docs/mcp-parity-matrix.md` lista cada tool com mutabilidade, paginação, perfis e skills consumidoras; um teste de contrato a mantém igual ao catálogo e confere a paridade entre stdio e HTTP.
+
 Toda entrada de domínio inclui `projectId` após descoberta, exceto `project_list`. A sigla H indica confirmação humana. O mesmo ator pode possuir vários papéis e a configuração do projeto pode reduzir o conjunto de permissões.
 
 | Ferramentas | Entradas específicas e resultado | Acesso |

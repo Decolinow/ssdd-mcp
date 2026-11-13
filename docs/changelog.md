@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Matriz de paridade do catálogo MCP (2026-11-12, SSDD-906 / MCP SSDD-107)
+
+Novo teste `tests/mcp/catalog-parity.test.ts`: stdio e Streamable HTTP devem expor tools com nome, descrição, schemas e anotações idênticos; toda tool precisa constar em `docs/mcp.md`; `docs/mcp-parity-matrix.md` é gerada do catálogo vivo (mutabilidade/aprovação, paginação por cursor, perfis, skills consumidoras) e o check falha se estiver desatualizada. Regenerar com `UPDATE_PARITY_MATRIX=1 npm test`.
+
 ## Relatório de qualidade em lote (2026-11-12, SSDD-905 / MCP SSDD-106)
 
 `searchScenariosByCriteria` resolve a cobertura de todos os critérios de uma história em uma única consulta (revisões published/superseded, última execução por build). `getWorkItemQualityReport` passou a usá-la; `searchScenariosByCriterion` permanece para a tool de busca. Fixture com 50 critérios, 20 cenários, revisões superseded e 3 builds com reexecuções: busca 150 → 2 consultas, p50 22,3 → 2,2 ms e p95 24,4 → 2,6 ms (relatório completo: 17 consultas). Teste de equivalência compara lote e busca individual critério a critério.
