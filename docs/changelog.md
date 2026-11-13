@@ -7,6 +7,7 @@ Histórico datado das entregas, verificações e auditorias do projeto, movido d
 - Nova tool `test_run_import_junit`: importa relatório JUnit e grava uma execução por cenário, associada pela chave do cenário no nome, `classname` ou property `scenario` do `testcase`; falha vence, hash SHA-256 do XML como evidência, DOCTYPE recusado, idempotente por `requestId` e cenário (não atômica).
 - Com a política `strict`, `test_run_certify` só aceita execução de origem `ci` para cenário que não seja `manual` (ADR 0030, itens 5 e 6). `lite` e `standard` não mudam.
 - `npm run check` 265/265. Limites: só JUnit (não Cucumber); a origem `ci` valida um workflow_run de sucesso do commit, mas nunca foi exercitada com webhook real; sem CI remota; sem tela no dashboard.
+- SSDD-163 foi para Done pelo fluxo normal na build `git-f1e1d9d`: 2 critérios obrigatórios certificados por delegação do QA, sobre execuções locais de origem `agent`.
 
 ## Fechamento da SSDD-102 (2026-11-13)
 
