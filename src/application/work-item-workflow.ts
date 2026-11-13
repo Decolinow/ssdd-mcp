@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { openBlockingQuestions } from "./work-item-questions.js";
 import type { WorkItemState } from "../domain/work-items.js";
 import { workItemStates } from "../domain/work-items.js";
 import type {
@@ -751,6 +752,10 @@ function evaluateReadyGates(
   principalId: string,
   gates: WorkflowGate[],
 ): void {
+  const blockingQuestions = openBlockingQuestions(database, item.projectId, item.id);
+  addGate(gates, "no-blocking-questions", blockingQuestions.length === 0, blockingQuestions.length === 0
+    ? "No blocking question is open."
+    : "Answer the blocking open questions before Ready.", { openQuestions: blockingQuestions.map((question) => question.key) });
   if (item.type === "story" || item.type === "bug") {
     const published = database.prepare(
       `SELECT 1 FROM work_item_revisions
@@ -955,7 +960,7 @@ function evaluateDependencies(database: SqliteDatabase, projectId: string, itemI
     { incompleteDependencies: incomplete });
 }
 
-function hasPublishedCriterionScenario(database: SqliteDatabase, projectId: string, criterionId: string): boolean {
+export function hasPublishedCriterionScenario(database: SqliteDatabase, projectId: string, criterionId: string): boolean {
   return database.prepare(
     `SELECT 1 FROM scenario_revision_coverage c
      INNER JOIN scenario_revisions r ON r.project_id = c.project_id AND r.scenario_id = c.scenario_id

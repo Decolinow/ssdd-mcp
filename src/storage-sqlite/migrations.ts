@@ -2618,6 +2618,32 @@ export const initialMigrations: readonly SqliteMigration[] = [
         ADD COLUMN structure_json TEXT CHECK (structure_json IS NULL OR json_valid(structure_json));
     `,
   },
+  {
+    version: 35,
+    name: "work-item-open-questions",
+    sql: `
+      CREATE TABLE work_item_questions (
+        question_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        question_key TEXT NOT NULL CHECK (length(question_key) BETWEEN 3 AND 20),
+        text TEXT NOT NULL CHECK (length(trim(text)) BETWEEN 1 AND 2000),
+        blocking INTEGER NOT NULL DEFAULT 0 CHECK (blocking IN (0, 1)),
+        status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'answered')),
+        answer TEXT CHECK (answer IS NULL OR length(trim(answer)) BETWEEN 1 AND 4000),
+        asked_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+        asked_at TEXT NOT NULL,
+        answered_by_principal_id TEXT REFERENCES principals(principal_id),
+        answered_at TEXT,
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+        UNIQUE (project_id, question_key),
+        FOREIGN KEY (project_id, item_id) REFERENCES work_items(project_id, item_id),
+        CHECK ((status = 'open' AND answer IS NULL AND answered_at IS NULL AND answered_by_principal_id IS NULL)
+            OR (status = 'answered' AND answer IS NOT NULL AND answered_at IS NOT NULL AND answered_by_principal_id IS NOT NULL))
+      ) STRICT;
+      CREATE INDEX work_item_questions_by_item ON work_item_questions (project_id, item_id, status);
+    `,
+  },
 ];
 
 export function applyMigrations(

@@ -132,6 +132,8 @@ import { evidenceKinds } from "../domain/workflow.js";
 import { acceptTask } from "../application/task-accept.js";
 import { describeWithHint } from "./tool-hints.js";
 import { getFlowMetrics } from "../application/flow-metrics.js";
+import { answerQuestion, listQuestions, openQuestion } from "../application/work-item-questions.js";
+import { reviewWorkItemReadiness } from "../application/readiness-review.js";
 import { acquireFileClaims, listFileClaims, releaseFileClaims, renewFileClaims } from "../application/file-claims.js";
 import { listStaleDevelopmentSessions, recoverDevelopmentSession } from "../application/session-recovery.js";
 import { getDefinitionOfDone, setDefinitionOfDone } from "../application/definition-of-done.js";
@@ -3104,6 +3106,98 @@ export function createMcpServer(
           projectId, principalId, ...(pathPrefix === undefined ? {} : { pathPrefix }), ...(mine === undefined ? {} : { mine }),
           ...(includeInactive === undefined ? {} : { includeInactive }), ...(limit === undefined ? {} : { limit }),
         });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  const questionSchema = z.object({
+    id: z.string().uuid(), key: z.string(), itemKey: z.string(), text: z.string(), blocking: z.boolean(),
+    status: z.enum(["open", "answered"]), answer: z.string().nullable(), askedByPrincipalId: z.string().uuid(), askedAt: z.string(),
+    answeredByPrincipalId: z.string().uuid().nullable(), answeredAt: z.string().nullable(), version: z.number().int().positive(),
+  });
+  const questionOutput = z.object({ question: questionSchema, auditEventCount: z.number().int().nonnegative() });
+  const questionResult = (receipt: { value: { question: unknown }; auditEventIds: readonly string[] }) => {
+    const result = { question: receipt.value.question, auditEventCount: receipt.auditEventIds.length };
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
+  };
+
+  server.registerTool(
+    "question_open",
+    {
+      title: "Abrir pergunta",
+      description: "Registra uma pergunta em aberto num item; se bloqueante, impede o Ready até ser respondida e aparece como aviso no contexto da tarefa.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), itemIdOrKey: z.string().trim().min(1).max(120),
+        text: z.string().trim().min(1).max(2_000), blocking: z.boolean().optional(),
+      }),
+      outputSchema: questionOutput,
+    },
+    ({ projectId, requestId, itemIdOrKey, text, blocking }) => {
+      try {
+        return questionResult(openQuestion(database, { projectId, principalId, requestId, itemIdOrKey, text, ...(blocking === undefined ? {} : { blocking }) }));
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "question_answer",
+    {
+      title: "Responder pergunta",
+      description: "Responde uma pergunta aberta (UUID ou chave Q-N); PO, Tech Lead ou Stakeholder. Libera o gate de Ready quando era a última bloqueante.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), requestId: z.string().trim().min(1).max(128), questionIdOrKey: z.string().trim().min(1).max(60),
+        answer: z.string().trim().min(1).max(4_000), expectedVersion: z.number().int().positive().optional(),
+      }),
+      outputSchema: questionOutput,
+    },
+    ({ projectId, requestId, questionIdOrKey, answer, expectedVersion }) => {
+      try {
+        return questionResult(answerQuestion(database, { projectId, principalId, requestId, questionIdOrKey, answer, ...(expectedVersion === undefined ? {} : { expectedVersion }) }));
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "question_list",
+    {
+      title: "Listar perguntas",
+      description: "Lista perguntas do projeto, filtrando por item e por status (open/answered).",
+      inputSchema: z.object({
+        projectId: z.string().uuid(), itemIdOrKey: z.string().trim().min(1).max(120).optional(),
+        status: z.enum(["open", "answered"]).optional(), limit: z.number().int().min(1).max(200).optional(),
+      }),
+      outputSchema: z.object({ questions: z.array(questionSchema) }),
+    },
+    ({ projectId, itemIdOrKey, status, limit }) => {
+      try {
+        const result = listQuestions(database, {
+          projectId, principalId, ...(itemIdOrKey === undefined ? {} : { itemIdOrKey }),
+          ...(status === undefined ? {} : { status }), ...(limit === undefined ? {} : { limit }),
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) { return toToolError(error); }
+    },
+  );
+
+  server.registerTool(
+    "work_item_readiness_review",
+    {
+      title: "Revisar prontidão do item",
+      description: "Revisão determinística (sem modelo): critério sem resultado observável, termo vago, termo fora do glossário, critério obrigatório sem cenário, tarefa sem checklist e perguntas bloqueantes abertas.",
+      inputSchema: z.object({ projectId: z.string().uuid(), itemIdOrKey: z.string().trim().min(1).max(120) }),
+      outputSchema: z.object({
+        itemKey: z.string(), type: z.string(),
+        findings: z.array(z.object({
+          code: z.enum(["no_observable_outcome", "vague_term", "term_not_in_glossary", "criterion_without_scenario", "task_without_checklist", "blocking_question_open"]),
+          severity: z.enum(["blocking", "warning"]), criterionKey: z.string().optional(), message: z.string(),
+        })),
+        counts: z.object({ blocking: z.number().int().nonnegative(), warning: z.number().int().nonnegative() }),
+      }),
+    },
+    ({ projectId, itemIdOrKey }) => {
+      try {
+        const result = reviewWorkItemReadiness(database, { projectId, principalId, itemIdOrKey });
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) { return toToolError(error); }
     },

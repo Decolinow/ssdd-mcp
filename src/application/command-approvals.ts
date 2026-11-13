@@ -45,6 +45,8 @@ export const approvableMcpToolNames = [
   "task_start",
   "task_accept",
   "development_session_recover",
+  "question_open",
+  "question_answer",
   "task_workflow_propose",
   "task_workflow_publish",
   "task_workflow_step_transition",

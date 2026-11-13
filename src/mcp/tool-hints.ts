@@ -51,6 +51,8 @@ export const mcpToolHints: Readonly<Record<string, ToolHint>> = {
   development_session_start: { precondition: "tarefa em in_progress atribuída a você", commonError: "SESSION_CONFLICT" },
   development_session_transition: { precondition: "ser o dono da sessão e expectedVersion atual", commonError: "VERSION_CONFLICT" },
   development_session_recover: { precondition: "Admin/Tech Lead e sessão sem eventos há staleAfterHours", commonError: "SESSION_NOT_STALE" },
+  question_open: { precondition: "item existente e não concluído; bloqueante impede Ready até ser respondida", commonError: "INVALID_TRANSITION" },
+  question_answer: { precondition: "pergunta ainda aberta e papel po/tech_lead/stakeholder", commonError: "INVALID_TRANSITION" },
   file_claim_acquire: { precondition: "caminhos relativos ao repositório, sem '..'", commonError: "CLAIM_CONFLICT" },
   file_claim_renew: { precondition: "ser o dono e a reserva não liberada", commonError: "CLAIM_CONFLICT" },
   deployment_event_record: { precondition: "produção exige Done e homologação bem-sucedida do mesmo build", commonError: "GATE_BLOCKED" },

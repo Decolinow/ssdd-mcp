@@ -133,14 +133,14 @@ test("stage profiles stay within their reviewed MCP context budgets", () => {
   const registered = [...serverSource.matchAll(/server\.registerTool\(\s*["']([^"']+)["']/gu)]
     .map((match) => match[1]!);
   const reviewedMaximum: Record<string, number> = {
-    refinement: 27,
-    specification: 34,
-    dev: 44, // Includes the task execution queue, workflow progress, atomic task start, and task_accept.
-    test_design: 28,
+    refinement: 30, // Inclui question_list, work_item_readiness_review e question_open (SSDD-939).
+    specification: 36, // Inclui question_list e work_item_readiness_review (SSDD-939).
+    dev: 47, // Includes the task execution queue, workflow progress, atomic task start, and task_accept.
+    test_design: 30, // Inclui question_list e work_item_readiness_review (SSDD-939).
     qa: 29,
-    tech_lead: 67, // Timeline de auditoria somente leitura, ADR authoring, draft withdrawal, task workflow, execution ordering, and feature forecasts are part of the role.
-    security_review: 28, // Inclui a timeline de auditoria somente leitura.
-    po: 58, // Includes backlog discovery, draft withdrawal, task queue, feature roadmap and sprint planning.
+    tech_lead: 71, // Timeline de auditoria somente leitura, ADR authoring, draft withdrawal, task workflow, execution ordering, and feature forecasts are part of the role.
+    security_review: 30, // Inclui a timeline de auditoria somente leitura.
+    po: 62, // Includes backlog discovery, draft withdrawal, task queue, feature roadmap and sprint planning.
     facilitator: 27,
     release: 26,
     devops: 26,

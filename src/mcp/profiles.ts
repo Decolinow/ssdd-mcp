@@ -22,6 +22,7 @@ const refinementReadTools = [
   "work_item_get", "work_item_revision_list", "work_item_list", "work_item_semantic_search", "task_workflow_get", "comment_list",
   "spec_get", "spec_list", "scenario_get", "scenario_list", "scenario_criterion_search", "trace_query",
   "adr_search", "work_item_gate_check", "work_item_quality_get", "task_context_get",
+  "question_list", "work_item_readiness_review",
 ] as const;
 
 const specificationReadTools = [
@@ -42,6 +43,7 @@ const developerReadTools = [
   "scenario_get", "scenario_list", "scenario_criterion_search", "test_run_list",
   "development_session_list", "deployment_event_list", "github_reference_list",
   "work_item_gate_check", "work_item_quality_get", "evidence_list", "trace_query",
+  "question_list", "work_item_readiness_review",
 ] as const;
 
 const qaReadTools = [
@@ -102,7 +104,7 @@ const securityReviewReadTools = [
 const developerTools = [
   "work_item_create", "work_item_assign", "comment_add", "work_item_estimate", "work_item_estimate_confirm",
   "development_session_start", "development_session_transition", "task_start_check", "task_start", "task_accept", "file_claim_acquire", "file_claim_renew", "file_claim_release", "file_claim_list", "task_workflow_propose",
-  "task_workflow_step_transition", "work_item_transition", "evidence_add",
+  "task_workflow_step_transition", "work_item_transition", "evidence_add", "question_open",
 ] as const;
 
 const qaTools = [
@@ -119,13 +121,13 @@ const technicalLeadTools = [
   "work_item_revision_publish", "work_item_estimate_confirm", "spec_create", "adr_create", "adr_link_task",
   "spec_revision_propose", "spec_revision_publish", "spec_revision_withdraw", "trace_link_add", "trace_link_remove", "work_item_semantic_index",
   "task_workflow_propose", "task_workflow_publish", "task_workflow_step_transition",
-  "development_session_stale_list", "development_session_recover",
+  "development_session_stale_list", "development_session_recover", "question_answer",
   "file_claim_acquire", "file_claim_renew", "file_claim_release", "file_claim_list",
 ] as const;
 
 const productOwnerTools = [
   "work_item_create", "work_item_revision_propose", "work_item_revision_publish",
-  "work_item_assign", "work_item_rank", "work_item_transition", "spec_create", "spec_revision_propose", "spec_revision_publish", "spec_revision_withdraw",
+  "work_item_assign", "work_item_rank", "work_item_transition", "question_open", "question_answer", "spec_create", "spec_revision_propose", "spec_revision_publish", "spec_revision_withdraw",
   "adr_search",
   "milestone_create", "milestone_scope_change", "milestone_forecast_recalculate",
   "roadmap_id_bind",
@@ -136,7 +138,7 @@ const productOwnerTools = [
 
 const refinementWriteTools = [
   "work_item_create", "work_item_revision_propose", "work_item_assign", "spec_create", "spec_revision_propose",
-  "comment_add", "work_item_semantic_index",
+  "comment_add", "work_item_semantic_index", "question_open",
 ] as const;
 
 const specificationWriteTools = [

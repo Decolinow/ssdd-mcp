@@ -1,4 +1,5 @@
 import type { WorkBaseline } from "../domain/baselines.js";
+import { openBlockingQuestions } from "./work-item-questions.js";
 import type { ScenarioSnapshot } from "../domain/scenarios.js";
 import type { SpecificationKind } from "../domain/specifications.js";
 import type { AcceptanceCriterion, WorkItem, WorkItemContentRevision } from "../domain/work-items.js";
@@ -144,6 +145,9 @@ export function getTaskContext(database: SqliteDatabase, input: TaskContextInput
     : undefined;
   const mode = baseline === undefined ? "preview" : "pinned";
   const warnings: TaskContextWarning[] = [];
+  for (const question of [task, ...hierarchy.filter((entry) => entry.id !== task.id)].flatMap((entry) => openBlockingQuestions(database, input.projectId, entry.id))) {
+    warnings.push({ code: "BLOCKING_QUESTION_OPEN", message: `Pergunta bloqueante ${question.key} sem resposta: ${question.text}`, key: question.key });
+  }
   if (baseline === undefined) {
     warnings.push({ code: "NO_BASELINE_PREVIEW", message: "No baseline is fixed for the parent PBI; current published revisions are shown as preview." });
   }

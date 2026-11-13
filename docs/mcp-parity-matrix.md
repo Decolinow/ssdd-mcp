@@ -50,6 +50,9 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `project_feature_roadmap_get` | leitura | — | tech_lead, po, facilitator, devops | ssdd-delivery-facilitator, ssdd-product-owner |
 | `project_get` | leitura | — | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, release, devops, admin | ssdd-product-owner, ssdd-technical-lead |
 | `project_list` | leitura | — | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, release, devops, admin | chamada direta (sem skill dedicada) |
+| `question_answer` | escrita (aprovável) | — | tech_lead, po | chamada direta (sem skill dedicada) |
+| `question_list` | leitura | — | refinement, specification, dev, test_design, tech_lead, security_review, po | chamada direta (sem skill dedicada) |
+| `question_open` | escrita (aprovável) | — | refinement, dev, tech_lead, po | chamada direta (sem skill dedicada) |
 | `roadmap_id_bind` | escrita (aprovável) | — | po | chamada direta (sem skill dedicada) |
 | `roadmap_id_list` | leitura | — | refinement, specification, test_design, tech_lead, security_review, po | chamada direta (sem skill dedicada) |
 | `roadmap_id_resolve` | leitura | — | refinement, specification, test_design, tech_lead, security_review, po | ssdd-developer |
@@ -106,6 +109,7 @@ A autorização por papel de cada operação está em `docs/mcp.md`; a coluna de
 | `work_item_list` | leitura | cursor | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, release, devops, admin | ssdd-developer, ssdd-product-owner |
 | `work_item_quality_get` | leitura | cursor | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, facilitator, release, devops, admin | ssdd-quality-assurance, ssdd-test-designer |
 | `work_item_rank` | escrita (aprovável) | — | tech_lead, po | chamada direta (sem skill dedicada) |
+| `work_item_readiness_review` | leitura | — | refinement, specification, dev, test_design, tech_lead, security_review, po | chamada direta (sem skill dedicada) |
 | `work_item_revision_list` | leitura | — | refinement, specification, dev, test_design, qa, tech_lead, security_review, po, release, devops, admin | chamada direta (sem skill dedicada) |
 | `work_item_revision_propose` | escrita (aprovável) | — | refinement, specification, tech_lead, po | chamada direta (sem skill dedicada) |
 | `work_item_revision_publish` | escrita (aprovável) | — | tech_lead, po | chamada direta (sem skill dedicada) |

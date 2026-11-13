@@ -179,3 +179,9 @@ Homologação e produção são eventos append-only com build, ator, timestamp U
 ## Recuperação de sessões de desenvolvimento abandonadas (SSDD-928)
 
 Uma sessão ativa ou pausada sem evento há pelo menos `staleAfterHours` (padrão 24) pode ser encerrada por `admin` ou `tech_lead` com motivo obrigatório. A recuperação é idempotente, auditada (`development_session.recovered`) e exige confirmação humana quando o chamador é agente. Nunca altera a autoria da sessão, nunca credita tempo não observado (o intervalo desde a última retomada é descartado e informado) e não toca sessões de outras tarefas.
+
+## Critérios estruturados, perguntas e revisão de prontidão (SSDD-938/939)
+
+- Um critério pode declarar `given`, `when`, `then`, `verification` (`automated`, `manual`, `inspection`) e `example`, todos opcionais. Reproposta que omite todos esses campos preserva a estrutura anterior do mesmo critério; revisões antigas continuam válidas. Tarefas aceitam critérios próprios como checklist de saída.
+- Uma pergunta (`Q-N`) pertence a um item e tem estado `open` ou `answered`. Pergunta marcada `blocking` e ainda aberta reprova o gate de Ready (`no-blocking-questions`) e aparece no contexto da tarefa. Só PO, Tech Lead ou Stakeholder respondem.
+- `work_item_readiness_review` é determinístico: critério sem resultado observável, termo vago, termo entre aspas ou crases ausente do glossário, critério obrigatório sem cenário, tarefa sem checklist e perguntas bloqueantes abertas. Apenas a pergunta bloqueante tem severidade `blocking`.

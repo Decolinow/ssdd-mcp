@@ -191,3 +191,7 @@ O histórico tem sequência monotônica, timestamp UTC do servidor, tipo de even
 ## Reservas de arquivos (`file_claims`, SSDD-929)
 
 Tabela mutável (lease por reserva) com `claim_id`, projeto, tarefa opcional, dono, caminho normalizado, tipo (`file`/`directory`), branch/worktree opcionais e horários de criação, heartbeat, expiração e liberação. "Ativa" é derivado (`released_at IS NULL` e lease futuro), sem job de expiração. Os conflitos são calculados na camada de aplicação sobre as reservas ativas do projeto. Toda mutação é um comando idempotente com evento de auditoria.
+
+## Perguntas em aberto (`work_item_questions`, SSDD-939)
+
+Tabela mutável com `question_id`, chave `Q-N` única por projeto, item, texto, `blocking`, estado (`open`/`answered`), resposta, autores e versão otimista; um CHECK garante que resposta, autor e data só existem juntos no estado `answered`. A coluna `work_item_criteria.structure_json` (migração 34) guarda os campos estruturados do critério.
