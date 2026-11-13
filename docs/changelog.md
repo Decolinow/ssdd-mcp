@@ -2,6 +2,12 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Fechamento da SSDD-102 (2026-11-13)
+
+- SSDD-127 (matriz de rastreabilidade: 32 vínculos novos, [matriz-rastreabilidade.md](matriz-rastreabilidade.md)) e SSDD-139 (reverificação do catálogo) foram para Done pelo fluxo normal, com evidência de build e sem revisão independente (self_validation registrado).
+- SSDD-144 foi reduzida à fatia 1 por revisão publicada: origem de execução e hash de evidência, `ci` aceito só com workflow_run de sucesso do mesmo commit (migração 43, ADR 0030). JUnit/Cucumber, política `ci` por projeto e evidência `verified` direta ficaram como backlog; nada disso foi exercitado por webhook real nem CI remota.
+- SSDD-102 ganhou critérios obrigatórios, cenários SCN-102-AC1..AC3 e baseline revalidada antes de entrar em andamento (a lição da SSDD-6).
+
 ## Certificação delegada e histórias em Done (2026-11-13)
 
 - O QA humano delegou a certificação ao agente ("não vamos ter mais interação humana"). Foram certificados 34/34 critérios obrigatórios e as histórias SSDD-68, 72, 76, 81, 86, 90, 94 e 97 foram movidas para Done com `buildId` `git-87b51ff`.
