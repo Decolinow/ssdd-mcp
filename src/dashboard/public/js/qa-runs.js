@@ -43,3 +43,20 @@ export function aggregateCoverage(summaries) {
   }
   return result;
 }
+
+export const coverageBuckets = {
+  covered: "Cobertos (100% dos critérios obrigatórios)",
+  uncovered: "Com critérios descobertos",
+  noCriteria: "Sem critério obrigatório",
+  withoutBaseline: "Sem baseline (apenas preview)",
+};
+
+/** True when the quality summary belongs to the coverage bucket (withoutBaseline overlaps the other three). */
+export function inCoverageBucket(item, bucket) {
+  if (!bucket) return true;
+  if (bucket === "withoutBaseline") return item.baselineSequence === null;
+  if (bucket === "noCriteria") return item.coveragePercent === null;
+  if (bucket === "covered") return item.coveragePercent === 100;
+  if (bucket === "uncovered") return item.coveragePercent !== null && item.coveragePercent < 100;
+  return false;
+}

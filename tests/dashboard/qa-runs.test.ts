@@ -7,6 +7,7 @@ interface Run { result: string; scenarioKey: string; buildId: string; executedAt
 interface QaRuns {
   filterRuns(runs: Run[], filters?: Record<string, string>): Run[];
   aggregateRuns(runs: Run[]): { counts: Record<string, number>; other: number; total: number };
+  inCoverageBucket(item: { coveragePercent: number | null; baselineSequence: number | null }, bucket: string): boolean;
   aggregateCoverage(items: { coveragePercent: number | null; baselineSequence: number | null }[]): Record<string, number>;
 }
 
@@ -34,4 +35,10 @@ test("QA chart aggregation reconciles with filtered runs and coverage buckets (S
   assert.deepEqual(qa.aggregateCoverage([
     { coveragePercent: 100, baselineSequence: 1 }, { coveragePercent: 50, baselineSequence: null }, { coveragePercent: null, baselineSequence: null },
   ]), { covered: 1, uncovered: 1, noCriteria: 1, withoutBaseline: 2, total: 3 });
+  const items = [{ coveragePercent: 100, baselineSequence: 1 }, { coveragePercent: 50, baselineSequence: null }, { coveragePercent: null, baselineSequence: null }];
+  const agg = qa.aggregateCoverage(items);
+  for (const [bucket, key] of [["covered", "covered"], ["uncovered", "uncovered"], ["noCriteria", "noCriteria"], ["withoutBaseline", "withoutBaseline"]] as const) {
+    assert.equal(items.filter((item) => qa.inCoverageBucket(item, bucket)).length, agg[key], `drill-down of ${bucket} reconciles with the aggregate`);
+  }
+  assert.equal(items.filter((item) => qa.inCoverageBucket(item, "")).length, items.length);
 });

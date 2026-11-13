@@ -2,6 +2,10 @@
 
 Histórico datado das entregas, verificações e auditorias do projeto, movido de `docs/status.md` em 2026-11-12 (SSDD-955). Os registros abaixo descrevem o estado **no momento em que foram escritos**; para o retrato atual, leia [status.md](status.md). Ordem: mais recente primeiro, seguida do inventário "Entregue nesta revisão" e das verificações locais.
 
+## Drill-down do gráfico de cobertura (2026-11-13, SSDD-96)
+
+- Linhas do painel de cobertura filtram a lista de PBIs por situação (`inCoverageBucket` em `qa-runs.js`), com teste de reconciliação e passo no smoke de navegador. `npm run check` 258/258.
+
 ## Análise e redução do custo de contexto das tools (2026-11-13)
 
 - [analise-catalogo-tools.md](analise-catalogo-tools.md): schemas de saída reutilizados passam a usar `$ref` (`.meta({ id })`) e snapshots de sprint viram objetos abertos; `full` caiu 22% (646 → 502 KB). `scripts/mcp-context-cost.mjs` mede o custo por perfil e `tests/scripts/mcp-context-cost.test.ts` impõe a catraca. Consolidações de catálogo (adr/spec, get/list, métricas, importadores) ficam como candidatas na análise, sem aplicação.

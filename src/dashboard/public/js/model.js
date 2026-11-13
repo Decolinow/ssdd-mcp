@@ -27,6 +27,7 @@ export const model = {
   qualitySummaries: [],
   scenarios: [],
   testRuns: [],
+  coverageBucket: "",
   qaFilters: { build: "", scenario: "", item: "", from: "", to: "", result: "" },
   parentFeatures: [],
   parentWorkItems: [],

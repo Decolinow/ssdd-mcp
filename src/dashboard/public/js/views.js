@@ -5,7 +5,7 @@ import { model } from "./model.js";
 import { escapeHtml, scenarioKindLabel, stateLabel } from "./ui.js";
 import { filteredQualitySummaries, visibleBoardItems, backlogItems } from "./quick-access.js";
 import { renderCard } from "./details.js";
-import { aggregateCoverage, aggregateRuns, filterRuns, qaResultLabels, qaResultOrder } from "./qa-runs.js";
+import { aggregateCoverage, coverageBuckets, aggregateRuns, filterRuns, qaResultLabels, qaResultOrder } from "./qa-runs.js";
 
 export function renderSprintSummary() {
   if (!model.sprint) {
@@ -62,12 +62,7 @@ export function renderQuality() {
   const coverage = aggregateCoverage(model.qualitySummaries);
   elements.qaCoverage.innerHTML = coverage.total === 0
     ? `<div class="empty-state"><strong>Ainda não há PBIs para analisar.</strong></div>`
-    : `<table class="qa-result-table"><caption class="visually-hidden">PBIs por situação de cobertura</caption><thead><tr><th scope="col">Situação</th><th scope="col">PBIs</th></tr></thead><tbody>${[
-      ["Cobertos (100% dos critérios obrigatórios)", coverage.covered],
-      ["Com critérios descobertos", coverage.uncovered],
-      ["Sem critério obrigatório", coverage.noCriteria],
-      ["Sem baseline (apenas preview)", coverage.withoutBaseline],
-    ].map(([label, count]) => `<tr><th scope="row">${escapeHtml(label)}</th><td>${count}</td></tr>`).join("")}</tbody></table><p class="qa-watermark">${coverage.total} PBIs considerados · sem execução certificada não há validação (BR-QA-001).</p>`;
+    : `<table class="qa-result-table"><caption class="visually-hidden">PBIs por situação de cobertura (use os botões para filtrar a lista abaixo)</caption><thead><tr><th scope="col">Situação</th><th scope="col">PBIs</th><th scope="col">Detalhar</th></tr></thead><tbody>${Object.entries(coverageBuckets).map(([bucket, label]) => `<tr><th scope="row">${escapeHtml(label)}</th><td>${coverage[bucket]}</td><td><button type="button" class="button button-secondary" data-coverage-bucket="${bucket}" aria-pressed="${model.coverageBucket === bucket}"${coverage[bucket] === 0 ? " disabled" : ""}>Ver PBIs</button></td></tr>`).join("")}</tbody></table><p class="qa-watermark" role="status">${coverage.total} PBIs considerados${model.coverageBucket ? ` · filtrando: ${escapeHtml(coverageBuckets[model.coverageBucket])}` : ""} · sem execução certificada não há validação (BR-QA-001).</p>${model.coverageBucket ? `<button type="button" class="button button-secondary" data-coverage-clear>Limpar filtro</button>` : ""}`;
   const items = filteredQualitySummaries();
   elements.qualityCount.textContent = `${items.length} ${items.length === 1 ? "PBI" : "PBIs"}`;
   if (!items.length) {

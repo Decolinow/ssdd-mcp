@@ -9,7 +9,7 @@ import { syncWorkProfileOptions, storeWorkProfile, renderQuickAccess, render } f
 import { projectLocalDate, isHistoryDateSelectable, historyDateBoundsMessage, loadProjectHistory } from "./history.js";
 import { renderSpecifications, renderSpecificationDetail, openSpecification, runSpecificationAction, openSpecificationForm, submitSpecificationForm } from "./specifications.js";
 import { renderMetrics } from "./metrics.js";
-import { renderScenarioManager } from "./views.js";
+import { renderQuality, renderScenarioManager } from "./views.js";
 import { applyPlanningTemplate, openPlanningDialog, submitPlanning } from "./planning.js";
 import { loadSelectedRetrospective, loadMoreTaskContext, loadMoreEvidence, loadMoreActivity, applyActivityFilters, openItem } from "./details.js";
 import { workflowEditorRow, updateWorkflowEditorOrder, updateWorkflowEditorState, openTaskWorkflowEditor, submitTaskWorkflowForm, publishTaskWorkflowDraft, changeTaskWorkflowStep, loadTaskWorkflowRevision } from "./task-workflow.js";
@@ -26,6 +26,19 @@ for (const [field, name] of qaFilterFields) {
   field.addEventListener("input", () => { model.qaFilters[name] = field.value; renderScenarioManager(); });
 }
 document.querySelector("#qa-filter-form").addEventListener("submit", (event) => event.preventDefault());
+elements.qaCoverage.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const bucketButton = target?.closest("[data-coverage-bucket]");
+  if (bucketButton) {
+    const bucket = bucketButton.getAttribute("data-coverage-bucket");
+    model.coverageBucket = model.coverageBucket === bucket ? "" : bucket;
+    renderQuality();
+    elements.qaCoverage.querySelector(`[data-coverage-bucket="${bucket}"]`)?.focus();
+  } else if (target?.closest("[data-coverage-clear]")) {
+    model.coverageBucket = "";
+    renderQuality();
+  }
+});
 elements.qaRunChart.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const resultButton = target?.closest("[data-qa-result]");

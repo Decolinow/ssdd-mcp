@@ -1,5 +1,6 @@
 /* global window */
 import { states, workProfileLabels, workProfileOrder } from "./constants.js";
+import { inCoverageBucket } from "./qa-runs.js";
 import { elements } from "./elements.js";
 import { model } from "./model.js";
 import { escapeHtml, stateLabel } from "./ui.js";
@@ -24,6 +25,7 @@ export function filteredQualitySummaries() {
   const type = elements.typeFilter.value;
   return model.qualitySummaries.filter((item) => {
     if (type !== "all" && item.type !== type) return false;
+    if (!inCoverageBucket(item, model.coverageBucket)) return false;
     if (!text) return true;
     return `${item.itemKey} ${item.title}`.toLocaleLowerCase("pt-BR").includes(text);
   });

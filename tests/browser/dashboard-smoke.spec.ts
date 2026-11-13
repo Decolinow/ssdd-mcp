@@ -91,6 +91,9 @@ test("dashboard smoke: login, backlog and board, gate-refused transition and PBI
   await page.click("#quality-tab");
   await page.locator("#qa-coverage table").waitFor({ state: "visible" });
   await page.locator("#qa-run-chart .empty-state").waitFor({ state: "visible" });
+  await page.locator('[data-coverage-bucket]:not([disabled])').first().click();
+  await page.locator("[data-coverage-clear]").waitFor({ state: "visible" });
+  await page.click("[data-coverage-clear]");
   await page.fill("#qa-filter-build", "build-inexistente");
   await page.locator("#qa-run-chart .empty-state").waitFor({ state: "visible" });
 
