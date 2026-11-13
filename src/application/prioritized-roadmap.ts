@@ -226,14 +226,14 @@ export interface ProjectFeatureRoadmap {
   readonly forecastUnavailableReason: "team_required" | "insufficient_velocity_samples" | "unknown_feature_scope" | "external_dependency" | "zero_velocity" | null;
   readonly features: readonly RoadmapFeature[];
   readonly featuresTruncated: boolean;
-  readonly epics: readonly { readonly key: string; readonly featureCount: number; readonly taskTotal: number; readonly taskDone: number; readonly progressPercent: number | null }[];
+  readonly epics: readonly { readonly key: string; readonly title: string | null; readonly featureCount: number; readonly taskTotal: number; readonly taskDone: number; readonly progressPercent: number | null }[];
   readonly sprintTimeline: readonly { readonly index: number; readonly startsOn: string; readonly endsOn: string; readonly source: "planned_sprint" | "historical_median" }[];
 }
 
 interface FeatureRow {
   item_id: string; item_key: string; title: string; state: string; priority: number; rank: number;
   business_value_score: number | null; business_value_rationale: string | null;
-  epic_priority: number | null; epic_key: string | null; epic_value: number | null; epic_value_rationale: string | null;
+  epic_priority: number | null; epic_key: string | null; epic_title: string | null; epic_value: number | null; epic_value_rationale: string | null;
 }
 
 interface FeatureTaskRow { feature_id: string; state: string }
@@ -269,7 +269,7 @@ export function getProjectFeatureRoadmap(
     const featureRows = database.prepare(
       `SELECT feature.item_id, feature.item_key, feature.title, feature.state, feature.priority, feature.rank,
               feature.business_value_score, feature.business_value_rationale,
-              epic.priority AS epic_priority, epic.item_key AS epic_key,
+              epic.priority AS epic_priority, epic.item_key AS epic_key, epic.title AS epic_title,
               epic.business_value_score AS epic_value, epic.business_value_rationale AS epic_value_rationale
        FROM work_items feature
        LEFT JOIN work_items epic ON epic.project_id = feature.project_id AND epic.item_id = feature.parent_id
@@ -437,6 +437,7 @@ export function getProjectFeatureRoadmap(
 
 function epicRollup(rows: readonly FeatureRow[], features: readonly RoadmapFeature[]): ProjectFeatureRoadmap["epics"] {
   const epicByFeature = new Map(rows.map((row) => [row.item_key, row.epic_key]));
+  const titleByEpic = new Map(rows.map((row) => [row.epic_key, row.epic_title]));
   const totals = new Map<string, { featureCount: number; taskTotal: number; taskDone: number }>();
   for (const feature of features) {
     const epicKey = epicByFeature.get(feature.key);
@@ -446,7 +447,7 @@ function epicRollup(rows: readonly FeatureRow[], features: readonly RoadmapFeatu
     totals.set(epicKey, entry);
   }
   return [...totals.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => ({
-    key, ...entry, progressPercent: entry.taskTotal === 0 ? null : Math.round((entry.taskDone / entry.taskTotal) * 1000) / 10,
+    key, title: titleByEpic.get(key) ?? null, ...entry, progressPercent: entry.taskTotal === 0 ? null : Math.round((entry.taskDone / entry.taskTotal) * 1000) / 10,
   }));
 }
 

@@ -545,4 +545,4 @@ Medido em 2026-11-12: o catálogo `full` tem 106 tools e ≈554 KB em `tools/lis
 
 ### `project_feature_roadmap_get` — progresso (2026-11-13)
 
-`progressPercent` = tarefas concluídas / tarefas não canceladas da feature (fallback: `deliveredPercent` quando não há tarefas). `deliveredPercent` = pontos de histórias/bugs Done. `taskTotal`/`taskDone` detalham a conta; `epics[]` traz o rollup por épico (`key`, `featureCount`, `taskTotal`, `taskDone`, `progressPercent`).
+`progressPercent` = tarefas concluídas / tarefas não canceladas da feature (fallback: `deliveredPercent` quando não há tarefas). `deliveredPercent` = pontos de histórias/bugs Done. `taskTotal`/`taskDone` detalham a conta; `epics[]` (cada épico com `key`, `title`, contagens e progresso) traz o rollup por épico (`key`, `featureCount`, `taskTotal`, `taskDone`, `progressPercent`).

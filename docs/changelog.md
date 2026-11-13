@@ -5,6 +5,7 @@ Histórico datado das entregas, verificações e auditorias do projeto, movido d
 ## Revisão de usabilidade e manuais (2026-11-13)
 
 - Auditoria de todas as telas do dashboard com capturas reais (Chrome, 1440×900) e correções de legibilidade (fontes ≥ 11px), listas longas com rolagem interna (Board, Qualidade, Histórico), Board sem colunas esticadas, catálogo de Especificações em grade, cartões de progresso por épico no Roadmap, rótulos (`Backlog do produto`, tooltips das marcas de tipo, seção `Qualidade por PBI`, prioridades P1–P4), item pai e responsáveis legíveis no detalhe, foco visível e `prefers-reduced-motion`. Lista completa em [dashboard.md](dashboard.md#revisao-de-usabilidade-2026-11-13).
+- Roadmap: `epics[]` de `project_feature_roadmap_get` ganhou `title`, e os cartões de épico mostram chave e título; o formulário Registrar execução alinha os campos no topo e usa a largura toda.
 - Novos: [manual do usuário](manual-usuario.md) (tela por tela, com 18 imagens em `docs/images/`), [manual do administrador](manual-administrador.md) e `scripts/capture-dashboard-screenshots.mjs` para regenerar as imagens.
 - `npm run check` 265/265 e `npm run test:browser` verde. Limites: as imagens vêm de uma cópia do banco do próprio projeto; não houve teste com leitor de tela nem em outros navegadores além do Chrome; a revisão visual foi feita pelo desenvolvedor, não por designer.
 

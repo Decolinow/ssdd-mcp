@@ -769,3 +769,6 @@ footer { display: flex; justify-content: space-between; padding: 15px 4.5vw 20px
 .history-entity-list { max-height: 420px; overflow-y: auto; }
 .quality-list-heading { margin: 22px 0 8px; color: #34435b; font-size: 15px; }
 .quality-list-hint { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+.roadmap-epic-title { display: block; color: #34435b; font-weight: 650; }
+.qa-run-form { align-items: start; }
+.qa-run-form .form-field input, .qa-run-form .form-field select, .qa-run-form .form-field textarea { width: 100%; }

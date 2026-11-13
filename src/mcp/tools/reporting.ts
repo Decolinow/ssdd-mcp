@@ -526,7 +526,7 @@ export function registerReportingTools(context: McpToolContext): void {
         forecastAssumption: z.string(),
         forecastUnavailableReason: z.enum(["team_required", "insufficient_velocity_samples", "unknown_feature_scope", "external_dependency", "zero_velocity"]).nullable(),
         featuresTruncated: z.boolean(),
-        epics: z.array(z.object({ key: z.string(), featureCount: z.number().int().nonnegative(), taskTotal: z.number().int().nonnegative(), taskDone: z.number().int().nonnegative(), progressPercent: z.number().min(0).max(100).nullable() })),
+        epics: z.array(z.object({ key: z.string(), title: z.string().nullable(), featureCount: z.number().int().nonnegative(), taskTotal: z.number().int().nonnegative(), taskDone: z.number().int().nonnegative(), progressPercent: z.number().min(0).max(100).nullable() })),
         sprintTimeline: z.array(z.object({ index: z.number().int().positive(), startsOn: z.string(), endsOn: z.string(), source: z.enum(["planned_sprint", "historical_median"]) })),
         features: z.array(z.object({
           id: z.string().uuid(), key: z.string(), title: z.string(), state: z.string(), priority: z.number().int().min(1).max(4),

@@ -189,4 +189,4 @@ A aba **Qualidade** mostra um gráfico agregado dos 100 runs mais recentes por `
 
 ### Roadmap: progresso por tarefas (2026-11-13)
 
-A barra de cada feature mostra tarefas concluídas / não canceladas (`progressPercent`) e, ao lado, os pontos entregues (`deliveredPercent`). Uma seção "Épicos" acima da lista exibe o rollup de tarefas por épico (`epics[]`).
+A barra de cada feature mostra tarefas concluídas / não canceladas (`progressPercent`) e, ao lado, os pontos entregues (`deliveredPercent`). Uma seção "Épicos" acima da lista exibe o rollup de tarefas por épico (`epics[]`), com chave e título do épico.
